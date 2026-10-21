@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/ai"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/api"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/job"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/web"
@@ -25,8 +26,15 @@ func main() {
 	manager := job.NewManager(jobsDir, workerBin, runtime.NumCPU())
 	handler := api.NewHandler(manager)
 
+	aiStore, err := ai.NewStore()
+	if err != nil {
+		log.Fatalf("ai store: %v", err)
+	}
+	aiHandler := api.NewAI(aiStore)
+
 	mux := http.NewServeMux()
 	handler.Register(mux)
+	aiHandler.Register(mux)
 	mux.Handle("/", web.Handler())
 
 	addr := ":8080"

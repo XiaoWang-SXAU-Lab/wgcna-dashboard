@@ -89,3 +89,61 @@ export async function getResult<T>(id: string, step: string): Promise<T> {
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
+
+// ---- AI navigator ----
+
+export interface AIConfig {
+  provider: string
+  base_url: string
+  model: string
+  configured: boolean
+}
+
+export async function getAIConfig(): Promise<AIConfig> {
+  const res = await fetch(`${BASE}/ai/config`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function saveAIConfig(cfg: {
+  provider: string
+  base_url?: string
+  model?: string
+  api_key?: string
+}): Promise<void> {
+  const res = await fetch(`${BASE}/ai/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfg),
+  })
+  if (!res.ok) throw new Error(await res.text())
+}
+
+export async function chatStream(
+  question: string,
+  errorCtx: string,
+  onDelta: (delta: string) => void,
+): Promise<void> {
+  const res = await fetch(`${BASE}/ai/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, error: errorCtx }),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  const reader = res.body!.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const parts = buf.split('\n\n')
+    buf = parts.pop() ?? ''
+    for (const part of parts) {
+      if (!part.startsWith('data: ')) continue
+      const msg = JSON.parse(part.slice(6))
+      if (msg.delta) onDelta(msg.delta)
+      if (msg.error) throw new Error(msg.error)
+    }
+  }
+}

@@ -13,6 +13,7 @@ import {
 import DendrogramChart from './components/DendrogramChart.vue'
 import GsMmScatter from './components/GsMmScatter.vue'
 import TraitHeatmap from './components/TraitHeatmap.vue'
+import ChatWidget from './components/ChatWidget.vue'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-quartz.css'
 
@@ -198,6 +199,8 @@ const moduleSizes = computed(() => {
         style="height: 480px"
       />
     </section>
+
+    <ChatWidget :error-ctx="job?.error ?? ''" />
   </div>
 </template>
 
