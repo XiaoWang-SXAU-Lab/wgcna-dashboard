@@ -1,29 +1,35 @@
-// Package main is the WGCNA dashboard backend entry point.
-//
-// Phase 0 skeleton: a health endpoint only. The full job API / worker
-// orchestration / SSE progress streaming land in Phase 1.
+// Command server is the WGCNA dashboard backend: HTTP API + Rust worker
+// orchestration. Phase 1: job submission (multipart expr + params) and status
+// polling over a three-step pipeline (filter -> soft_threshold -> network).
 package main
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
+
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/api"
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/job"
 )
 
 func main() {
-	mux := http.NewServeMux()
+	workerBin := os.Getenv("WGCNA_WORKER")
+	if workerBin == "" {
+		workerBin = "rs-wgcna-worker"
+	}
+	jobsDir := os.Getenv("WGCNA_JOBS_DIR")
+	if jobsDir == "" {
+		jobsDir = filepath.Join(os.TempDir(), "wgcna-jobs")
+	}
 
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"status":  "ok",
-			"service": "wgcna-dashboard",
-		})
-	})
+	manager := job.NewManager(jobsDir, workerBin, runtime.NumCPU())
+	handler := api.NewHandler(manager)
 
 	addr := ":8080"
-	log.Printf("wgcna-dashboard listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	log.Printf("wgcna-dashboard listening on %s (worker=%s jobs=%s)", addr, workerBin, jobsDir)
+	if err := http.ListenAndServe(addr, handler.Routes()); err != nil {
 		log.Fatal(err)
 	}
 }
