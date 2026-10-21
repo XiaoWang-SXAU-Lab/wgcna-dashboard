@@ -18,9 +18,8 @@ func NewHandler(jobs *job.Manager) *Handler {
 	return &Handler{jobs: jobs}
 }
 
-// Routes returns the mux with all API routes (Go 1.22 method+path patterns).
-func (h *Handler) Routes() *http.ServeMux {
-	mux := http.NewServeMux()
+// Register adds all API routes to mux (Go 1.22 method+path patterns).
+func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/health", h.health)
 	mux.HandleFunc("POST /api/jobs", h.createJob)
 	mux.HandleFunc("GET /api/jobs/{id}", h.getJob)
@@ -29,7 +28,6 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/jobs/{id}/run-all", h.runAll)
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", h.cancel)
 	mux.HandleFunc("GET /api/jobs/{id}/results/{step}", h.getResult)
-	return mux
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
