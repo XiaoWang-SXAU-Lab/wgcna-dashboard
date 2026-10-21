@@ -7,14 +7,24 @@ WGCNA 共表达网络分析的 Web dashboard：**Go 后端 + Vue3 前端 + Rust 
 可视化（ECharts 树状图/热图/散点 + AG Grid 表格）、单二进制部署，并内置 AI 领航员
 （OpenAI 兼容多厂商 LLM + 本地向量 RAG + 错误诊断 + 加密 API key）。
 
-> ⚠️ 项目进行中（Phase 0）。核心计算已完成（rs-wgcna），本仓库当前只含契约与骨架。
+> ✅ 实现已完整（Phase 0–6 + AI 领航员）。后端已端到端验证；前端代码已写完，
+> 需在有 Node 的环境 `pnpm install && pnpm build` 后验证构建与渲染。
+
+## 已实现功能
+
+- **7 步管线**：导入质检 → 清洗过滤 → 软阈值 β → 网络与模块 → 模块-性状 → 模块深入 → hub 基因
+- **两种模式**：one-step（一键全流程）+ step-by-step（分步，改参只重算下游，断点缓存）
+- **作业管理**：`POST /api/jobs` 创建、`/run-all`、`/steps/{step}/run`、`/trait`、`/cancel`、`/results/{step}`
+- **可视化**：ECharts 树状图（模块上色）、模块-性状热图、GS/MM 散点、AG Grid 基因表
+- **AI 领航员**：多厂商 LLM（OpenAI 兼容）+ 本地向量 RAG + 加密 API key + 流式问答 + 错误诊断
+- **单二进制**：`make build` 内嵌前端 + Rust worker 于一个可执行文件
 
 ## 架构
 
 ```
 Web 前端 (Vue3+ECharts+AG Grid)
    │ HTTP / SSE
-Go 后端 (API + 作业调度 + 文件管理)
+Go 后端 (API + 作业调度 + 文件管理 + AI 领航员)
    │ spawn + 文件/进度
 Rust worker (rs-wgcna-worker --job-dir --step)
 ```
@@ -22,7 +32,7 @@ Rust worker (rs-wgcna-worker --job-dir --step)
 ## 目录
 
 ```
-backend/    # Go 后端
+backend/    # Go 后端（job/api/ai/web/worker）
 frontend/   # Vue3 前端
 schemas/    # JSON 契约（参数 / 7 步状态机 / 结果）
 ```
@@ -36,14 +46,13 @@ schemas/    # JSON 契约（参数 / 7 步状态机 / 结果）
 ## 构建
 
 ```bash
-# 后端
-cd backend && go build ./cmd/server
+# 单二进制（内嵌前端 + worker，需要 Node + Rust + Go）
+make build            # 产出 ./wgcna-dashboard
 
-# 前端（需 Node/pnpm）
-cd frontend && pnpm install && pnpm build
-
-# worker（在 rs-wgcna 仓库）
-cargo build --release --bin rs-wgcna-worker
+# 或分步
+cd backend && go build ./cmd/server            # 后端（dev，worker 走 WGCNA_WORKER）
+cd frontend && pnpm install && pnpm build      # 前端
+cd ../rs_WGCNA && cargo build --release --bin rs-wgcna-worker   # worker
 ```
 
 ## License
