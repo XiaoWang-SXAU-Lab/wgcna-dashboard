@@ -1,0 +1,292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WGCNA 参数定义 / parameter definitions",
+  "description": "7 步管线的参数定义，供前端表单渲染。tier: A=一键默认(隐藏) B=基础(可见) C=进阶(折叠)。",
+  "steps": [
+    {
+      "id": "import",
+      "name": "导入质检",
+      "name_en": "Import & QC",
+      "description": "上传表达矩阵，自动检测格式并做样本聚类/离群质检。无参数。",
+      "params": []
+    },
+    {
+      "id": "filter",
+      "name": "清洗过滤",
+      "name_en": "Filter",
+      "description": "归一化、低表达过滤、按 MAD/方差取 top-N 基因。",
+      "params": [
+        {
+          "id": "normalize_method",
+          "label": "归一化方法",
+          "type": "enum",
+          "options": ["raw", "log10p1", "log"],
+          "default": "log10p1",
+          "tier": "B",
+          "description": "raw=原值；log10p1=log10(x+1)（FPKM/TPM 推荐）；log=ln(x)（代谢/蛋白丰度）"
+        },
+        {
+          "id": "sample_percentage",
+          "label": "低表达·样本比例",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "default": 0.9,
+          "tier": "B",
+          "description": "在多大比例样本中表达低于阈值则剔除（0 表示不做低表达过滤）"
+        },
+        {
+          "id": "cutoff",
+          "label": "低表达·表达阈值",
+          "type": "number",
+          "min": 0,
+          "default": 1.0,
+          "tier": "B",
+          "description": "表达低于该值的基因计数（count 数据常用 10，归一化数据常用 1）"
+        },
+        {
+          "id": "filter_method",
+          "label": "选基因方法",
+          "type": "enum",
+          "options": ["mad", "var"],
+          "default": "mad",
+          "tier": "B",
+          "description": "按中位绝对偏差(MAD)或方差(Var)选高变异基因"
+        },
+        {
+          "id": "n_keep",
+          "label": "保留基因数",
+          "type": "integer",
+          "min": 100,
+          "default": 8000,
+          "tier": "B",
+          "description": "过滤后保留的 top-N 基因数"
+        }
+      ]
+    },
+    {
+      "id": "soft_threshold",
+      "name": "软阈值 β",
+      "name_en": "Soft threshold",
+      "description": "扫描各 β 的 scale-free 拟合，选出推荐软阈值。",
+      "params": [
+        {
+          "id": "network_type",
+          "label": "网络类型",
+          "type": "enum",
+          "options": ["unsigned", "signed", "signed hybrid"],
+          "default": "unsigned",
+          "tier": "B",
+          "description": "unsigned=|cor|；signed=(1+cor)/2；signed hybrid=cor(仅正相关)"
+        },
+        {
+          "id": "rsquared_cut",
+          "label": "R² 阈值",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "default": 0.85,
+          "tier": "B",
+          "description": "scale-free 拟合 R² 的达标线"
+        },
+        {
+          "id": "power_vector",
+          "label": "β 搜索范围",
+          "type": "integer_array",
+          "default": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20],
+          "tier": "C",
+          "description": "扫描的软阈值候选集合"
+        }
+      ]
+    },
+    {
+      "id": "network",
+      "name": "网络与模块",
+      "name_en": "Network & modules",
+      "description": "邻接矩阵→TOM→层次聚类→动态切树→模块检测与合并。",
+      "params": [
+        {
+          "id": "power",
+          "label": "软阈值 β",
+          "type": "number",
+          "min": 1,
+          "max": 30,
+          "default": 6,
+          "tier": "B",
+          "description": "通常取 soft_threshold 步的推荐值"
+        },
+        {
+          "id": "network_type",
+          "label": "网络类型",
+          "type": "enum",
+          "options": ["unsigned", "signed", "signed hybrid"],
+          "default": "unsigned",
+          "tier": "B",
+          "description": "与软阈值步一致"
+        },
+        {
+          "id": "tom_type",
+          "label": "TOM 类型",
+          "type": "enum",
+          "options": ["unsigned", "signed", "signed Nowick", "unsigned 2", "signed 2", "signed Nowick 2"],
+          "default": "signed",
+          "tier": "C",
+          "description": "拓扑重叠矩阵的归一化方式"
+        },
+        {
+          "id": "tom_denom",
+          "label": "TOM 分母",
+          "type": "enum",
+          "options": ["min", "mean"],
+          "default": "min",
+          "tier": "C",
+          "description": "TOM 分母取 min(k_i,k_j) 或均值"
+        },
+        {
+          "id": "min_module_size",
+          "label": "最小模块基因数",
+          "type": "integer",
+          "min": 5,
+          "default": 30,
+          "tier": "B",
+          "description": "小于该基因数不构成模块"
+        },
+        {
+          "id": "merge_cut_height",
+          "label": "合并树高",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "default": 0.25,
+          "tier": "B",
+          "description": "模块 eigengene 距离小于该值则合并相似模块"
+        },
+        {
+          "id": "deep_split",
+          "label": "切树灵敏度",
+          "type": "integer",
+          "min": 0,
+          "max": 4,
+          "default": 2,
+          "tier": "C",
+          "description": "dynamic tree cut 的灵敏度（0 最保守，4 最激进）"
+        },
+        {
+          "id": "detect_cut_height",
+          "label": "检测树高",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "default": 0.995,
+          "tier": "C",
+          "description": "模块检测的 dendrogram 切点"
+        }
+      ]
+    },
+    {
+      "id": "module_trait",
+      "name": "模块-性状",
+      "name_en": "Module-trait",
+      "description": "上传性状表，计算模块 eigengene 与性状的关联。",
+      "params": [
+        {
+          "id": "trait_file",
+          "label": "性状表文件",
+          "type": "file",
+          "tier": "B",
+          "description": "样本×性状，定性两列会自动 one-hot"
+        },
+        {
+          "id": "color_min",
+          "label": "热图配色·低",
+          "type": "color",
+          "default": "#4575b4",
+          "tier": "C"
+        },
+        {
+          "id": "color_mid",
+          "label": "热图配色·中",
+          "type": "color",
+          "default": "#ffffff",
+          "tier": "C"
+        },
+        {
+          "id": "color_max",
+          "label": "热图配色·高",
+          "type": "color",
+          "default": "#d73027",
+          "tier": "C"
+        },
+        {
+          "id": "iterative_kme_cutoff",
+          "label": "迭代 kME 阈值",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "default": 0.8,
+          "tier": "C",
+          "description": "可选：按 kME 纯化模块（0 表示关闭迭代）"
+        }
+      ]
+    },
+    {
+      "id": "module_detail",
+      "name": "模块深入",
+      "name_en": "Module detail",
+      "description": "选定模块与性状，看 GS/MM 散点与模块基因热图。",
+      "params": [
+        {
+          "id": "select_trait",
+          "label": "选择性状",
+          "type": "dynamic_enum",
+          "tier": "B",
+          "description": "选项来自性状表列"
+        },
+        {
+          "id": "select_module",
+          "label": "选择模块",
+          "type": "dynamic_enum",
+          "tier": "B",
+          "description": "选项来自模块颜色"
+        }
+      ]
+    },
+    {
+      "id": "hub",
+      "name": "hub 基因",
+      "name_en": "Hub genes",
+      "description": "按 kME/GS 阈值筛选 hub 基因并导出 Cytoscape 网络。",
+      "params": [
+        {
+          "id": "kme_cutoff",
+          "label": "kME 阈值",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "default": 0.8,
+          "tier": "B",
+          "description": "模块隶属度阈值（建议 ≥0.8）"
+        },
+        {
+          "id": "gs_cutoff",
+          "label": "GS 阈值",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "default": 0.5,
+          "tier": "B",
+          "description": "基因显著性阈值（建议 ≥0.5）"
+        },
+        {
+          "id": "weight_threshold",
+          "label": "网络边权重阈值",
+          "type": "number",
+          "min": 0,
+          "default": 0.02,
+          "tier": "B",
+          "description": "Cytoscape 导出的边权重下限（模块大则调高避免图过密）"
+        }
+      ]
+    }
+  ]
+}

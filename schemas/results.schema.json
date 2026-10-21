@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WGCNA 各步输出结构 / per-step result shapes",
+  "description": "与 rs-wgcna-worker 写出的产物对齐；未实现的步骤标记 pending。",
+  "steps": {
+    "import": {
+      "status": "pending",
+      "outputs": [
+        { "file": "expr.tsv", "description": "上传的表达矩阵（基因×样本）" }
+      ]
+    },
+    "filter": {
+      "status": "implemented",
+      "outputs": [
+        { "file": "step1_filtered.tsv", "description": "过滤后表达矩阵（基因×样本）" },
+        { "file": "step1_genes.txt", "description": "保留的基因 ID（每行一个）" },
+        { "file": "progress.json", "description": "进度：{step,status,progress,message}" }
+      ]
+    },
+    "soft_threshold": {
+      "status": "implemented",
+      "outputs": [
+        {
+          "file": "step2_sft.json",
+          "schema": {
+            "power_estimate": "number|null",
+            "network_type": "string",
+            "fit_indices": [
+              { "power": "number", "rsq": "number", "slope": "number", "truncated_rsq": "number", "mean_k": "number", "median_k": "number", "max_k": "number" }
+            ]
+          }
+        }
+      ]
+    },
+    "network": {
+      "status": "implemented",
+      "outputs": [
+        {
+          "file": "step3_modules.json",
+          "schema": {
+            "genes": "string[]",
+            "colors": "string[]",
+            "module_sizes": { "type": "object", "additionalProperties": "integer" },
+            "dendrogram": {
+              "merge": "[[int,int],...]",
+              "height": "number[]",
+              "order": "int[]"
+            }
+          }
+        }
+      ]
+    },
+    "module_trait": {
+      "status": "pending",
+      "outputs": [
+        { "file": "step4_mtrait.json", "description": "模块-性状相关 + p 值 + eigengene" }
+      ]
+    },
+    "module_detail": {
+      "status": "pending",
+      "outputs": [
+        { "file": "step5_detail.json", "description": "GS/MM + 模块基因热图数据" }
+      ]
+    },
+    "hub": {
+      "status": "pending",
+      "outputs": [
+        { "file": "step6_hub.json", "description": "hub 基因表 + Cytoscape edge/node" }
+      ]
+    }
+  }
+}

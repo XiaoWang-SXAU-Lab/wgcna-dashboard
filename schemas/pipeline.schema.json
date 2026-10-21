@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WGCNA 7 步管线状态机 / pipeline state machine",
+  "description": "步骤依赖 + one-step 执行顺序 + dirty 级联规则。",
+  "steps": [
+    { "id": "import", "name": "导入质检", "name_en": "Import & QC", "depends_on": [], "worker_step": null },
+    { "id": "filter", "name": "清洗过滤", "name_en": "Filter", "depends_on": ["import"], "worker_step": "filter" },
+    { "id": "soft_threshold", "name": "软阈值 β", "name_en": "Soft threshold", "depends_on": ["filter"], "worker_step": "soft_threshold" },
+    { "id": "network", "name": "网络与模块", "name_en": "Network & modules", "depends_on": ["soft_threshold"], "worker_step": "network" },
+    { "id": "module_trait", "name": "模块-性状", "name_en": "Module-trait", "depends_on": ["network"], "worker_step": "module_trait" },
+    { "id": "module_detail", "name": "模块深入", "name_en": "Module detail", "depends_on": ["network", "module_trait"], "worker_step": "module_detail" },
+    { "id": "hub", "name": "hub 基因", "name_en": "Hub genes", "depends_on": ["network", "module_trait"], "worker_step": "hub" }
+  ],
+  "one_step": {
+    "description": "一键模式：顺序执行，在需要人工决策的步骤暂停。",
+    "order": ["import", "filter", "soft_threshold", "network", "module_trait", "module_detail", "hub"],
+    "pause_points": ["soft_threshold"]
+  },
+  "dirty_rules": {
+    "description": "某步参数或输入变化时，该步及其所有下游步骤标记为 dirty（需重跑）。",
+    "propagation": "downstream"
+  },
+  "worker": {
+    "binary": "rs-wgcna-worker",
+    "interface": "--job-dir <dir> --step <worker_step> [--threads N]",
+    "implemented_steps": ["filter", "soft_threshold", "network"],
+    "pending_steps": ["module_trait", "module_detail", "hub"]
+  }
+}
