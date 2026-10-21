@@ -1,0 +1,53 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import { useWgcnaStore } from '../stores/wgcna'
+import SftPlot from '../components/SftPlot.vue'
+import SimpleTable from '../components/SimpleTable.vue'
+import { analyzeError } from '../utils/aiBus'
+import SidebarDrawer from '../components/SidebarDrawer.vue'
+import { t } from '../utils/i18n'
+
+const store = useWgcnaStore()
+
+const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
+  power: f.power, rsq: f.rsq.toFixed(3), slope: f.slope.toFixed(3),
+  mean_k: f.mean_k.toFixed(1), median_k: f.median_k.toFixed(1), max_k: f.max_k.toFixed(1),
+})))
+</script>
+
+<template>
+  <SidebarDrawer>
+    <template #sidebar>
+      <div>
+        <h6 class="fw-bold mb-3">{{ t('param.parameters') }}</h6>
+        <div class="vstack gap-2">
+          <div>
+            <label class="form-label small mb-1">{{ t('di.rsq') }}</label>
+            <input class="form-control form-control-sm" type="number" v-model.number="store.rsquaredCut" min="0" max="1" step="0.05" />
+          </div>
+          <div>
+            <label class="form-label small mb-1">{{ t('param.networkType') }}</label>
+            <select class="form-select form-select-sm" v-model="store.sftNetworkType">
+              <option value="unsigned">unsigned</option>
+              <option value="signed">signed</option>
+            </select>
+          </div>
+          <button class="btn btn-primary w-100 mt-2" :disabled="!store.stepReady('soft_threshold') || store.stepRunning !== ''" @click="store.runStep('soft_threshold')">
+            {{ store.stepRunning === 'soft_threshold' ? t('common.running') : store.isDone('soft_threshold') ? t('common.rerun') : t('common.run') }}
+          </button>
+        </div>
+      </div>
+    </template>
+      <div class="mb-3">
+        <h4 class="mb-1">{{ t('sft.title') }}</h4>
+        <p class="text-muted small mb-0">{{ t('sft.desc') }}</p>
+      </div>
+      <p v-if="store.error" class="text-danger">{{ store.error }} <button class="btn btn-sm btn-outline-danger ms-2" @click="analyzeError(store.error)">🤖 {{ t('common.ai') }}</button></p>
+      <div v-if="store.sft">
+        <SftPlot :data="store.sft" :rsquared-cut="store.rsquaredCut" />
+        <p class="text-muted small mt-2 mb-2">{{ t('sft.recommend') }} <b>{{ store.sft.power_estimate }}</b>（{{ store.sft.network_type }}）</p>
+        <SimpleTable :columns="[{ key: 'power', label: t('sft.col.power') }, { key: 'rsq', label: t('sft.col.rsq') }, { key: 'slope', label: t('sft.col.slope') }, { key: 'mean_k', label: t('sft.col.meanK') }, { key: 'median_k', label: t('sft.col.medianK') }, { key: 'max_k', label: t('sft.col.maxK') }]" :rows="rows" filename="sft" />
+      </div>
+      <p v-else class="text-muted">{{ t('sft.empty') }}</p>
+  </SidebarDrawer>
+</template>

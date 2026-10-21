@@ -1,0 +1,68 @@
+:root {
+  --sidebar-width: 236px;
+  --topbar-height: 60px;
+}
+
+html, body, #app { height: 100%; }
+body { background: #f4f6f9; color: #1f2937; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+.app-shell { min-height: 100vh; }
+
+/* ---- Sidebar ---- */
+.sidebar {
+  width: var(--sidebar-width);
+  min-height: 100vh;
+  background: #1f2937;
+  color: #e5e7eb;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+}
+.sidebar .brand-title { color: #ffffff; letter-spacing: .02em; }
+.sidebar .brand-sub { color: #9ca3af; }
+.sidebar .nav-link {
+  color: #d1d5db;
+  border-radius: 8px;
+  padding: .55rem .9rem;
+  transition: background .15s ease, color .15s ease;
+}
+.sidebar .nav-link:hover { background: #374151; color: #ffffff; }
+.sidebar .nav-link.router-link-active { background: #2563eb; color: #ffffff; }
+.sidebar .sidebar-foot { color: #9ca3af; }
+
+/* ---- Topbar ---- */
+.topbar {
+  height: var(--topbar-height);
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* ---- Cards / panels ---- */
+.card { border: none; box-shadow: 0 1px 3px rgba(0,0,0,.08); border-radius: 12px; }
+.panel-title { font-weight: 600; }
+
+/* ---- Home hero ---- */
+.hero {
+  background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+}
+
+/* ---- Progress stepper ---- */
+.step-pill {
+  flex: 1;
+  text-align: center;
+  padding: .45rem .35rem;
+  border-radius: 8px;
+  font-size: .8rem;
+  color: #6b7280;
+  background: #eef1f4;
+  white-space: nowrap;
+}
+.step-pill.done { background: #d1fae5; color: #065f46; }
+.step-pill.active { background: #2563eb; color: #fff; }
+.step-pill.error { background: #fee2e2; color: #991b1b; }
+
+/* ---- Chart container ---- */
+.chart-box { width: 100%; }

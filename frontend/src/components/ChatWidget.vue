@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { chatStream, getAIConfig, saveAIConfig } from '../api/client'
+import { t } from '../utils/i18n'
 
 const props = defineProps<{ errorCtx?: string }>()
 
@@ -72,7 +73,7 @@ function openPanel() {
 function analyzeError(err: string) {
   open.value = true
   loadConfig()
-  sendQuestion(`请分析下面这个报错，告诉我哪里出错了、怎么改：\n\n${err}`, err)
+  sendQuestion(t('ai.promptError') + '\n\n' + err, err)
 }
 
 defineExpose({ analyzeError })
@@ -83,7 +84,7 @@ defineExpose({ analyzeError })
 
   <div v-if="open" class="chat">
     <header class="chat-header">
-      <span>AI 领航员</span>
+      <span>{{ t('ai.title') }}</span>
       <span class="actions">
         <button class="ghost" @click="showSettings = !showSettings">⚙️</button>
         <button class="ghost" @click="open = false">✕</button>
@@ -92,22 +93,22 @@ defineExpose({ analyzeError })
 
     <div v-if="showSettings" class="settings">
       <label>
-        厂商
+        {{ t('ai.provider') }}
         <select v-model="provider">
           <option v-for="p in PROVIDERS" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
       </label>
       <label>
-        API Key
+        {{ t('ai.apiKey') }}
         <input v-model="apiKey" type="password" placeholder="sk-..." />
       </label>
-      <button :disabled="!apiKey" @click="saveKey">保存（首次输入后固化）</button>
-      <p class="hint">{{ configured ? '已配置 ✓' : '未配置' }}</p>
+      <button :disabled="!apiKey" @click="saveKey">{{ t('ai.save') }}</button>
+      <p class="hint">{{ configured ? t('ai.configured') + ' ✓' : t('ai.notConfigured') }}</p>
     </div>
 
     <div class="messages">
       <div v-if="messages.length === 0" class="empty">
-        问我 WGCNA 原理、操作步骤、参数含义，或让我分析报错。
+        {{ t('ai.empty') }}
       </div>
       <div v-for="(m, i) in messages" :key="i" :class="['msg', m.role]">{{ m.content }}</div>
     </div>
@@ -115,10 +116,10 @@ defineExpose({ analyzeError })
     <footer class="chat-input">
       <input
         v-model="input"
-        :placeholder="streaming ? '回复中…' : '输入问题…'"
+        :placeholder="streaming ? t('ai.replying') : t('ai.placeholder')"
         @keyup.enter="send"
       />
-      <button :disabled="!input.trim() || streaming" @click="send">发送</button>
+      <button :disabled="!input.trim() || streaming" @click="send">{{ t('ai.send') }}</button>
     </footer>
   </div>
 </template>

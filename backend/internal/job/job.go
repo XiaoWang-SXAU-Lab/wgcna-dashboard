@@ -64,6 +64,9 @@ func NewManager(dir, workerBin string, threads int) *Manager {
 	}
 }
 
+// Dir returns the on-disk jobs directory.
+func (m *Manager) Dir() string { return m.dir }
+
 // Create stores the uploaded expression matrix + params. It does not run anything.
 func (m *Manager) Create(expr []byte, params json.RawMessage) (string, error) {
 	id := fmt.Sprintf("%d%s", time.Now().UnixMilli(), randHex(6))
@@ -89,6 +92,11 @@ func (m *Manager) Create(expr []byte, params json.RawMessage) (string, error) {
 func (m *Manager) UploadTrait(id string, trait []byte) error {
 	jobDir := filepath.Join(m.dir, id)
 	return os.WriteFile(filepath.Join(jobDir, "trait.tsv"), trait, 0o644)
+}
+
+// UpdateParams overwrites the job's params.json (e.g. to exclude outlier samples).
+func (m *Manager) UpdateParams(id string, params json.RawMessage) error {
+	return os.WriteFile(filepath.Join(m.dir, id, "params.json"), params, 0o644)
 }
 
 // RunStep runs a single step (skipping nothing). Callers typically check Done
@@ -192,11 +200,17 @@ func (m *Manager) Get(id string) (*Job, bool) {
 
 // stepFiles maps a step id to its JSON output file in the job directory.
 var stepFiles = map[string]string{
+	"filter":         "step1_filter.json",
 	"soft_threshold": "step2_sft.json",
 	"network":        "step3_modules.json",
 	"module_trait":   "step4_mtrait.json",
 	"module_detail":  "step5_detail.json",
 	"hub":            "step6_hub.json",
+}
+
+// LiveProgress returns the worker's current progress (progress.json), if present.
+func (m *Manager) LiveProgress(id string) *Progress {
+	return readProgress(filepath.Join(m.dir, id))
 }
 
 // Result returns a step's JSON output, if present on disk.

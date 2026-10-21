@@ -12,6 +12,16 @@ export interface Dendrogram {
   order: number[]
 }
 
+export interface FilterResult {
+  n_genes_before: number
+  n_genes_after_low: number
+  n_genes_final: number
+  n_samples_before: number
+  n_samples: number
+  samples: string[]
+  sample_tree: Dendrogram
+}
+
 export interface ModulesResult {
   genes: string[]
   colors: string[]
@@ -51,8 +61,10 @@ export async function runAll(id: string): Promise<void> {
   if (!res.ok) throw new Error(await res.text())
 }
 
-export async function runStep(id: string, step: string): Promise<void> {
-  const res = await fetch(`${BASE}/jobs/${id}/steps/${step}/run`, { method: 'POST' })
+export async function runStep(id: string, step: string, params?: unknown): Promise<void> {
+  const fd = new FormData()
+  if (params !== undefined) fd.append('params', JSON.stringify(params))
+  const res = await fetch(`${BASE}/jobs/${id}/steps/${step}/run`, { method: 'POST', body: fd })
   if (!res.ok) throw new Error(await res.text())
 }
 
@@ -82,6 +94,35 @@ export interface DetailResult {
   gs: number[]
   mm: number[]
   expression: number[][]
+  eigengene: number[]
+}
+
+export interface FitIndex {
+  power: number
+  rsq: number
+  slope: number
+  truncated_rsq: number
+  mean_k: number
+  median_k: number
+  max_k: number
+}
+
+export interface SftResult {
+  power_estimate: number | null
+  network_type: string
+  fit_indices: FitIndex[]
+}
+
+export interface HubGene {
+  gene: string
+  kme: number
+  gs: number
+}
+
+export interface HubResult {
+  module: string
+  trait_name: string
+  hub_genes: HubGene[]
 }
 
 export async function getResult<T>(id: string, step: string): Promise<T> {

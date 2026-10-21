@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/job"
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/plot"
 )
 
 type Handler struct {
@@ -28,6 +31,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/jobs/{id}/run-all", h.runAll)
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", h.cancel)
 	mux.HandleFunc("GET /api/jobs/{id}/results/{step}", h.getResult)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/dendrogram", h.plotDendrogram)
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
@@ -52,10 +56,17 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getJob(w http.ResponseWriter, r *http.Request) {
-	j, ok := h.jobs.Get(r.PathValue("id"))
+	id := r.PathValue("id")
+	j, ok := h.jobs.Get(id)
 	if !ok {
 		http.Error(w, "job not found", http.StatusNotFound)
 		return
+	}
+	// Expose live worker progress while a step is running.
+	if j.Status == "running" {
+		if p := h.jobs.LiveProgress(id); p != nil {
+			j.Progress = p
+		}
 	}
 	writeJSON(w, http.StatusOK, j)
 }
@@ -82,6 +93,12 @@ func (h *Handler) runStep(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown step: "+step, http.StatusBadRequest)
 		return
 	}
+	if p := r.FormValue("params"); p != "" {
+		if err := h.jobs.UpdateParams(id, json.RawMessage(p)); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	go h.jobs.RunStep(id, step)
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started", "step": step})
 }
@@ -107,6 +124,28 @@ func (h *Handler) getResult(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(result)
+}
+
+// plotDendrogram renders the module dendrogram via R (ggplot2/plotly).
+func (h *Handler) plotDendrogram(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	mode := r.URL.Query().Get("mode")
+	if mode != "interactive" {
+		mode = "static"
+	}
+	jsonPath := filepath.Join(h.jobs.Dir(), id, "step3_modules.json")
+	if _, err := os.Stat(jsonPath); err != nil {
+		http.Error(w, "dendrogram not available", http.StatusNotFound)
+		return
+	}
+	out, ctype, err := plot.RenderDendrogram(jsonPath, mode)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(filepath.Dir(out))
+	w.Header().Set("Content-Type", ctype)
+	http.ServeFile(w, r, out)
 }
 
 func readFile(r *http.Request, field string) ([]byte, error) {

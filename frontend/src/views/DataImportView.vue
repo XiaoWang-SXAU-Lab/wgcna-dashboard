@@ -1,0 +1,125 @@
+<script setup lang="ts">
+import { ref } from 'vue'
+import { useWgcnaStore } from '../stores/wgcna'
+import { analyzeError } from '../utils/aiBus'
+import SidebarDrawer from '../components/SidebarDrawer.vue'
+import { t } from '../utils/i18n'
+import SampleTreeChart from '../components/SampleTreeChart.vue'
+
+const store = useWgcnaStore()
+
+function onExpr(e: Event) { store.exprFile = (e.target as HTMLInputElement).files?.[0] ?? null }
+function onTrait(e: Event) { store.traitFile = (e.target as HTMLInputElement).files?.[0] ?? null }
+
+async function createAndFilter() {
+  if (!store.created) await store.createJobAndUpload()
+  if (store.created) await store.runStep('filter')
+}
+
+const selectedOutliers = ref<string[]>([])
+
+async function removeOutliers() {
+  await store.removeSamples(selectedOutliers.value)
+  selectedOutliers.value = []
+}
+
+function onSelectSample(name: string) {
+  const i = selectedOutliers.value.indexOf(name)
+  if (i >= 0) selectedOutliers.value.splice(i, 1)
+  else selectedOutliers.value.push(name)
+}
+</script>
+
+<template>
+  <SidebarDrawer>
+    <template #sidebar>
+      <div>
+        <h6 class="fw-bold mb-3">{{ t('param.parameters') }}</h6>
+        <div class="vstack gap-2">
+          <div>
+            <label class="form-label small mb-1">{{ t('di.expr') }}<span class="text-danger">*</span></label>
+            <input class="form-control form-control-sm" type="file" accept=".tsv,.txt" @change="onExpr" />
+          </div>
+          <div>
+            <label class="form-label small mb-1">{{ t('di.trait') }}</label>
+            <input class="form-control form-control-sm" type="file" accept=".tsv,.txt" @change="onTrait" />
+          </div>
+          <div>
+            <label class="form-label small mb-1">{{ t('di.normalize') }}</label>
+            <select class="form-select form-select-sm" v-model="store.normalizeMethod">
+              <option value="log10p1">log10(x+1)</option>
+              <option value="log">log(x)</option>
+              <option value="raw">raw</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label small mb-1">{{ t('di.nKeep') }}</label>
+            <input class="form-control form-control-sm" type="number" v-model.number="store.nKeep" min="100" />
+          </div>
+          <div>
+            <label class="form-label small mb-1">{{ t('param.filterMethod') }}</label>
+            <select class="form-select form-select-sm" v-model="store.filterMethod">
+              <option value="mad">MAD</option>
+              <option value="var">VAR</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label small mb-1">{{ t('param.samplePct') }}</label>
+            <input class="form-control form-control-sm" type="number" v-model.number="store.samplePercentage" min="0" max="100" />
+          </div>
+          <div>
+            <label class="form-label small mb-1">{{ t('param.cutoff') }}</label>
+            <input class="form-control form-control-sm" type="number" v-model.number="store.cutoff" step="0.1" />
+          </div>
+          <button class="btn btn-primary w-100 mt-2" :disabled="!store.exprFile || store.stepRunning !== ''" @click="createAndFilter">
+            {{ store.stepRunning ? t('common.running') : store.isDone('filter') ? t('di.rerun') : t('di.run') }}
+          </button>
+        </div>
+      </div>
+    </template>
+      <div class="mb-3">
+        <h4 class="mb-1">{{ t('di.title') }}</h4>
+        <p class="text-muted small mb-0">{{ t('di.desc') }}</p>
+      </div>
+      <p v-if="store.error" class="text-danger">{{ store.error }} <button class="btn btn-sm btn-outline-danger ms-2" @click="analyzeError(store.error)">🤖 {{ t('common.ai') }}</button></p>
+
+      <template v-if="store.filterResult">
+        <div class="card mb-3">
+          <div class="card-header bg-white fw-semibold"><i class="bi bi-clipboard-data me-2"></i>{{ t('di.report') }}</div>
+          <div class="card-body py-2 d-flex flex-wrap gap-2">
+            <span class="badge text-bg-light border">{{ t('di.genesBefore') }}: {{ store.filterResult.n_genes_before }}</span>
+            <span class="badge text-bg-light border">{{ t('di.genesAfterLow') }}: {{ store.filterResult.n_genes_after_low }}</span>
+            <span class="badge text-bg-success">{{ t('di.genesFinal') }}: {{ store.filterResult.n_genes_final }}</span>
+            <span class="badge text-bg-light border">{{ t('di.samples') }}: {{ store.filterResult.n_samples }}</span>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <h6 class="fw-semibold mb-2"><i class="bi bi-diagram-3 me-1"></i>{{ t('di.sampleTree') }}</h6>
+          <SampleTreeChart :samples="store.filterResult.samples" :tree="store.filterResult.sample_tree" @select="onSelectSample" />
+        </div>
+
+        <div class="card">
+          <div class="card-header bg-white fw-semibold"><i class="bi bi-trash me-2"></i>{{ t('di.removeOutlier') }}</div>
+          <div class="card-body">
+            <p class="text-muted small">{{ t('di.selectSamples') }}</p>
+            <div class="d-flex flex-wrap gap-2">
+              <label v-for="s in store.filterResult.samples" :key="s" class="form-check mb-0">
+                <input class="form-check-input" type="checkbox" :value="s" v-model="selectedOutliers" />
+                <span class="form-check-label small">{{ s }}</span>
+              </label>
+            </div>
+            <button class="btn btn-danger mt-3" :disabled="selectedOutliers.length === 0 || store.stepRunning !== ''" @click="removeOutliers">
+              <i class="bi bi-arrow-repeat me-1"></i>{{ t('di.removeBtn') }}
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <div v-else class="alert alert-info small">
+        <span v-if="store.isDone('filter')" class="badge text-bg-success me-2">{{ t('di.done') }} ✓</span>
+        <span v-else-if="store.created" class="badge text-bg-light text-muted me-2">{{ t('di.created') }}</span>
+        {{ t('di.hint') }}
+      </div>
+  </SidebarDrawer>
+</template>
