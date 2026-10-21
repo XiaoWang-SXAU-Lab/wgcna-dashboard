@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { AgGridVue } from 'ag-grid-vue3'
-import { createJob, getJob, type JobStatus } from './api/client'
+import { createJob, getJob, runAll, type JobStatus } from './api/client'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-quartz.css'
 
-// Phase 1 minimal loop: upload expr -> submit -> poll -> show module colors table.
+// Phase 1 minimal loop: upload expr -> submit -> run -> poll -> show module colors table.
 
 const file = ref<File | null>(null)
 const nKeep = ref(8000)
@@ -13,11 +13,14 @@ const job = ref<JobStatus | null>(null)
 const submitting = ref(false)
 const error = ref('')
 
-const STEPS = ['filter', 'soft_threshold', 'network']
+const STEPS = ['filter', 'soft_threshold', 'network', 'module_trait', 'module_detail', 'hub']
 const STEP_NAMES: Record<string, string> = {
   filter: '清洗过滤',
   soft_threshold: '软阈值 β',
   network: '网络与模块',
+  module_trait: '模块-性状',
+  module_detail: '模块深入',
+  hub: 'hub 基因',
 }
 
 function defaultParams() {
@@ -55,6 +58,7 @@ async function submit() {
   job.value = null
   try {
     const { id } = await createJob(file.value, defaultParams())
+    await runAll(id)
     await poll(id)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)

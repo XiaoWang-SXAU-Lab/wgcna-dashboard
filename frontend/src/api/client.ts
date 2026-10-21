@@ -21,8 +21,9 @@ export interface ModulesResult {
 
 export interface JobStatus {
   id: string
-  status: 'running' | 'done' | 'error'
+  status: 'idle' | 'running' | 'done' | 'error' | 'cancelled'
   current_step: string
+  done_steps: string[]
   progress?: Progress
   error?: string
   result?: ModulesResult
@@ -43,4 +44,25 @@ export async function getJob(id: string): Promise<JobStatus> {
   const res = await fetch(`${BASE}/jobs/${id}`)
   if (!res.ok) throw new Error(await res.text())
   return res.json()
+}
+
+export async function runAll(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/jobs/${id}/run-all`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+}
+
+export async function runStep(id: string, step: string): Promise<void> {
+  const res = await fetch(`${BASE}/jobs/${id}/steps/${step}/run`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+}
+
+export async function uploadTrait(id: string, trait: File): Promise<void> {
+  const fd = new FormData()
+  fd.append('trait', trait)
+  const res = await fetch(`${BASE}/jobs/${id}/trait`, { method: 'POST', body: fd })
+  if (!res.ok) throw new Error(await res.text())
+}
+
+export async function cancelJob(id: string): Promise<void> {
+  await fetch(`${BASE}/jobs/${id}/cancel`, { method: 'POST' })
 }
