@@ -42,14 +42,18 @@ async function saveKey() {
 
 async function send() {
   const q = input.value.trim()
-  if (!q || streaming.value) return
-  messages.value.push({ role: 'user', content: q })
   input.value = ''
+  await sendQuestion(q, props.errorCtx ?? '')
+}
+
+async function sendQuestion(q: string, errCtx: string) {
+  if (!q.trim() || streaming.value) return
+  messages.value.push({ role: 'user', content: q })
   streaming.value = true
   const reply = { role: 'assistant' as const, content: '' }
   messages.value.push(reply)
   try {
-    await chatStream(q, props.errorCtx ?? '', (d) => {
+    await chatStream(q, errCtx, (d) => {
       reply.content += d
     })
   } catch (e) {
@@ -63,6 +67,15 @@ function openPanel() {
   open.value = !open.value
   if (open.value) loadConfig()
 }
+
+// 供外部（错误诊断按钮）调用：打开面板并带错误上下文提问。
+function analyzeError(err: string) {
+  open.value = true
+  loadConfig()
+  sendQuestion(`请分析下面这个报错，告诉我哪里出错了、怎么改：\n\n${err}`, err)
+}
+
+defineExpose({ analyzeError })
 </script>
 
 <template>

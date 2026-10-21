@@ -26,6 +26,7 @@ const submitting = ref(false)
 const error = ref('')
 const mtait = ref<MtaitResult | null>(null)
 const detail = ref<DetailResult | null>(null)
+const chatWidget = ref<{ analyzeError: (err: string) => void }>()
 
 const STEPS = ['filter', 'soft_threshold', 'network', 'module_trait', 'module_detail', 'hub']
 const STEP_NAMES: Record<string, string> = {
@@ -161,7 +162,10 @@ const moduleSizes = computed(() => {
         </span>
       </div>
       <p v-if="job.progress" class="progress-msg">{{ job.progress.message }}</p>
-      <p v-if="job.status === 'error'" class="error">出错：{{ job.error }}</p>
+      <p v-if="job.status === 'error'" class="error">
+        出错：{{ job.error }}
+        <button class="analyze-btn" @click="chatWidget?.analyzeError(job.error ?? '')">🤖 让 AI 分析</button>
+      </p>
     </section>
 
     <!-- 结果区 -->
@@ -200,7 +204,7 @@ const moduleSizes = computed(() => {
       />
     </section>
 
-    <ChatWidget :error-ctx="job?.error ?? ''" />
+    <ChatWidget ref="chatWidget" :error-ctx="job?.error ?? ''" />
   </div>
 </template>
 
@@ -242,6 +246,12 @@ button:disabled {
 }
 .error {
   color: #d73027;
+}
+.analyze-btn {
+  margin-left: 0.6rem;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
 }
 .stepper {
   display: flex;
