@@ -28,6 +28,7 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/jobs/{id}/steps/{step}/run", h.runStep)
 	mux.HandleFunc("POST /api/jobs/{id}/run-all", h.runAll)
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", h.cancel)
+	mux.HandleFunc("GET /api/jobs/{id}/results/{step}", h.getResult)
 	return mux
 }
 
@@ -97,6 +98,17 @@ func (h *Handler) runAll(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 	h.jobs.Cancel(r.PathValue("id"))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelling"})
+}
+
+// getResult returns a step's JSON output (soft_threshold, network, ...).
+func (h *Handler) getResult(w http.ResponseWriter, r *http.Request) {
+	result, ok := h.jobs.Result(r.PathValue("id"), r.PathValue("step"))
+	if !ok {
+		http.Error(w, "result not available", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(result)
 }
 
 func readFile(r *http.Request, field string) ([]byte, error) {

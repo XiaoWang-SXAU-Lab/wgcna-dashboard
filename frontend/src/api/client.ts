@@ -66,3 +66,26 @@ export async function uploadTrait(id: string, trait: File): Promise<void> {
 export async function cancelJob(id: string): Promise<void> {
   await fetch(`${BASE}/jobs/${id}/cancel`, { method: 'POST' })
 }
+
+export interface MtaitResult {
+  modules: string[]
+  traits: string[]
+  cor: number[][]
+  p: number[][]
+  eigengenes: number[][]
+}
+
+export interface DetailResult {
+  module: string
+  trait_name: string
+  genes: string[]
+  gs: number[]
+  mm: number[]
+  expression: number[][]
+}
+
+export async function getResult<T>(id: string, step: string): Promise<T> {
+  const res = await fetch(`${BASE}/jobs/${id}/results/${step}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}

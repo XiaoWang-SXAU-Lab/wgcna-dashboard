@@ -190,6 +190,28 @@ func (m *Manager) Get(id string) (*Job, bool) {
 	return j, ok
 }
 
+// stepFiles maps a step id to its JSON output file in the job directory.
+var stepFiles = map[string]string{
+	"soft_threshold": "step2_sft.json",
+	"network":        "step3_modules.json",
+	"module_trait":   "step4_mtrait.json",
+	"module_detail":  "step5_detail.json",
+	"hub":            "step6_hub.json",
+}
+
+// Result returns a step's JSON output, if present on disk.
+func (m *Manager) Result(id, step string) (json.RawMessage, bool) {
+	file, ok := stepFiles[step]
+	if !ok {
+		return nil, false
+	}
+	b, err := os.ReadFile(filepath.Join(m.dir, id, file))
+	if err != nil {
+		return nil, false
+	}
+	return json.RawMessage(b), true
+}
+
 func (m *Manager) status(id string) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

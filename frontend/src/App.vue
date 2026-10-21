@@ -1,7 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { AgGridVue } from 'ag-grid-vue3'
-import { createJob, getJob, runAll, type JobStatus } from './api/client'
+import {
+  createJob,
+  getJob,
+  getResult,
+  runAll,
+  type DetailResult,
+  type JobStatus,
+  type MtaitResult,
+} from './api/client'
+import DendrogramChart from './components/DendrogramChart.vue'
+import GsMmScatter from './components/GsMmScatter.vue'
+import TraitHeatmap from './components/TraitHeatmap.vue'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-quartz.css'
 
@@ -12,6 +23,8 @@ const nKeep = ref(8000)
 const job = ref<JobStatus | null>(null)
 const submitting = ref(false)
 const error = ref('')
+const mtait = ref<MtaitResult | null>(null)
+const detail = ref<DetailResult | null>(null)
 
 const STEPS = ['filter', 'soft_threshold', 'network', 'module_trait', 'module_detail', 'hub']
 const STEP_NAMES: Record<string, string> = {
@@ -71,8 +84,24 @@ async function poll(id: string) {
   for (;;) {
     const j = await getJob(id)
     job.value = j
-    if (j.status !== 'running') return
+    if (j.status !== 'running') break
     await new Promise((r) => setTimeout(r, 1500))
+  }
+  await loadResults(id)
+}
+
+async function loadResults(id: string) {
+  mtait.value = null
+  detail.value = null
+  try {
+    mtait.value = await getResult<MtaitResult>(id, 'module_trait')
+  } catch {
+    /* not run yet */
+  }
+  try {
+    detail.value = await getResult<DetailResult>(id, 'module_detail')
+  } catch {
+    /* not run yet */
   }
 }
 
@@ -140,6 +169,26 @@ const moduleSizes = computed(() => {
       <div class="module-chips">
         <span v-for="[m, n] in moduleSizes" :key="m" class="chip">{{ m }} ({{ n }})</span>
       </div>
+
+      <template v-if="job.result?.dendrogram">
+        <h2>模块树状图</h2>
+        <DendrogramChart
+          :genes="job.result.genes"
+          :colors="job.result.colors"
+          :dendrogram="job.result.dendrogram"
+        />
+      </template>
+
+      <template v-if="mtait">
+        <h2>模块-性状关联</h2>
+        <TraitHeatmap :data="mtait" />
+      </template>
+
+      <template v-if="detail">
+        <h2>基因显著性 × 模块隶属度（{{ detail.module }} / {{ detail.trait_name }}）</h2>
+        <GsMmScatter :data="detail" />
+      </template>
+
       <h2>基因 → 模块</h2>
       <ag-grid-vue
         class="ag-theme-quartz grid"

@@ -1,0 +1,40 @@
+<script setup lang="ts">
+import * as echarts from 'echarts'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { EChartsOption } from 'echarts'
+
+const props = defineProps<{
+  option: EChartsOption
+  height?: string
+}>()
+
+const el = ref<HTMLDivElement>()
+let chart: echarts.ECharts | null = null
+
+onMounted(() => {
+  if (!el.value) return
+  chart = echarts.init(el.value)
+  chart.setOption(props.option)
+  window.addEventListener('resize', onResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onResize)
+  chart?.dispose()
+  chart = null
+})
+
+watch(
+  () => props.option,
+  (opt) => chart?.setOption(opt, true),
+  { deep: true },
+)
+
+function onResize() {
+  chart?.resize()
+}
+</script>
+
+<template>
+  <div ref="el" :style="{ width: '100%', height: height ?? '420px' }" />
+</template>
