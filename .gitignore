@@ -5,3 +5,5 @@
 /backend/internal/web/dist
 *.log
 .DS_Store
+/frontend/tsconfig.tsbuildinfo
+/wgcna-dashboard

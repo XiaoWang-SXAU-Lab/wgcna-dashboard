@@ -12,8 +12,8 @@ const option = computed<EChartsOption>(() => {
   cor.forEach((row, i) => row.forEach((v, j) => heat.push([j, i, +v.toFixed(4)])))
   return {
     tooltip: {
-      formatter: (p: { value: number[] }) => {
-        const [xj, yi, v] = p.value
+      formatter: (p: any) => {
+        const [xj, yi, v] = p.value as [number, number, number]
         return `${modules[yi]} × ${traits[xj]}: ${v}`
       },
     },
@@ -35,7 +35,7 @@ const option = computed<EChartsOption>(() => {
         data: heat,
         label: {
           show: true,
-          formatter: (p: { value: number[] }) => p.value[2].toFixed(2),
+          formatter: (p: any) => (p.value as number[])[2].toFixed(2),
           fontSize: 10,
         },
       },
