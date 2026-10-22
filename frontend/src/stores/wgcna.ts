@@ -167,7 +167,11 @@ export const useWgcnaStore = defineStore('wgcna', () => {
   async function loadStep(step: string) {
     try {
       if (step === 'filter') filterResult.value = await getResult<FilterResult>(jobId.value, step)
-      else if (step === 'soft_threshold') sft.value = await getResult<SftResult>(jobId.value, step)
+      else if (step === 'soft_threshold') {
+        sft.value = await getResult<SftResult>(jobId.value, step)
+        // 用 SFT 的推荐值自动回填第三步（network）的 power
+        if (sft.value.power_estimate != null) power.value = sft.value.power_estimate
+      }
       else if (step === 'network') modules.value = await getResult<ModulesResult>(jobId.value, step)
       else if (step === 'module_trait') mtait.value = await getResult<MtaitResult>(jobId.value, step)
       else if (step === 'module_detail') detail.value = await getResult<DetailResult>(jobId.value, step)

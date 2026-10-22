@@ -28,6 +28,9 @@ const geneRows = computed(() => (store.modules?.genes ?? []).map((g, i) => ({ ge
           <div>
             <label class="form-label small mb-1">{{ t('param.power') }}</label>
             <input class="form-control form-control-sm" type="number" v-model.number="store.power" min="1" max="30" />
+            <div v-if="store.sft?.power_estimate != null" class="form-text small">
+              SFT 推荐 β = {{ store.sft.power_estimate }}（已自动填入，可改）
+            </div>
           </div>
           <div>
             <label class="form-label small mb-1">{{ t('param.networkType') }}</label>
