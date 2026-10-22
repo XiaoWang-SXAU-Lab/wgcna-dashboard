@@ -24,7 +24,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'nav.hubGene': 'hub gene',
     'nav.oneStep': 'one-step',
 
-    'home.kicker': 'WGCNA Dashboard · Weighted Gene Co-expression Network Analysis',
+    'home.kicker': 'rsWGCNA · Weighted Gene Co-expression Network Analysis',
     'home.title': 'From expression matrix to co-expression networks & modules',
     'home.lead': 'A complete weighted gene co-expression network analysis pipeline covering filtering, soft-threshold selection, module detection, module–trait association, module drill-down and hub-gene screening. Every chart is interactive, color-adjustable and downloadable, with an AI navigator for interpretation and troubleshooting.',
     'home.start': 'Start analysis',
@@ -180,7 +180,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'nav.hubGene': 'Hub基因',
     'nav.oneStep': '一键分析',
 
-    'home.kicker': 'WGCNA Dashboard · 加权基因共表达网络分析',
+    'home.kicker': 'rsWGCNA · 加权基因共表达网络分析',
     'home.title': '从表达矩阵到共表达网络与模块，一站式交互式分析',
     'home.lead': '覆盖清洗过滤、软阈值选择、模块检测、模块-性状关联、模块深入与 hub 基因筛选的完整 WGCNA 流程；所有图表可交互、可调色、可下载，并内置 AI 领航员辅助解读与排错。',
     'home.start': '开始分析',

@@ -6,7 +6,7 @@
     <div class="brand mb-4 d-flex align-items-center gap-2">
       <i class="bi bi-hexagon-fill fs-2 text-primary"></i>
       <div>
-        <div class="brand-title fw-bold fs-5">WGCNA Dashboard</div>
+        <div class="brand-title fw-bold fs-5">rsWGCNA</div>
         <div class="brand-sub small">加权基因共表达网络分析</div>
       </div>
     </div>
