@@ -89,6 +89,15 @@ export const useWgcnaStore = defineStore('wgcna', () => {
 
   function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)) }
 
+  // 把底层 panic/错误翻译成人话
+  function friendlyError(msg: string): string {
+    if (!msg) return ''
+    if (msg.includes('Option::unwrap')) return '计算中出现无效数值（可能含常数基因/零方差数据），请检查数据或减少保留基因数'
+    if (msg.includes('read trait.tsv')) return '未上传性状表，请先上传性状文件再运行该步骤'
+    if (msg.includes('R plot failed')) return '绘图失败：' + msg.split('R plot failed:')[1]?.split('\n')[0]?.trim()
+    return msg
+  }
+
   async function waitForDone() {
     await sleep(400)
     for (let i = 0; i < 600; i++) {
@@ -98,6 +107,22 @@ export const useWgcnaStore = defineStore('wgcna', () => {
       if (st === 'done') break
       await sleep(500)
     }
+    // 把 job 的错误/取消状态传播到 store.error（友好化文案）
+    if (job.value?.status === 'error') {
+      error.value = friendlyError(job.value.error ?? '')
+    } else if (job.value?.status === 'cancelled') {
+      error.value = '已取消'
+    } else {
+      error.value = ''
+    }
+  }
+
+  // 每步状态：idle（未运行）| running（运行中）| done（完成）| error（失败）
+  function stepStatus(step: string): 'idle' | 'running' | 'done' | 'error' {
+    if (stepRunning.value === step) return 'running'
+    if (isDone(step)) return 'done'
+    if (job.value?.status === 'error' && job.value?.current_step === step) return 'error'
+    return 'idle'
   }
 
   async function runStep(step: string) {
@@ -155,6 +180,6 @@ export const useWgcnaStore = defineStore('wgcna', () => {
     rsquaredCut, sftNetworkType, power, netNetworkType, tomType, tomDenom, minModuleSize, mergeCutHeight, deepSplit, detectCutHeight,
     traitUploaded, stepRunning, error,
     sft, modules, mtait, detail, hub, filterResult, created,
-    createJobAndUpload, runStep, removeSamples, refresh, isDone, stepReady,
+    createJobAndUpload, runStep, removeSamples, refresh, isDone, stepReady, stepStatus,
   }
 })

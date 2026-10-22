@@ -7,6 +7,7 @@ import { moduleColor } from '../utils/colors'
 import { analyzeError } from '../utils/aiBus'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
 import { t } from '../utils/i18n'
+import StepStatusBadge from '../components/StepStatusBadge.vue'
 
 const store = useWgcnaStore()
 
@@ -72,10 +73,14 @@ const geneRows = computed(() => (store.modules?.genes ?? []).map((g, i) => ({ ge
       </div>
     </template>
       <div class="mb-3">
-        <h4 class="mb-1">{{ t('net.title') }}</h4>
+        <h4 class="mb-1 d-flex align-items-center gap-2">{{ t('net.title') }} <StepStatusBadge step="network" /></h4>
         <p class="text-muted small mb-0">{{ t('net.desc') }}</p>
       </div>
-      <p v-if="store.error" class="text-danger">{{ store.error }} <button class="btn btn-sm btn-outline-danger ms-2" @click="analyzeError(store.error)">🤖 {{ t('common.ai') }}</button></p>
+      <div v-if="store.error" class="alert alert-danger d-flex align-items-center gap-2 py-2">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <span class="flex-grow-1">{{ store.error }}</span>
+        <button class="btn btn-sm btn-outline-danger" @click="analyzeError(store.error)">🤖 {{ t('common.ai') }}</button>
+      </div>
       <div v-if="store.modules">
         <div class="d-flex flex-wrap gap-2 mb-3">
           <span v-for="r in moduleSizeRows" :key="r.module" class="badge text-bg-light border">

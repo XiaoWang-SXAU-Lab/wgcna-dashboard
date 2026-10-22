@@ -80,136 +80,90 @@ defineExpose({ analyzeError })
 </script>
 
 <template>
-  <button class="fab" @click="openPanel">🤖</button>
+  <button class="ai-tab" @click="openPanel" :title="open ? t('ai.collapse') : t('ai.title')">
+    <i :class="['bi', open ? 'bi-chevron-right' : 'bi-robot']"></i>
+  </button>
 
   <div v-if="open" class="chat">
-    <header class="chat-header">
-      <span>{{ t('ai.title') }}</span>
-      <span class="actions">
-        <button class="ghost" @click="showSettings = !showSettings">⚙️</button>
-        <button class="ghost" @click="open = false">✕</button>
+    <header class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom bg-white">
+      <span class="fw-semibold">{{ t('ai.title') }}</span>
+      <span class="d-flex gap-1">
+        <button class="btn btn-sm btn-outline-secondary" @click="showSettings = !showSettings"><i class="bi bi-gear"></i></button>
+        <button class="btn btn-sm btn-outline-secondary" @click="open = false"><i class="bi bi-x-lg"></i></button>
       </span>
     </header>
 
-    <div v-if="showSettings" class="settings">
-      <label>
-        {{ t('ai.provider') }}
-        <select v-model="provider">
-          <option v-for="p in PROVIDERS" :key="p.id" :value="p.id">{{ p.name }}</option>
-        </select>
-      </label>
-      <label>
-        {{ t('ai.apiKey') }}
-        <input v-model="apiKey" type="password" placeholder="sk-..." />
-      </label>
-      <button :disabled="!apiKey" @click="saveKey">{{ t('ai.save') }}</button>
-      <p class="hint">{{ configured ? t('ai.configured') + ' ✓' : t('ai.notConfigured') }}</p>
+    <div v-if="showSettings" class="px-3 py-2 border-bottom bg-light">
+      <label class="form-label small mb-1">{{ t('ai.provider') }}</label>
+      <select class="form-select form-select-sm mb-2" v-model="provider">
+        <option v-for="p in PROVIDERS" :key="p.id" :value="p.id">{{ p.name }}</option>
+      </select>
+      <label class="form-label small mb-1">{{ t('ai.apiKey') }}</label>
+      <input class="form-control form-control-sm mb-2" v-model="apiKey" type="password" placeholder="sk-..." />
+      <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-sm btn-primary" :disabled="!apiKey" @click="saveKey">{{ t('ai.save') }}</button>
+        <span class="text-muted small">{{ configured ? t('ai.configured') + ' ✓' : t('ai.notConfigured') }}</span>
+      </div>
     </div>
 
-    <div class="messages">
-      <div v-if="messages.length === 0" class="empty">
-        {{ t('ai.empty') }}
-      </div>
+    <div class="messages d-flex flex-column flex-grow-1 overflow-auto px-3 py-2">
+      <div v-if="messages.length === 0" class="text-muted small text-center mt-4">{{ t('ai.empty') }}</div>
       <div v-for="(m, i) in messages" :key="i" :class="['msg', m.role]">{{ m.content }}</div>
     </div>
 
-    <footer class="chat-input">
+    <footer class="d-flex gap-2 px-2 py-2 border-top">
       <input
+        class="form-control form-control-sm"
         v-model="input"
         :placeholder="streaming ? t('ai.replying') : t('ai.placeholder')"
         @keyup.enter="send"
       />
-      <button :disabled="!input.trim() || streaming" @click="send">{{ t('ai.send') }}</button>
+      <button class="btn btn-sm btn-primary" :disabled="!input.trim() || streaming" @click="send">{{ t('ai.send') }}</button>
     </footer>
   </div>
 </template>
 
 <style scoped>
-.fab {
+.ai-tab {
   position: fixed;
-  right: 1.2rem;
-  bottom: 1.2rem;
-  width: 52px;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1041;
+  width: 24px;
   height: 52px;
-  border-radius: 50%;
-  font-size: 1.5rem;
-  border: none;
-  background: #3182bd;
-  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dee2e6;
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  background: #fff;
+  color: #3182bd;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: -2px 0 6px rgba(0, 0, 0, 0.08);
 }
 .chat {
   position: fixed;
-  right: 1.2rem;
-  bottom: 5rem;
-  width: 380px;
-  height: 520px;
-  border: 1px solid #e3e3e3;
-  border-radius: 12px;
+  right: 0;
+  top: 3.6rem;
+  bottom: 0;
+  width: 400px;
+  border: 1px solid #dee2e6;
+  border-right: none;
+  border-radius: 12px 0 0 12px;
   background: #fff;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.15);
   overflow: hidden;
-}
-.chat-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.6rem 0.8rem;
-  background: #f7fafc;
-  font-weight: 600;
-}
-.actions .ghost {
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 1rem;
-}
-.settings {
-  padding: 0.6rem 0.8rem;
-  border-bottom: 1px solid #eee;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  font-size: 0.85rem;
-}
-.settings label {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
-  align-items: center;
-}
-.settings input,
-.settings select {
-  flex: 1;
-  padding: 0.25rem;
-}
-.hint {
-  color: #888;
-  font-size: 0.75rem;
-  margin: 0;
-}
-.messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.8rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-.empty {
-  color: #aaa;
-  font-size: 0.85rem;
-  text-align: center;
-  margin-top: 2rem;
+  z-index: 1040;
 }
 .msg {
   max-width: 85%;
-  padding: 0.5rem 0.7rem;
+  padding: 0.45rem 0.65rem;
   border-radius: 10px;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -217,22 +171,11 @@ defineExpose({ analyzeError })
   align-self: flex-end;
   background: #3182bd;
   color: #fff;
+  margin-bottom: 0.4rem;
 }
 .msg.assistant {
   align-self: flex-start;
   background: #f1f5f9;
-}
-.chat-input {
-  display: flex;
-  gap: 0.4rem;
-  padding: 0.6rem;
-  border-top: 1px solid #eee;
-}
-.chat-input input {
-  flex: 1;
-  padding: 0.4rem;
-}
-.chat-input button {
-  padding: 0.4rem 0.8rem;
+  margin-bottom: 0.4rem;
 }
 </style>

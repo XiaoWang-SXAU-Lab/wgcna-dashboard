@@ -125,6 +125,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'common.rerun': 'Re-run',
     'common.running': 'Running…',
     'common.ai': 'AI analyze',
+    'common.done': 'Done',
+    'common.error': 'Failed',
+    'common.idle': 'Not run',
 
     'comp.resize': 'Drag bottom-right to resize · top-right button downloads PNG',
     'comp.color': 'Color',
@@ -151,6 +154,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'param.detectCutHeight': 'Detect cut height',
 
     'ai.title': 'AI Navigator',
+    'ai.collapse': 'Collapse',
     'ai.provider': 'Provider',
     'ai.apiKey': 'API Key',
     'ai.save': 'Save (fixed after first entry)',
@@ -273,6 +277,9 @@ const messages: Record<Locale, Record<string, string>> = {
     'common.rerun': '重跑',
     'common.running': '运行中…',
     'common.ai': 'AI 分析',
+    'common.done': '完成',
+    'common.error': '失败',
+    'common.idle': '未运行',
 
     'comp.resize': '拖动右下角调整大小 · 右上角按钮下载 PNG',
     'comp.color': '配色',
@@ -299,6 +306,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'param.detectCutHeight': '检测剪切高度',
 
     'ai.title': 'AI 领航员',
+    'ai.collapse': '收起',
     'ai.provider': '厂商',
     'ai.apiKey': 'API Key',
     'ai.save': '保存（首次输入后固化）',

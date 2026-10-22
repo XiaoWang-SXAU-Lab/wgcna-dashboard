@@ -4,6 +4,7 @@ import { useWgcnaStore } from '../stores/wgcna'
 import { analyzeError } from '../utils/aiBus'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
 import { t } from '../utils/i18n'
+import StepStatusBadge from '../components/StepStatusBadge.vue'
 import SampleTreeChart from '../components/SampleTreeChart.vue'
 
 const store = useWgcnaStore()
@@ -78,10 +79,14 @@ function onSelectSample(name: string) {
       </div>
     </template>
       <div class="mb-3">
-        <h4 class="mb-1">{{ t('di.title') }}</h4>
+        <h4 class="mb-1 d-flex align-items-center gap-2">{{ t('di.title') }} <StepStatusBadge step="filter" /></h4>
         <p class="text-muted small mb-0">{{ t('di.desc') }}</p>
       </div>
-      <p v-if="store.error" class="text-danger">{{ store.error }} <button class="btn btn-sm btn-outline-danger ms-2" @click="analyzeError(store.error)">🤖 {{ t('common.ai') }}</button></p>
+      <div v-if="store.error" class="alert alert-danger d-flex align-items-center gap-2 py-2">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <span class="flex-grow-1">{{ store.error }}</span>
+        <button class="btn btn-sm btn-outline-danger" @click="analyzeError(store.error)">🤖 {{ t('common.ai') }}</button>
+      </div>
 
       <template v-if="store.filterResult">
         <div class="card mb-3">
