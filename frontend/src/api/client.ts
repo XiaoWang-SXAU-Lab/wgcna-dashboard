@@ -109,6 +109,7 @@ export interface FitIndex {
 
 export interface SftResult {
   power_estimate: number | null
+  power_source?: string // "estimate"（R² 达标）| "experience"（经验兜底）
   network_type: string
   fit_indices: FitIndex[]
 }

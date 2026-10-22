@@ -58,7 +58,10 @@ function downloadSft(mode: 'pdf' | 'svg') {
       </div>
       <div v-if="store.sft">
         <div class="d-flex align-items-center gap-2 mb-2">
-          <span class="text-muted small">{{ t('sft.recommend') }} <b>{{ store.sft.power_estimate }}</b>（{{ store.sft.network_type }}）</span>
+          <span class="text-muted small">
+            {{ t('sft.recommend') }} <b>{{ store.sft.power_estimate }}</b>（{{ store.sft.network_type }}）
+            <span v-if="store.sft.power_source === 'experience'" class="badge text-bg-warning ms-1">R² 未达标，按样本数经验值兜底</span>
+          </span>
           <span class="ms-auto">
             <button class="btn btn-sm btn-outline-secondary me-1" @click="downloadSft('pdf')">下载 PDF</button>
             <button class="btn btn-sm btn-outline-secondary" @click="downloadSft('svg')">下载 SVG</button>
