@@ -27,7 +27,7 @@ const nav = [
   <nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top py-2">
     <div class="container-fluid flex-nowrap">
       <router-link class="navbar-brand fw-bold d-flex align-items-center gap-2 me-3" to="/">
-        <i class="bi bi-hexagon-fill text-primary"></i>
+        <img src="/rsWGCNA_icon.svg" alt="rsWGCNA" width="30" height="30" />
         <span>WGCNA Dashboard</span>
       </router-link>
       <ul class="navbar-nav flex-row flex-nowrap overflow-auto">

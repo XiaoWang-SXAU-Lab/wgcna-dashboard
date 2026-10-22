@@ -1,3 +1,5 @@
+<p align="center"><img src="frontend/public/rsWGCNA_icon.png" alt="rsWGCNA logo" width="180"></p>
+
 # wgcna-dashboard
 
 WGCNA 共表达网络分析的 Web dashboard：**Go 后端 + Vue3 前端 + Rust worker**（复用
