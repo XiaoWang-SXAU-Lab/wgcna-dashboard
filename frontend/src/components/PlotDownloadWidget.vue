@@ -78,10 +78,10 @@ function download() {
         <button class="btn btn-sm btn-outline-secondary" @click="emit('close')"><i class="bi bi-x-lg"></i></button>
       </div>
 
-      <div class="d-flex" style="height: 580px">
-        <!-- left sidebar: parameters -->
-        <div class="border-end p-3 d-flex flex-column" style="width: 300px; flex-shrink: 0">
-          <div class="vstack gap-2 overflow-auto" style="flex: 1">
+      <div class="d-flex" style="height: 620px">
+        <!-- left sidebar: parameters (scrollable as a whole) -->
+        <div class="border-end overflow-auto flex-shrink-0" style="width: 300px">
+          <div class="p-3 d-flex flex-column gap-2">
             <div>
               <label class="form-label small mb-1">{{ t('plot.size') }}: <b>{{ size.toFixed(1) }}</b></label>
               <input type="range" class="form-range" min="1" max="6" step="0.1" v-model.number="size" />
@@ -127,9 +127,9 @@ function download() {
                 <input type="number" class="form-control form-control-sm" min="2" max="24" step="0.1" v-model.number="height" />
               </div>
             </div>
-          </div>
 
-          <div class="vstack gap-2 mt-2 pt-3 border-top">
+            <hr class="my-1" />
+
             <div>
               <label class="form-label small mb-1">{{ t('plot.format') }}</label>
               <select class="form-select form-select-sm" v-model="format">
@@ -171,6 +171,7 @@ function download() {
   border-radius: 10px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   width: min(980px, 96vw);
+  max-height: 92vh;
   overflow: hidden;
 }
 </style>
