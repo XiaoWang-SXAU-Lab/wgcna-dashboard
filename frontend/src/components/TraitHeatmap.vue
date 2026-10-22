@@ -41,7 +41,7 @@ const option = computed<EChartsOption>(() => {
     toolbox: {
       right: 10, top: 10,
       feature: {
-        saveAsImage: { title: '下载 PNG', name: 'module_trait', pixelRatio: 2, backgroundColor: '#ffffff' },
+        saveAsImage: { title: t('comp.downloadPng'), name: 'module_trait', pixelRatio: 2, backgroundColor: '#ffffff' },
       },
     },
     series: [{

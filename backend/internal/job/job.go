@@ -107,7 +107,20 @@ func (m *Manager) RunStep(id, step string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.mu.Lock()
 	m.cancel[id] = cancel
-	m.updateLocked(id, func(j *Job) { j.Status = "running"; j.CurrentStep = step; j.Error = "" })
+	m.updateLocked(id, func(j *Job) {
+		j.Status = "running"
+		j.CurrentStep = step
+		j.Error = ""
+		// 脏级联：重跑某步时，该步及所有下游的 done 标记都失效。
+		idx := stepIndex(step)
+		var keep []string
+		for _, s := range j.DoneSteps {
+			if stepIndex(s) < idx {
+				keep = append(keep, s)
+			}
+		}
+		j.DoneSteps = keep
+	})
 	m.mu.Unlock()
 
 	defer func() {
@@ -260,6 +273,16 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// stepIndex returns the position of step in StepOrder, or -1.
+func stepIndex(step string) int {
+	for i, s := range StepOrder {
+		if s == step {
+			return i
+		}
+	}
+	return -1
 }
 
 func randHex(n int) string {

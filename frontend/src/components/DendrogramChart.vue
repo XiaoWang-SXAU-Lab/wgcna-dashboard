@@ -4,6 +4,7 @@ import type { EChartsOption } from 'echarts'
 import type { Dendrogram } from '../api/client'
 import { moduleColor } from '../utils/colors'
 import { layoutDendrogram } from '../utils/dendrogramLayout'
+import { t } from '../utils/i18n'
 import EChart from './EChart.vue'
 
 const props = defineProps<{ genes: string[]; colors: string[]; dendrogram: Dendrogram }>()
@@ -75,7 +76,7 @@ const option = computed<EChartsOption>(() => {
       top: 10,
       feature: {
         saveAsImage: {
-          title: '下载 PNG',
+          title: t('comp.downloadPng'),
           name: 'module_dendrogram',
           pixelRatio: 2,
           backgroundColor: '#ffffff',
@@ -96,7 +97,7 @@ const option = computed<EChartsOption>(() => {
       <EChart :option="option" height="100%" />
     </div>
     <div class="text-muted small mt-1">
-      <i class="bi bi-arrows-angle-expand me-1"></i>拖动右下角调整大小 · 右上角按钮下载 PNG
+      <i class="bi bi-arrows-angle-expand me-1"></i>{{ t('comp.resize') }}
     </div>
   </div>
 </template>

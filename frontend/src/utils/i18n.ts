@@ -56,6 +56,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'di.title': 'Data import',
     'di.desc': 'Upload expression and trait files, set parameters, create the job and run cleaning/filtering',
     'di.expr': 'Expression matrix (genes × samples TSV)',
+    'di.chooseFile': 'Choose file',
     'di.trait': 'Trait file (optional; required for module–trait steps)',
     'di.normalize': 'Normalization',
     'di.nKeep': 'Genes to keep',
@@ -71,6 +72,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'di.genesFinal': 'Genes retained',
     'di.samples': 'Samples',
     'di.sampleTree': 'Sample clustering',
+    'di.sampleTreeHint': 'Click a node to select · hover for sample name',
     'di.removeOutlier': 'Remove outlier samples (optional)',
     'di.selectSamples': 'Select samples to remove and rebuild the expression matrix:',
     'di.removeBtn': 'Remove selected & rebuild',
@@ -130,6 +132,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'common.idle': 'Not run',
 
     'comp.resize': 'Drag bottom-right to resize · top-right button downloads PNG',
+    'comp.downloadPng': 'Download PNG',
     'comp.color': 'Color',
     'comp.low': 'Low',
     'comp.mid': 'Mid',
@@ -155,6 +158,7 @@ const messages: Record<Locale, Record<string, string>> = {
 
     'ai.title': 'AI Navigator',
     'ai.collapse': 'Collapse',
+    'ai.thinking': 'Thinking…',
     'ai.provider': 'Provider',
     'ai.apiKey': 'API Key',
     'ai.save': 'Save (fixed after first entry)',
@@ -208,6 +212,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'di.title': '数据导入',
     'di.desc': '上传表达矩阵和性状文件，设置参数，创建作业并运行清洗过滤',
     'di.expr': '表达矩阵文件（genes × samples TSV）',
+    'di.chooseFile': '选择文件',
     'di.trait': '性状文件（可选；模块-性状等步骤需要）',
     'di.normalize': '归一化',
     'di.nKeep': '保留基因数',
@@ -223,6 +228,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'di.genesFinal': '最终保留基因数',
     'di.samples': '样本数',
     'di.sampleTree': '样本聚类',
+    'di.sampleTreeHint': '点击圆点选择样本，悬停显示样本名',
     'di.removeOutlier': '删除离群样本（可选）',
     'di.selectSamples': '选择要删除的样本并重建表达矩阵：',
     'di.removeBtn': '删除所选并重建',
@@ -282,6 +288,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'common.idle': '未运行',
 
     'comp.resize': '拖动右下角调整大小 · 右上角按钮下载 PNG',
+    'comp.downloadPng': '下载 PNG',
     'comp.color': '配色',
     'comp.low': '低',
     'comp.mid': '中',
@@ -307,6 +314,7 @@ const messages: Record<Locale, Record<string, string>> = {
 
     'ai.title': 'AI 领航员',
     'ai.collapse': '收起',
+    'ai.thinking': '思考中…',
     'ai.provider': '厂商',
     'ai.apiKey': 'API Key',
     'ai.save': '保存（首次输入后固化）',

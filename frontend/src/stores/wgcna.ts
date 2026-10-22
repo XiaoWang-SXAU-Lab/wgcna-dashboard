@@ -125,10 +125,25 @@ export const useWgcnaStore = defineStore('wgcna', () => {
     return 'idle'
   }
 
+  // 重跑某步时，清空该步及下游的缓存结果（配合后端脏级联）。
+  const STEP_ORDER = ['filter', 'soft_threshold', 'network', 'module_trait', 'module_detail', 'hub']
+  function clearDownstream(step: string) {
+    const idx = STEP_ORDER.indexOf(step)
+    if (idx < 0) return
+    const affected = STEP_ORDER.slice(idx)
+    if (affected.includes('filter')) filterResult.value = null
+    if (affected.includes('soft_threshold')) sft.value = null
+    if (affected.includes('network')) modules.value = null
+    if (affected.includes('module_trait')) mtait.value = null
+    if (affected.includes('module_detail')) detail.value = null
+    if (affected.includes('hub')) hub.value = null
+  }
+
   async function runStep(step: string) {
     if (!jobId.value || stepRunning.value) return
     stepRunning.value = step
     error.value = ''
+    clearDownstream(step)
     try {
       await runStepApi(jobId.value, step)
       await waitForDone()
@@ -144,6 +159,7 @@ export const useWgcnaStore = defineStore('wgcna', () => {
     if (!jobId.value || stepRunning.value) return
     stepRunning.value = 'filter'
     error.value = ''
+    clearDownstream('filter')
     try {
       await runStepApi(jobId.value, 'filter', {
         filter: {

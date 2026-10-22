@@ -60,7 +60,7 @@ const option = computed<EChartsOption>(() => {
       textStyle: { color: '#fff', fontSize: 12 },
       formatter: (params: any) => (params.seriesType === 'scatter' ? params.name : ''),
     },
-    toolbox: { right: 10, top: 10, feature: { saveAsImage: { title: '下载 PNG', name: 'sample_cluster', pixelRatio: 2, backgroundColor: '#ffffff' } } },
+    toolbox: { right: 10, top: 10, feature: { saveAsImage: { title: t('comp.downloadPng'), name: 'sample_cluster', pixelRatio: 2, backgroundColor: '#ffffff' } } },
     series: [
       { type: 'custom', renderItem, data: [0], xAxisIndex: 0, yAxisIndex: 0, z: 1 },
       {
@@ -92,6 +92,6 @@ onMounted(() => {
     <div class="border rounded bg-white p-1" style="resize: both; overflow: auto; height: 520px; min-height: 300px; min-width: 320px; max-width: 100%">
       <EChart ref="echartRef" :option="option" height="100%" />
     </div>
-    <div class="text-muted small mt-1"><i class="bi bi-arrows-angle-expand me-1"></i>{{ t('comp.resize') }} · 点击圆点选择样本，悬停显示样本名</div>
+    <div class="text-muted small mt-1"><i class="bi bi-arrows-angle-expand me-1"></i>{{ t('comp.resize') }} · {{ t('di.sampleTreeHint') }}</div>
   </div>
 </template>

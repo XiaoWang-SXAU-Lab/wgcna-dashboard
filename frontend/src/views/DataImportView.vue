@@ -39,17 +39,26 @@ function onSelectSample(name: string) {
         <div class="vstack gap-2">
           <div>
             <label class="form-label small mb-1">{{ t('di.expr') }}<span class="text-danger">*</span></label>
-            <input class="form-control form-control-sm" type="file" accept=".tsv,.txt" @change="onExpr" />
+            <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
+              <i class="bi bi-upload me-1"></i>{{ store.exprFile ? store.exprFile.name : t('di.chooseFile') }}
+              <input type="file" accept=".tsv,.txt,.csv,.xlsx" class="d-none" @change="onExpr" />
+            </label>
           </div>
           <div>
             <label class="form-label small mb-1">{{ t('di.trait') }}</label>
-            <input class="form-control form-control-sm" type="file" accept=".tsv,.txt" @change="onTrait" />
+            <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
+              <i class="bi bi-upload me-1"></i>{{ store.traitFile ? store.traitFile.name : t('di.chooseFile') }}
+              <input type="file" accept=".tsv,.txt,.csv,.xlsx" class="d-none" @change="onTrait" />
+            </label>
           </div>
           <div>
             <label class="form-label small mb-1">{{ t('di.normalize') }}</label>
             <select class="form-select form-select-sm" v-model="store.normalizeMethod">
-              <option value="log10p1">log10(x+1)</option>
-              <option value="log">log(x)</option>
+              <option value="log10p1">log10(x+1) — FPKM/TPM</option>
+              <option value="log2p1">log2(x+1) — Raw count</option>
+              <option value="log10">log10(x) — Peak area</option>
+              <option value="log2">log2(x) — Protein</option>
+              <option value="log">ln(x)</option>
               <option value="raw">raw</option>
             </select>
           </div>

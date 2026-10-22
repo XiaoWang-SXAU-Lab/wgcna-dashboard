@@ -50,7 +50,7 @@ const option = computed<EChartsOption>(() => {
     yAxis: { type: 'value', name: 'Gene Significance (|GS|)', min: 0 },
     toolbox: {
       right: 10, top: 10,
-      feature: { saveAsImage: { title: '下载 PNG', name: 'gs_mm_scatter', pixelRatio: 2, backgroundColor: '#ffffff' } },
+      feature: { saveAsImage: { title: t('comp.downloadPng'), name: 'gs_mm_scatter', pixelRatio: 2, backgroundColor: '#ffffff' } },
     },
     series: [
       {

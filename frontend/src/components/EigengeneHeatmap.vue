@@ -115,7 +115,7 @@ const option = computed<EChartsOption>(() => {
     yAxis: { type: 'value', min: -1.6, max: m - 0.5 + maxH + 0.6, show: false },
     toolbox: {
       right: 10, top: 10,
-      feature: { saveAsImage: { title: '下载 PNG', name: 'eigengene_adjacency', pixelRatio: 2, backgroundColor: '#ffffff' } },
+      feature: { saveAsImage: { title: t('comp.downloadPng'), name: 'eigengene_adjacency', pixelRatio: 2, backgroundColor: '#ffffff' } },
     },
     series: [{ type: 'custom', renderItem, data: [0] }],
   }

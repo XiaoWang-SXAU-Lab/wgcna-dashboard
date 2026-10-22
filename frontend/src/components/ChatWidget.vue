@@ -1,9 +1,21 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { marked } from 'marked'
 import { chatStream, getAIConfig, saveAIConfig } from '../api/client'
 import { t } from '../utils/i18n'
 
 const props = defineProps<{ errorCtx?: string }>()
+
+function renderMarkdown(text: string): string {
+  return marked.parse(text) as string
+}
+
+// AI 还在「思考」（流式开始但还没吐出第一个 token）时显示动画。
+const isThinking = computed(() => {
+  if (!streaming.value) return false
+  const last = messages.value[messages.value.length - 1]
+  return last?.role === 'assistant' && !last.content.trim()
+})
 
 const open = ref(false)
 const showSettings = ref(false)
@@ -108,7 +120,13 @@ defineExpose({ analyzeError })
 
     <div class="messages d-flex flex-column flex-grow-1 overflow-auto px-3 py-2">
       <div v-if="messages.length === 0" class="text-muted small text-center mt-4">{{ t('ai.empty') }}</div>
-      <div v-for="(m, i) in messages" :key="i" :class="['msg', m.role]">{{ m.content }}</div>
+      <div v-for="(m, i) in messages" :key="i" :class="['msg', m.role]">
+        <div v-if="m.role === 'assistant'" class="md-body" v-html="renderMarkdown(m.content)"></div>
+        <template v-else>{{ m.content }}</template>
+      </div>
+      <div v-if="isThinking" class="thinking align-self-start text-muted small">
+        <span class="spinner-border spinner-border-sm me-2"></span>{{ t('ai.thinking') }}
+      </div>
     </div>
 
     <footer class="d-flex gap-2 px-2 py-2 border-top">
@@ -178,4 +196,19 @@ defineExpose({ analyzeError })
   background: #f1f5f9;
   margin-bottom: 0.4rem;
 }
+.thinking {
+  padding: 0.45rem 0.65rem;
+  margin-bottom: 0.4rem;
+}
+/* markdown 富文本（v-html 注入，需 :deep 穿透 scoped）*/
+.md-body :deep(p) { margin: 0.25rem 0; }
+.md-body :deep(pre) { background: #f6f8fa; padding: 0.5rem; border-radius: 6px; overflow-x: auto; font-size: 0.8rem; }
+.md-body :deep(code) { background: #eef1f4; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.8rem; }
+.md-body :deep(pre code) { background: none; padding: 0; }
+.md-body :deep(ul), .md-body :deep(ol) { margin: 0.25rem 0; padding-left: 1.2rem; }
+.md-body :deep(h1), .md-body :deep(h2), .md-body :deep(h3), .md-body :deep(h4) { font-size: 0.95rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
+.md-body :deep(strong) { font-weight: 600; }
+.md-body :deep(a) { color: #3182bd; }
+.md-body :deep(table) { border-collapse: collapse; margin: 0.25rem 0; }
+.md-body :deep(th), .md-body :deep(td) { border: 1px solid #dee2e6; padding: 0.2rem 0.4rem; font-size: 0.8rem; }
 </style>
