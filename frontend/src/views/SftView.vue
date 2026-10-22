@@ -11,6 +11,8 @@ import StepStatusBadge from '../components/StepStatusBadge.vue'
 
 const store = useWgcnaStore()
 
+const showExport = ref(false)
+
 const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
   power: f.power, rsq: f.rsq.toFixed(3), slope: f.slope.toFixed(3),
   mean_k: f.mean_k.toFixed(1), median_k: f.median_k.toFixed(1), max_k: f.max_k.toFixed(1),
@@ -55,10 +57,13 @@ const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
             {{ t('sft.recommend') }} <b>{{ store.sft.power_estimate }}</b>（{{ store.sft.network_type }}）
             <span v-if="store.sft.power_source === 'experience'" class="badge text-bg-warning ms-1">{{ t('sft.experiencePower') }}</span>
           </span>
+          <button class="btn btn-sm btn-outline-primary ms-auto" @click="showExport = true">
+            <i class="bi bi-download me-1"></i>{{ t('plot.export') }}
+          </button>
         </div>
         <SftPlot :data="store.sft" :rsquared-cut="store.rsquaredCut" />
         <SimpleTable :columns="[{ key: 'power', label: t('sft.col.power') }, { key: 'rsq', label: t('sft.col.rsq') }, { key: 'slope', label: t('sft.col.slope') }, { key: 'mean_k', label: t('sft.col.meanK') }, { key: 'median_k', label: t('sft.col.medianK') }, { key: 'max_k', label: t('sft.col.maxK') }]" :rows="rows" filename="sft" />
-        <PlotDownloadWidget kind="sft" :rsq-cut="store.rsquaredCut" class="mt-3" />
+        <PlotDownloadWidget kind="sft" :rsq-cut="store.rsquaredCut" :show="showExport" @close="showExport = false" />
       </div>
       <p v-else class="text-muted">{{ t('sft.empty') }}</p>
   </SidebarDrawer>
