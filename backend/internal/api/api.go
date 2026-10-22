@@ -32,6 +32,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", h.cancel)
 	mux.HandleFunc("GET /api/jobs/{id}/results/{step}", h.getResult)
 	mux.HandleFunc("GET /api/jobs/{id}/plots/dendrogram", h.plotDendrogram)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/sft", h.plotSft)
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
@@ -145,6 +146,34 @@ func (h *Handler) plotDendrogram(w http.ResponseWriter, r *http.Request) {
 	}
 	defer os.RemoveAll(filepath.Dir(out))
 	w.Header().Set("Content-Type", ctype)
+	http.ServeFile(w, r, out)
+}
+
+// plotSft renders the soft-threshold plot via R (PDF/SVG/PNG, publication
+// quality) and forces a download.
+func (h *Handler) plotSft(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	mode := r.URL.Query().Get("mode")
+	if mode != "pdf" && mode != "svg" {
+		mode = "png"
+	}
+	rsqCut := r.URL.Query().Get("rsq_cut")
+	if rsqCut == "" {
+		rsqCut = "0.85"
+	}
+	jsonPath := filepath.Join(h.jobs.Dir(), id, "step2_sft.json")
+	if _, err := os.Stat(jsonPath); err != nil {
+		http.Error(w, "sft result not available", http.StatusNotFound)
+		return
+	}
+	out, ctype, err := plot.RenderSft(jsonPath, mode, rsqCut)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(filepath.Dir(out))
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", "attachment; filename=\"sft."+mode+"\"")
 	http.ServeFile(w, r, out)
 }
 

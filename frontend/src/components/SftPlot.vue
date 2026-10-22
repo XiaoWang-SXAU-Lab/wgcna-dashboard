@@ -14,8 +14,8 @@ const scaleIndependence = computed<EChartsOption>(() => ({
   title: { text: t('sft.scaleTitle'), left: 'center', textStyle: { fontSize: 14 } },
   tooltip: { trigger: 'axis' },
   toolbox: { right: 10, top: 10, feature: { saveAsImage: { title: '下载 PNG', name: 'scale_independence', pixelRatio: 2, backgroundColor: '#ffffff' } } },
-  xAxis: { type: 'category', name: 'Soft Threshold (power)', data: powers.value },
-  yAxis: { type: 'value', name: 'Scale Free Topology Model Fit, signed R^2' },
+  xAxis: { type: 'category', name: 'Soft Threshold (power)', nameLocation: 'middle', data: powers.value },
+  yAxis: { type: 'value', name: 'Scale Free Topology Model Fit, signed R²', nameLocation: 'middle', nameRotate: 90, nameGap: 55 },
   series: [{
     type: 'line',
     data: props.data.fit_indices.map((f) => +f.rsq.toFixed(3)),
@@ -32,8 +32,8 @@ const meanConnectivity = computed<EChartsOption>(() => ({
   title: { text: t('sft.connTitle'), left: 'center', textStyle: { fontSize: 14 } },
   tooltip: { trigger: 'axis' },
   toolbox: { right: 10, top: 10, feature: { saveAsImage: { title: '下载 PNG', name: 'mean_connectivity', pixelRatio: 2, backgroundColor: '#ffffff' } } },
-  xAxis: { type: 'category', name: 'Soft Threshold (power)', data: powers.value },
-  yAxis: { type: 'value', name: 'Mean Connectivity' },
+  xAxis: { type: 'category', name: 'Soft Threshold (power)', nameLocation: 'middle', data: powers.value },
+  yAxis: { type: 'value', name: 'Mean Connectivity', nameLocation: 'middle', nameRotate: 90, nameGap: 55 },
   series: [{
     type: 'line',
     data: props.data.fit_indices.map((f) => +f.mean_k.toFixed(3)),

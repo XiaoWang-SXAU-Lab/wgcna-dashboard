@@ -4,6 +4,7 @@ import { useWgcnaStore } from '../stores/wgcna'
 import SftPlot from '../components/SftPlot.vue'
 import SimpleTable from '../components/SimpleTable.vue'
 import { analyzeError } from '../utils/aiBus'
+import { plotUrl } from '../api/client'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
 import { t } from '../utils/i18n'
 
@@ -13,6 +14,13 @@ const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
   power: f.power, rsq: f.rsq.toFixed(3), slope: f.slope.toFixed(3),
   mean_k: f.mean_k.toFixed(1), median_k: f.median_k.toFixed(1), max_k: f.max_k.toFixed(1),
 })))
+
+function downloadSft(mode: 'pdf' | 'svg') {
+  const a = document.createElement('a')
+  a.href = plotUrl(store.jobId, 'sft', mode, store.rsquaredCut)
+  a.download = `sft.${mode}`
+  a.click()
+}
 </script>
 
 <template>
@@ -44,8 +52,14 @@ const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
       </div>
       <p v-if="store.error" class="text-danger">{{ store.error }} <button class="btn btn-sm btn-outline-danger ms-2" @click="analyzeError(store.error)">🤖 {{ t('common.ai') }}</button></p>
       <div v-if="store.sft">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="text-muted small">{{ t('sft.recommend') }} <b>{{ store.sft.power_estimate }}</b>（{{ store.sft.network_type }}）</span>
+          <span class="ms-auto">
+            <button class="btn btn-sm btn-outline-secondary me-1" @click="downloadSft('pdf')">下载 PDF</button>
+            <button class="btn btn-sm btn-outline-secondary" @click="downloadSft('svg')">下载 SVG</button>
+          </span>
+        </div>
         <SftPlot :data="store.sft" :rsquared-cut="store.rsquaredCut" />
-        <p class="text-muted small mt-2 mb-2">{{ t('sft.recommend') }} <b>{{ store.sft.power_estimate }}</b>（{{ store.sft.network_type }}）</p>
         <SimpleTable :columns="[{ key: 'power', label: t('sft.col.power') }, { key: 'rsq', label: t('sft.col.rsq') }, { key: 'slope', label: t('sft.col.slope') }, { key: 'mean_k', label: t('sft.col.meanK') }, { key: 'median_k', label: t('sft.col.medianK') }, { key: 'max_k', label: t('sft.col.maxK') }]" :rows="rows" filename="sft" />
       </div>
       <p v-else class="text-muted">{{ t('sft.empty') }}</p>

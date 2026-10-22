@@ -188,3 +188,11 @@ export async function chatStream(
     }
   }
 }
+
+// plotUrl builds a download URL for a backend-rendered plot.
+// kind: 'sft' | 'dendrogram'; mode: 'pdf' | 'svg' | 'png' | 'interactive'.
+export function plotUrl(id: string, kind: string, mode: string, rsqCut?: number): string {
+  const params = new URLSearchParams({ mode })
+  if (rsqCut != null) params.set('rsq_cut', String(rsqCut))
+  return `${BASE}/jobs/${id}/plots/${kind}?${params}`
+}
