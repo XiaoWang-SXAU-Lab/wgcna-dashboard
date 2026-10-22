@@ -163,11 +163,14 @@ func (h *Handler) plotSft(w http.ResponseWriter, r *http.Request) {
 		rsqCut = "0.85"
 	}
 	params := plot.PlotParams{
-		Size:     qfloat(r, "size"),
-		Color:    r.URL.Query().Get("color"),
-		BaseSize: qfloat(r, "base_size"),
-		Width:    qfloat(r, "width"),
-		Height:   qfloat(r, "height"),
+		Size:      qfloat(r, "size"),
+		Color:     r.URL.Query().Get("color"),
+		LineColor: r.URL.Query().Get("line_color"),
+		BaseSize:  qfloat(r, "base_size"),
+		AxisSize:  qfloat(r, "axis_size"),
+		AxisColor: r.URL.Query().Get("axis_color"),
+		Width:     qfloat(r, "width"),
+		Height:    qfloat(r, "height"),
 	}
 	jsonPath := filepath.Join(h.jobs.Dir(), id, "step2_sft.json")
 	if _, err := os.Stat(jsonPath); err != nil {

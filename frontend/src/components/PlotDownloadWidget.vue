@@ -4,28 +4,40 @@ import { useWgcnaStore } from '../stores/wgcna'
 import { plotUrl } from '../api/client'
 import { t } from '../utils/i18n'
 
-// Publication-quality export dialog: left = parameters (point size / color /
-// font size / dimensions + format select + download), right = live preview.
-// Preview and download share the same parameters → WYSIWYG.
+// Publication-quality export dialog: left = parameters (point size / point
+// color / line color / font size / axis text size / axis color / dimensions
+// + format select + download), right = live preview. Preview and download
+// share the same parameters → WYSIWYG.
 const props = defineProps<{ kind: string; rsqCut?: number; show: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 const store = useWgcnaStore()
 
 const size = ref(2.4)
 const color = ref('#5470c6')
+const lineColor = ref('#5470c6')
 const baseSize = ref(13)
+const axisSize = ref(11)
+const axisColor = ref('#333333')
 const width = ref(10)
 const height = ref(4.6)
 const format = ref<'pdf' | 'svg' | 'png'>('pdf')
 
 // Debounced params drive the preview (so rapid slider drags don't spam R).
-const preview = ref({ size: size.value, color: color.value, baseSize: baseSize.value, width: width.value, height: height.value })
+const preview = ref({
+  size: size.value, color: color.value, lineColor: lineColor.value,
+  baseSize: baseSize.value, axisSize: axisSize.value, axisColor: axisColor.value,
+  width: width.value, height: height.value,
+})
 const loading = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
-watch([size, color, baseSize, width, height], () => {
+watch([size, color, lineColor, baseSize, axisSize, axisColor, width, height], () => {
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => {
-    preview.value = { size: size.value, color: color.value, baseSize: baseSize.value, width: width.value, height: height.value }
+    preview.value = {
+      size: size.value, color: color.value, lineColor: lineColor.value,
+      baseSize: baseSize.value, axisSize: axisSize.value, axisColor: axisColor.value,
+      width: width.value, height: height.value,
+    }
     loading.value = true
   }, 350)
 })
@@ -36,7 +48,10 @@ function baseParams(mode: string): Record<string, string | number> {
     mode,
     size: preview.value.size,
     color: preview.value.color,
+    line_color: preview.value.lineColor,
     base_size: preview.value.baseSize,
+    axis_size: preview.value.axisSize,
+    axis_color: preview.value.axisColor,
     width: preview.value.width,
     height: preview.value.height,
   }
@@ -63,24 +78,44 @@ function download() {
         <button class="btn btn-sm btn-outline-secondary" @click="emit('close')"><i class="bi bi-x-lg"></i></button>
       </div>
 
-      <div class="d-flex" style="height: 540px">
+      <div class="d-flex" style="height: 580px">
         <!-- left sidebar: parameters -->
-        <div class="border-end p-3 d-flex flex-column" style="width: 270px; flex-shrink: 0">
-          <div class="vstack gap-3 overflow-auto" style="flex: 1">
+        <div class="border-end p-3 d-flex flex-column" style="width: 300px; flex-shrink: 0">
+          <div class="vstack gap-2 overflow-auto" style="flex: 1">
             <div>
               <label class="form-label small mb-1">{{ t('plot.size') }}: <b>{{ size.toFixed(1) }}</b></label>
               <input type="range" class="form-range" min="1" max="6" step="0.1" v-model.number="size" />
             </div>
-            <div>
-              <label class="form-label small mb-1">{{ t('comp.color') }}</label>
-              <div class="d-flex align-items-center gap-2">
-                <input type="color" class="form-control form-control-color" v-model="color" />
-                <code class="small">{{ color }}</code>
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label small mb-1">{{ t('plot.pointColor') }}</label>
+                <div class="d-flex align-items-center gap-1">
+                  <input type="color" class="form-control form-control-color" v-model="color" />
+                  <code class="small">{{ color }}</code>
+                </div>
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1">{{ t('plot.lineColor') }}</label>
+                <div class="d-flex align-items-center gap-1">
+                  <input type="color" class="form-control form-control-color" v-model="lineColor" />
+                  <code class="small">{{ lineColor }}</code>
+                </div>
               </div>
             </div>
             <div>
               <label class="form-label small mb-1">{{ t('plot.fontSize') }}: <b>{{ baseSize }}</b></label>
               <input type="range" class="form-range" min="8" max="20" step="1" v-model.number="baseSize" />
+            </div>
+            <div>
+              <label class="form-label small mb-1">{{ t('plot.axisSize') }}: <b>{{ axisSize }}</b></label>
+              <input type="range" class="form-range" min="6" max="20" step="1" v-model.number="axisSize" />
+            </div>
+            <div>
+              <label class="form-label small mb-1">{{ t('plot.axisColor') }}</label>
+              <div class="d-flex align-items-center gap-1">
+                <input type="color" class="form-control form-control-color" v-model="axisColor" />
+                <code class="small">{{ axisColor }}</code>
+              </div>
             </div>
             <div class="row g-2">
               <div class="col-6">
@@ -94,7 +129,7 @@ function download() {
             </div>
           </div>
 
-          <div class="vstack gap-2 mt-3 pt-3 border-top">
+          <div class="vstack gap-2 mt-2 pt-3 border-top">
             <div>
               <label class="form-label small mb-1">{{ t('plot.format') }}</label>
               <select class="form-select form-select-sm" v-model="format">
@@ -135,7 +170,7 @@ function download() {
   background: #fff;
   border-radius: 10px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  width: min(920px, 94vw);
+  width: min(980px, 96vw);
   overflow: hidden;
 }
 </style>

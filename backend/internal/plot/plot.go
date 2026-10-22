@@ -19,11 +19,14 @@ var sftScript []byte
 // PlotParams are optional styling parameters forwarded to the R script.
 // Zero values are omitted, so the R script falls back to its defaults.
 type PlotParams struct {
-	Size     float64 // point size
-	Color    string  // hex color
-	BaseSize float64 // font size (pt)
-	Width    float64 // output width (inches)
-	Height   float64 // output height (inches)
+	Size      float64 // point size
+	Color     string  // point color (hex)
+	LineColor string  // line color (hex)
+	BaseSize  float64 // font size (pt)
+	AxisSize  float64 // axis text size (pt)
+	AxisColor string  // axis text/line/tick color (hex)
+	Width     float64 // output width (inches)
+	Height    float64 // output height (inches)
 }
 
 // rArgs renders non-zero params as R script arguments.
@@ -35,8 +38,17 @@ func (p PlotParams) rArgs() []string {
 	if p.Color != "" {
 		args = append(args, "--color", p.Color)
 	}
+	if p.LineColor != "" {
+		args = append(args, "--line-color", p.LineColor)
+	}
 	if p.BaseSize != 0 {
 		args = append(args, "--base-size", fmt.Sprintf("%g", p.BaseSize))
+	}
+	if p.AxisSize != 0 {
+		args = append(args, "--axis-size", fmt.Sprintf("%g", p.AxisSize))
+	}
+	if p.AxisColor != "" {
+		args = append(args, "--axis-color", p.AxisColor)
 	}
 	if p.Width != 0 {
 		args = append(args, "--width", fmt.Sprintf("%g", p.Width))
