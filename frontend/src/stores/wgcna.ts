@@ -145,7 +145,7 @@ export const useWgcnaStore = defineStore('wgcna', () => {
     error.value = ''
     clearDownstream(step)
     try {
-      await runStepApi(jobId.value, step)
+      await runStepApi(jobId.value, step, params())
       await waitForDone()
       await loadStep(step)
     } catch (e) {
