@@ -85,6 +85,8 @@ export interface MtaitResult {
   cor: number[][]
   p: number[][]
   eigengenes: number[][]
+  genes: string[]
+  kme: number[][]
 }
 
 export interface DetailResult {
@@ -95,6 +97,7 @@ export interface DetailResult {
   mm: number[]
   expression: number[][]
   eigengene: number[]
+  samples: string[]
 }
 
 export interface FitIndex {
@@ -132,10 +135,27 @@ export interface HubGene {
   gs: number
 }
 
+export interface NetNode {
+  id: string
+  color: string
+}
+
+export interface NetEdge {
+  source: string
+  target: string
+  weight: number
+}
+
+export interface NetworkResult {
+  nodes: NetNode[]
+  edges: NetEdge[]
+}
+
 export interface HubResult {
   module: string
   trait_name: string
   hub_genes: HubGene[]
+  network: NetworkResult
 }
 
 export async function getResult<T>(id: string, step: string): Promise<T> {

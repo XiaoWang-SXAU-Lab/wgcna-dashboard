@@ -8,8 +8,10 @@ import { analyzeError } from '../utils/aiBus'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
 import { t } from '../utils/i18n'
 import StepStatusBadge from '../components/StepStatusBadge.vue'
+import PlotDownloadWidget from '../components/PlotDownloadWidget.vue'
 
 const store = useWgcnaStore()
+const showExport = ref(false)
 
 const moduleSizeRows = computed(() => {
   const sizes = store.modules?.module_sizes ?? {}
@@ -75,9 +77,14 @@ const geneRows = computed(() => (store.modules?.genes ?? []).map((g, i) => ({ ge
         </div>
       </div>
     </template>
-      <div class="mb-3">
-        <h4 class="mb-1 d-flex align-items-center gap-2">{{ t('net.title') }} <StepStatusBadge step="network" /></h4>
-        <p class="text-muted small mb-0">{{ t('net.desc') }}</p>
+      <div class="mb-3 d-flex align-items-start gap-2">
+        <div class="flex-grow-1">
+          <h4 class="mb-1 d-flex align-items-center gap-2">{{ t('net.title') }} <StepStatusBadge step="network" /></h4>
+          <p class="text-muted small mb-0">{{ t('net.desc') }}</p>
+        </div>
+        <button v-if="store.modules" class="btn btn-sm btn-outline-primary" @click="showExport = true">
+          <i class="bi bi-download me-1"></i>{{ t('plot.export') }}
+        </button>
       </div>
       <div v-if="store.error" class="alert alert-danger d-flex align-items-center gap-2 py-2">
         <i class="bi bi-exclamation-triangle-fill"></i>
@@ -93,6 +100,7 @@ const geneRows = computed(() => (store.modules?.genes ?? []).map((g, i) => ({ ge
         </div>
         <DendrogramChart :genes="store.modules.genes" :colors="store.modules.colors" :dendrogram="store.modules.dendrogram" />
         <SimpleTable class="mt-3" :columns="[{ key: 'gene', label: t('net.col.gene') }, { key: 'color', label: t('net.col.module') }]" :rows="geneRows" scroll-height="500px" filename="gene_module" />
+        <PlotDownloadWidget kind="dendrogram" :show="showExport" @close="showExport = false" />
       </div>
       <p v-else class="text-muted">{{ t('net.empty') }}</p>
   </SidebarDrawer>

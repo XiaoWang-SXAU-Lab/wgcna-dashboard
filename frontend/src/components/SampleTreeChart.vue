@@ -51,7 +51,7 @@ const option = computed<EChartsOption>(() => {
     xAxis: { type: 'value', min: -0.5, max: n - 0.5, show: false },
     yAxis: {
       type: 'value', min: lowestLeafY - 0.08 * span, max: maxH * 1.03,
-      name: 'Height', nameLocation: 'middle', nameGap: 40,
+      name: 'Height', nameLocation: 'middle', nameRotate: 90, nameGap: 55,
       axisLabel: { formatter: (v: number) => (v < minH ? '' : v.toFixed(2)) },
       splitLine: { show: true, lineStyle: { color: '#eef1f4', type: 'dashed' } },
     },

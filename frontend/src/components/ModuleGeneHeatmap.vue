@@ -30,7 +30,9 @@ const option = computed<EChartsOption>(() => {
   const genes = props.data.genes
   const z = zscore(props.data.expression)
   const nSamples = z[0]?.length ?? 0
-  const sampleLabels = Array.from({ length: nSamples }, (_, i) => 'S' + (i + 1))
+  const sampleLabels = props.data.samples?.length === nSamples
+    ? props.data.samples
+    : Array.from({ length: nSamples }, (_, i) => 'S' + (i + 1))
   const eigengene = props.data.eigengene ?? []
 
   const heat: [number, number, number][] = []

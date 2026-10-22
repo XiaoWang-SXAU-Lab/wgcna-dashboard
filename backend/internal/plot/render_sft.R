@@ -42,6 +42,7 @@ axis_size   <- as.numeric(get_arg("--axis-size", base_size - 2))
 axis_color  <- get_arg("--axis-color", "#333333")
 width       <- as.numeric(get_arg("--width", "10"))
 height      <- as.numeric(get_arg("--height", "4.6"))
+dpi         <- as.numeric(get_arg("--dpi", "150"))
 
 d <- fromJSON(json_path, simplifyVector = TRUE)
 fit <- d$fit_indices
@@ -84,7 +85,7 @@ if (mode == "pdf") {
 } else if (mode == "svg") {
   ggsave(out, combined, width = width, height = height, device = "svg")
 } else {
-  ggsave(out, combined, width = width, height = height, dpi = 150, device = "png")
+  ggsave(out, combined, width = width, height = height, dpi = dpi, device = "png")
 }
 
 cat("done:", out, "\n")

@@ -13,6 +13,7 @@ import StepStatusBadge from '../components/StepStatusBadge.vue'
 const store = useWgcnaStore()
 
 const showExport = ref(false)
+const showExportCheck = ref(false)
 
 const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
   power: f.power, rsq: f.rsq.toFixed(3), slope: f.slope.toFixed(3),
@@ -64,11 +65,17 @@ const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
         </div>
         <SftPlot :data="store.sft" :rsquared-cut="store.rsquaredCut" />
         <template v-if="store.sft.scale_free_check">
-          <h6 class="fw-semibold mt-4 mb-2"><i class="bi bi-graph-up me-1"></i>{{ t('sft.checkTitle') }}</h6>
+          <div class="d-flex align-items-center mt-4 mb-2">
+            <h6 class="fw-semibold mb-0"><i class="bi bi-graph-up me-1"></i>{{ t('sft.checkTitle') }}</h6>
+            <button class="btn btn-sm btn-outline-primary ms-auto" @click="showExportCheck = true">
+              <i class="bi bi-download me-1"></i>{{ t('plot.export') }}
+            </button>
+          </div>
           <SftCheckChart :data="store.sft.scale_free_check" />
         </template>
         <SimpleTable :columns="[{ key: 'power', label: t('sft.col.power') }, { key: 'rsq', label: t('sft.col.rsq') }, { key: 'slope', label: t('sft.col.slope') }, { key: 'mean_k', label: t('sft.col.meanK') }, { key: 'median_k', label: t('sft.col.medianK') }, { key: 'max_k', label: t('sft.col.maxK') }]" :rows="rows" filename="sft" />
         <PlotDownloadWidget kind="sft" :rsq-cut="store.rsquaredCut" :show="showExport" @close="showExport = false" />
+        <PlotDownloadWidget kind="sft-check" :show="showExportCheck" @close="showExportCheck = false" />
       </div>
       <p v-else class="text-muted">{{ t('sft.empty') }}</p>
   </SidebarDrawer>

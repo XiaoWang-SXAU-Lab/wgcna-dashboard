@@ -16,6 +16,21 @@ var dendrogramScript []byte
 //go:embed render_sft.R
 var sftScript []byte
 
+//go:embed render_sft_check.R
+var sftCheckScript []byte
+
+//go:embed render_mtrait.R
+var mtraitScript []byte
+
+//go:embed render_eigengene.R
+var eigengeneScript []byte
+
+//go:embed render_gsmm.R
+var gsmmScript []byte
+
+//go:embed render_geneheatmap.R
+var geneHeatmapScript []byte
+
 // PlotParams are optional styling parameters forwarded to the R script.
 // Zero values are omitted, so the R script falls back to its defaults.
 type PlotParams struct {
@@ -25,8 +40,12 @@ type PlotParams struct {
 	BaseSize  float64 // font size (pt)
 	AxisSize  float64 // axis text size (pt)
 	AxisColor string  // axis text/line/tick color (hex)
+	Low       string  // heatmap low color (hex)
+	Mid       string  // heatmap mid color (hex)
+	High      string  // heatmap high color (hex)
 	Width     float64 // output width (inches)
 	Height    float64 // output height (inches)
+	Dpi       float64 // raster resolution (PNG only)
 }
 
 // rArgs renders non-zero params as R script arguments.
@@ -56,19 +75,36 @@ func (p PlotParams) rArgs() []string {
 	if p.Height != 0 {
 		args = append(args, "--height", fmt.Sprintf("%g", p.Height))
 	}
+	if p.Dpi != 0 {
+		args = append(args, "--dpi", fmt.Sprintf("%g", p.Dpi))
+	}
+	if p.Low != "" {
+		args = append(args, "--low", p.Low)
+	}
+	if p.Mid != "" {
+		args = append(args, "--mid", p.Mid)
+	}
+	if p.High != "" {
+		args = append(args, "--high", p.High)
+	}
 	return args
 }
 
 // RenderDendrogram renders the module dendrogram (from step3_modules.json).
-// mode is "static" (PNG) or "interactive" (self-contained HTML).
-func RenderDendrogram(jsonPath, mode string) (string, string, error) {
-	out := "dendro.png"
-	ctype := "image/png"
-	if mode == "interactive" {
-		out = "dendro.html"
-		ctype = "text/html; charset=utf-8"
+// mode is "pdf", "svg", "png"/"static" or "interactive" (self-contained HTML).
+func RenderDendrogram(jsonPath, mode string, params PlotParams) (string, string, error) {
+	args := []string{"--json", jsonPath, "--mode", mode}
+	args = append(args, params.rArgs()...)
+	switch mode {
+	case "pdf":
+		return renderR(dendrogramScript, args, "dendro.pdf", "application/pdf")
+	case "svg":
+		return renderR(dendrogramScript, args, "dendro.svg", "image/svg+xml")
+	case "interactive":
+		return renderR(dendrogramScript, args, "dendro.html", "text/html; charset=utf-8")
+	default:
+		return renderR(dendrogramScript, args, "dendro.png", "image/png")
 	}
-	return renderR(dendrogramScript, []string{"--json", jsonPath, "--mode", mode}, out, ctype)
 }
 
 // RenderSft renders the soft-threshold plot (scale-free fit R² and mean
@@ -83,6 +119,77 @@ func RenderSft(jsonPath, mode, rsqCut string, params PlotParams) (string, string
 		return renderR(sftScript, args, "sft.svg", "image/svg+xml")
 	default:
 		return renderR(sftScript, args, "sft.png", "image/png")
+	}
+}
+
+// RenderSftCheck renders the scale-free topology check (connectivity histogram
+// + log-log regression) from step2_sft.json. mode is "pdf", "svg" or "png".
+func RenderSftCheck(jsonPath, mode string, params PlotParams) (string, string, error) {
+	args := []string{"--json", jsonPath, "--mode", mode}
+	args = append(args, params.rArgs()...)
+	switch mode {
+	case "pdf":
+		return renderR(sftCheckScript, args, "sft_check.pdf", "application/pdf")
+	case "svg":
+		return renderR(sftCheckScript, args, "sft_check.svg", "image/svg+xml")
+	default:
+		return renderR(sftCheckScript, args, "sft_check.png", "image/png")
+	}
+}
+
+// RenderMtrait renders the module-trait correlation heatmap from step4_mtrait.json.
+func RenderMtrait(jsonPath, mode string, params PlotParams) (string, string, error) {
+	args := []string{"--json", jsonPath, "--mode", mode}
+	args = append(args, params.rArgs()...)
+	switch mode {
+	case "pdf":
+		return renderR(mtraitScript, args, "mtrait.pdf", "application/pdf")
+	case "svg":
+		return renderR(mtraitScript, args, "mtrait.svg", "image/svg+xml")
+	default:
+		return renderR(mtraitScript, args, "mtrait.png", "image/png")
+	}
+}
+
+// RenderGsmm renders the GS vs MM scatter (module-colored points + lm line).
+func RenderGsmm(jsonPath, mode string, params PlotParams) (string, string, error) {
+	args := []string{"--json", jsonPath, "--mode", mode}
+	args = append(args, params.rArgs()...)
+	switch mode {
+	case "pdf":
+		return renderR(gsmmScript, args, "gsmm.pdf", "application/pdf")
+	case "svg":
+		return renderR(gsmmScript, args, "gsmm.svg", "image/svg+xml")
+	default:
+		return renderR(gsmmScript, args, "gsmm.png", "image/png")
+	}
+}
+
+// RenderGeneHeatmap renders the module gene heatmap + eigengene barplot.
+func RenderGeneHeatmap(jsonPath, mode string, params PlotParams) (string, string, error) {
+	args := []string{"--json", jsonPath, "--mode", mode}
+	args = append(args, params.rArgs()...)
+	switch mode {
+	case "pdf":
+		return renderR(geneHeatmapScript, args, "geneheatmap.pdf", "application/pdf")
+	case "svg":
+		return renderR(geneHeatmapScript, args, "geneheatmap.svg", "image/svg+xml")
+	default:
+		return renderR(geneHeatmapScript, args, "geneheatmap.png", "image/png")
+	}
+}
+
+// RenderEigengene renders the module eigengene adjacency heatmap.
+func RenderEigengene(jsonPath, mode string, params PlotParams) (string, string, error) {
+	args := []string{"--json", jsonPath, "--mode", mode}
+	args = append(args, params.rArgs()...)
+	switch mode {
+	case "pdf":
+		return renderR(eigengeneScript, args, "eigengene.pdf", "application/pdf")
+	case "svg":
+		return renderR(eigengeneScript, args, "eigengene.svg", "image/svg+xml")
+	default:
+		return renderR(eigengeneScript, args, "eigengene.png", "image/png")
 	}
 }
 

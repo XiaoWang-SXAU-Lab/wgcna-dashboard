@@ -33,6 +33,11 @@ export const useWgcnaStore = defineStore('wgcna', () => {
   const modules = ref<ModulesResult | null>(null)
   const mtait = ref<MtaitResult | null>(null)
   const detail = ref<DetailResult | null>(null)
+const selectedModule = ref('')
+const selectedTrait = ref('')
+const kmeCutoff = ref(0.5)
+const gsCutoff = ref(0.5)
+const weightThreshold = ref(0.02)
   const hub = ref<HubResult | null>(null)
   const filterResult = ref<FilterResult | null>(null)
 
@@ -43,6 +48,8 @@ export const useWgcnaStore = defineStore('wgcna', () => {
       filter: { normalize_method: normalizeMethod.value, n_keep: nKeep.value, filter_method: filterMethod.value, sample_percentage: samplePercentage.value, cutoff: cutoff.value },
       soft_threshold: { network_type: sftNetworkType.value, rsquared_cut: rsquaredCut.value },
       network: { power: power.value, network_type: netNetworkType.value, tom_type: tomType.value, tom_denom: tomDenom.value, min_module_size: minModuleSize.value, merge_cut_height: mergeCutHeight.value, deep_split: deepSplit.value, detect_cut_height: detectCutHeight.value },
+      module_detail: { select_module: selectedModule.value, select_trait: selectedTrait.value },
+      hub: { select_module: selectedModule.value, select_trait: selectedTrait.value, kme_cutoff: kmeCutoff.value, gs_cutoff: gsCutoff.value, weight_threshold: weightThreshold.value, power: power.value },
     }
   }
 
@@ -199,7 +206,7 @@ export const useWgcnaStore = defineStore('wgcna', () => {
     jobId, job, exprFile, traitFile, nKeep, normalizeMethod, filterMethod, samplePercentage, cutoff,
     rsquaredCut, sftNetworkType, power, netNetworkType, tomType, tomDenom, minModuleSize, mergeCutHeight, deepSplit, detectCutHeight,
     traitUploaded, stepRunning, error,
-    sft, modules, mtait, detail, hub, filterResult, created,
+    sft, modules, mtait, detail, hub, filterResult, created, selectedModule, selectedTrait, kmeCutoff, gsCutoff, weightThreshold,
     createJobAndUpload, runStep, removeSamples, refresh, isDone, stepReady, stepStatus,
   }
 })

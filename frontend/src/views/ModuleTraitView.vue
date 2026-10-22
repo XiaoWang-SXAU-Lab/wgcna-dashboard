@@ -8,8 +8,25 @@ import { analyzeError } from '../utils/aiBus'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
 import { t } from '../utils/i18n'
 import StepStatusBadge from '../components/StepStatusBadge.vue'
+import PlotDownloadWidget from '../components/PlotDownloadWidget.vue'
 
 const store = useWgcnaStore()
+const showExportMtrait = ref(false)
+const showExportEigengene = ref(false)
+
+const kmeRows = computed(() => {
+  if (!store.mtait?.kme || !store.mtait.genes) return []
+  const mods = store.mtait.modules
+  return store.mtait.genes.map((g, i) => {
+    const row: Record<string, string> = { gene: g }
+    mods.forEach((m, j) => { row[m] = (store.mtait!.kme[i]?.[j] ?? 0).toFixed(4) })
+    return row
+  })
+})
+const kmeColumns = computed(() => [
+  { key: 'gene', label: t('mt.col.gene') },
+  ...(store.mtait?.modules ?? []).map((m) => ({ key: m, label: 'MM.' + m })),
+])
 
 const mtraitRows = computed(() => {
   if (!store.mtait) return []
@@ -35,9 +52,15 @@ const mtraitRows = computed(() => {
         </button>
       </div>
     </template>
-      <div class="mb-3">
-        <h4 class="mb-1 d-flex align-items-center gap-2">{{ t('mt.title') }} <StepStatusBadge step="module_trait" /></h4>
-        <p class="text-muted small mb-0">{{ t('mt.desc') }}</p>
+      <div class="mb-3 d-flex align-items-start gap-2">
+        <div class="flex-grow-1">
+          <h4 class="mb-1 d-flex align-items-center gap-2">{{ t('mt.title') }} <StepStatusBadge step="module_trait" /></h4>
+          <p class="text-muted small mb-0">{{ t('mt.desc') }}</p>
+        </div>
+        <div v-if="store.mtait" class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-primary" @click="showExportMtrait = true"><i class="bi bi-download me-1"></i>{{ t('mt.exportHeatmap') }}</button>
+          <button class="btn btn-sm btn-outline-primary" @click="showExportEigengene = true"><i class="bi bi-download me-1"></i>{{ t('mt.exportEigengene') }}</button>
+        </div>
       </div>
       <div v-if="store.error" class="alert alert-danger d-flex align-items-center gap-2 py-2">
         <i class="bi bi-exclamation-triangle-fill"></i>
@@ -50,6 +73,10 @@ const mtraitRows = computed(() => {
           <div class="col-lg-5"><EigengeneHeatmap :data="store.mtait" /></div>
         </div>
         <SimpleTable :columns="[{ key: 'module', label: t('mt.col.module') }, { key: 'trait', label: t('mt.col.trait') }, { key: 'cor', label: t('mt.col.cor') }, { key: 'p', label: t('mt.col.p') }]" :rows="mtraitRows" filename="module_trait" />
+        <h6 class="mt-4 mb-2">{{ t('mt.kme') }}</h6>
+        <SimpleTable :columns="kmeColumns" :rows="kmeRows" filename="kme" />
+        <PlotDownloadWidget kind="mtrait" :show="showExportMtrait" @close="showExportMtrait = false" />
+        <PlotDownloadWidget kind="eigengene" :show="showExportEigengene" @close="showExportEigengene = false" />
       </div>
       <p v-else class="text-muted">{{ t('mt.empty') }}</p>
   </SidebarDrawer>

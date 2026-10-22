@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import type { EChartsOption } from 'echarts'
 import type { DetailResult } from '../api/client'
 import { pearson, linearRegression, corPvalueStudent } from '../utils/stats'
+import { moduleColor } from '../utils/colors'
 import ResizableChart from './ResizableChart.vue'
 import { t } from '../utils/i18n'
 
 const props = defineProps<{ data: DetailResult }>()
-const pointColor = ref('#2563eb')
 
 const option = computed<EChartsOption>(() => {
-  // Match the Shiny app's getverboseplot: x = |MM|, y = |GS|, with an lm line.
   const xs = props.data.mm.map((m) => Math.abs(m))
   const ys = props.data.gs.map((g) => Math.abs(g))
   const points = xs.map((x, i) => [x, ys[i]])
@@ -23,18 +22,13 @@ const option = computed<EChartsOption>(() => {
   const { slope, intercept } = linearRegression(xs, ys)
   const xmin = Math.min(...xs)
   const xmax = Math.max(...xs)
-  const line = [
-    [xmin, slope * xmin + intercept],
-    [xmax, slope * xmax + intercept],
-  ]
+  const line = [[xmin, slope * xmin + intercept], [xmax, slope * xmax + intercept]]
 
   return {
     title: {
       text: t('gs.title') + '（' + props.data.module + ' / ' + props.data.trait_name + '）',
       subtext: 'cor = ' + corText + '　p = ' + pText,
-      left: 'center',
-      textStyle: { fontSize: 14 },
-      subtextStyle: { fontSize: 12, color: '#6b7280' },
+      left: 'center', textStyle: { fontSize: 14 }, subtextStyle: { fontSize: 12, color: '#6b7280' },
     },
     tooltip: {
       trigger: 'item',
@@ -46,27 +40,18 @@ const option = computed<EChartsOption>(() => {
         return gene + '<br/>|MM| = ' + mm.toFixed(4) + '<br/>|GS| = ' + gs.toFixed(4)
       },
     },
-    xAxis: { type: 'value', name: 'Module Membership (|MM|)', min: 0 },
-    yAxis: { type: 'value', name: 'Gene Significance (|GS|)', min: 0 },
+    xAxis: { type: 'value', name: 'Module Membership (|MM|)', nameLocation: 'middle', nameGap: 32, min: 0 },
+    yAxis: { type: 'value', name: 'Gene Significance (|GS|)', nameLocation: 'middle', nameRotate: 90, nameGap: 55, min: 0 },
     toolbox: {
       right: 10, top: 10,
       feature: { saveAsImage: { title: t('comp.downloadPng'), name: 'gs_mm_scatter', pixelRatio: 2, backgroundColor: '#ffffff' } },
     },
     series: [
       {
-        type: 'scatter',
-        data: points,
-        symbolSize: 8,
-        itemStyle: { color: pointColor.value, opacity: 0.55 },
+        type: 'scatter', data: points, symbolSize: 8,
+        itemStyle: { color: moduleColor(props.data.module), opacity: 0.6 },
       },
-      {
-        type: 'line',
-        data: line,
-        lineStyle: { color: '#e11d48', width: 2 },
-        symbol: 'none',
-        silent: true,
-        z: 10,
-      },
+      { type: 'line', data: line, lineStyle: { color: '#e11d48', width: 2 }, symbol: 'none', silent: true, z: 10 },
     ],
   }
 })
@@ -74,10 +59,6 @@ const option = computed<EChartsOption>(() => {
 
 <template>
   <div>
-    <div class="d-flex align-items-center gap-2 mb-2">
-      <span class="text-muted small">{{ t('comp.pointColor') }}</span>
-      <input type="color" v-model="pointColor" class="form-control form-control-color" />
-    </div>
     <ResizableChart :option="option" />
   </div>
 </template>

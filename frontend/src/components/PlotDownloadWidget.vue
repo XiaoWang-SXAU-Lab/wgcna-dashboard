@@ -4,13 +4,12 @@ import { useWgcnaStore } from '../stores/wgcna'
 import { plotUrl } from '../api/client'
 import { t } from '../utils/i18n'
 
-// Publication-quality export dialog: left = parameters (point size / point
-// color / line color / font size / axis text size / axis color / dimensions
-// + format select + download), right = live preview. Preview and download
-// share the same parameters → WYSIWYG.
 const props = defineProps<{ kind: string; rsqCut?: number; show: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 const store = useWgcnaStore()
+
+const isSimple = computed(() => props.kind === 'dendrogram')
+const isHeatmap = computed(() => props.kind === 'mtrait' || props.kind === 'eigengene' || props.kind === 'geneheatmap')
 
 const size = ref(2.4)
 const color = ref('#5470c6')
@@ -18,25 +17,30 @@ const lineColor = ref('#5470c6')
 const baseSize = ref(13)
 const axisSize = ref(11)
 const axisColor = ref('#333333')
+const lowColor = ref('#4575b4')
+const midColor = ref('#ffffff')
+const highColor = ref('#d73027')
 const width = ref(10)
-const height = ref(4.6)
+const height = ref(8)
+const dpi = ref(150)
 const format = ref<'pdf' | 'svg' | 'png'>('pdf')
 
-// Debounced params drive the preview (so rapid slider drags don't spam R).
 const preview = ref({
   size: size.value, color: color.value, lineColor: lineColor.value,
   baseSize: baseSize.value, axisSize: axisSize.value, axisColor: axisColor.value,
-  width: width.value, height: height.value,
+  lowColor: lowColor.value, midColor: midColor.value, highColor: highColor.value,
+  width: width.value, height: height.value, dpi: dpi.value,
 })
 const loading = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
-watch([size, color, lineColor, baseSize, axisSize, axisColor, width, height], () => {
+watch([size, color, lineColor, baseSize, axisSize, axisColor, lowColor, midColor, highColor, width, height, dpi], () => {
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => {
     preview.value = {
       size: size.value, color: color.value, lineColor: lineColor.value,
       baseSize: baseSize.value, axisSize: axisSize.value, axisColor: axisColor.value,
-      width: width.value, height: height.value,
+      lowColor: lowColor.value, midColor: midColor.value, highColor: highColor.value,
+      width: width.value, height: height.value, dpi: dpi.value,
     }
     loading.value = true
   }, 350)
@@ -45,15 +49,19 @@ watch(() => props.show, (v) => { if (v) loading.value = true })
 
 function baseParams(mode: string): Record<string, string | number> {
   const p: Record<string, string | number> = {
-    mode,
-    size: preview.value.size,
-    color: preview.value.color,
-    line_color: preview.value.lineColor,
-    base_size: preview.value.baseSize,
-    axis_size: preview.value.axisSize,
-    axis_color: preview.value.axisColor,
-    width: preview.value.width,
-    height: preview.value.height,
+    mode, width: preview.value.width, height: preview.value.height, dpi: preview.value.dpi,
+  }
+  if (isHeatmap.value) {
+    p.low = preview.value.lowColor
+    p.mid = preview.value.midColor
+    p.high = preview.value.highColor
+  } else if (!isSimple.value) {
+    p.size = preview.value.size
+    p.color = preview.value.color
+    p.line_color = preview.value.lineColor
+    p.base_size = preview.value.baseSize
+    p.axis_size = preview.value.axisSize
+    p.axis_color = preview.value.axisColor
   }
   if (props.rsqCut != null) p.rsq_cut = props.rsqCut
   return p
@@ -79,44 +87,62 @@ function download() {
       </div>
 
       <div class="d-flex" style="height: 620px">
-        <!-- left sidebar: parameters (scrollable as a whole) -->
         <div class="border-end overflow-auto flex-shrink-0" style="width: 300px">
           <div class="p-3 d-flex flex-column gap-2">
-            <div>
-              <label class="form-label small mb-1">{{ t('plot.size') }}: <b>{{ size.toFixed(1) }}</b></label>
-              <input type="range" class="form-range" min="1" max="6" step="0.1" v-model.number="size" />
-            </div>
-            <div class="row g-2">
-              <div class="col-6">
-                <label class="form-label small mb-1">{{ t('plot.pointColor') }}</label>
-                <div class="d-flex align-items-center gap-1">
-                  <input type="color" class="form-control form-control-color" v-model="color" />
-                  <code class="small">{{ color }}</code>
+            <template v-if="isHeatmap">
+              <div class="row g-2">
+                <div class="col-4">
+                  <label class="form-label small mb-1">{{ t('comp.low') }}</label>
+                  <input type="color" class="form-control form-control-color" v-model="lowColor" />
+                </div>
+                <div class="col-4">
+                  <label class="form-label small mb-1">{{ t('comp.mid') }}</label>
+                  <input type="color" class="form-control form-control-color" v-model="midColor" />
+                </div>
+                <div class="col-4">
+                  <label class="form-label small mb-1">{{ t('comp.high') }}</label>
+                  <input type="color" class="form-control form-control-color" v-model="highColor" />
                 </div>
               </div>
-              <div class="col-6">
-                <label class="form-label small mb-1">{{ t('plot.lineColor') }}</label>
-                <div class="d-flex align-items-center gap-1">
-                  <input type="color" class="form-control form-control-color" v-model="lineColor" />
-                  <code class="small">{{ lineColor }}</code>
+            </template>
+            <template v-if="!isSimple && !isHeatmap">
+              <div>
+                <label class="form-label small mb-1">{{ t('plot.size') }}: <b>{{ size.toFixed(1) }}</b></label>
+                <input type="range" class="form-range" min="1" max="6" step="0.1" v-model.number="size" />
+              </div>
+              <div class="row g-2">
+                <div class="col-6">
+                  <label class="form-label small mb-1">{{ t('plot.pointColor') }}</label>
+                  <div class="d-flex align-items-center gap-1">
+                    <input type="color" class="form-control form-control-color" v-model="color" />
+                    <code class="small">{{ color }}</code>
+                  </div>
+                </div>
+                <div class="col-6">
+                  <label class="form-label small mb-1">{{ t('plot.lineColor') }}</label>
+                  <div class="d-flex align-items-center gap-1">
+                    <input type="color" class="form-control form-control-color" v-model="lineColor" />
+                    <code class="small">{{ lineColor }}</code>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div>
-              <label class="form-label small mb-1">{{ t('plot.fontSize') }}: <b>{{ baseSize }}</b></label>
-              <input type="range" class="form-range" min="8" max="20" step="1" v-model.number="baseSize" />
-            </div>
-            <div>
-              <label class="form-label small mb-1">{{ t('plot.axisSize') }}: <b>{{ axisSize }}</b></label>
-              <input type="range" class="form-range" min="6" max="20" step="1" v-model.number="axisSize" />
-            </div>
-            <div>
-              <label class="form-label small mb-1">{{ t('plot.axisColor') }}</label>
-              <div class="d-flex align-items-center gap-1">
-                <input type="color" class="form-control form-control-color" v-model="axisColor" />
-                <code class="small">{{ axisColor }}</code>
+              <div>
+                <label class="form-label small mb-1">{{ t('plot.fontSize') }}: <b>{{ baseSize }}</b></label>
+                <input type="range" class="form-range" min="8" max="20" step="1" v-model.number="baseSize" />
               </div>
-            </div>
+              <div>
+                <label class="form-label small mb-1">{{ t('plot.axisSize') }}: <b>{{ axisSize }}</b></label>
+                <input type="range" class="form-range" min="6" max="20" step="1" v-model.number="axisSize" />
+              </div>
+              <div>
+                <label class="form-label small mb-1">{{ t('plot.axisColor') }}</label>
+                <div class="d-flex align-items-center gap-1">
+                  <input type="color" class="form-control form-control-color" v-model="axisColor" />
+                  <code class="small">{{ axisColor }}</code>
+                </div>
+              </div>
+            </template>
+
             <div class="row g-2">
               <div class="col-6">
                 <label class="form-label small mb-1">{{ t('plot.width') }}</label>
@@ -126,6 +152,10 @@ function download() {
                 <label class="form-label small mb-1">{{ t('plot.height') }}</label>
                 <input type="number" class="form-control form-control-sm" min="2" max="24" step="0.1" v-model.number="height" />
               </div>
+            </div>
+            <div>
+              <label class="form-label small mb-1">{{ t('plot.dpi') }}</label>
+              <input type="number" class="form-control form-control-sm" min="72" max="600" step="1" v-model.number="dpi" />
             </div>
 
             <hr class="my-1" />
@@ -144,7 +174,6 @@ function download() {
           </div>
         </div>
 
-        <!-- right: live preview -->
         <div class="flex-grow-1 p-3 bg-light position-relative d-flex align-items-center justify-content-center overflow-auto">
           <img v-if="previewUrl" :key="previewUrl" :src="previewUrl" :class="{ 'opacity-50': loading }" @load="loading = false" alt="preview" style="max-width: 100%; max-height: 100%; object-fit: contain" />
           <div v-if="loading" class="position-absolute top-50 start-50 translate-middle">
@@ -157,21 +186,6 @@ function download() {
 </template>
 
 <style scoped>
-.plot-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1050;
-}
-.plot-modal {
-  background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  width: min(980px, 96vw);
-  max-height: 92vh;
-  overflow: hidden;
-}
+.plot-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1050; }
+.plot-modal { background: #fff; border-radius: 10px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); width: min(980px, 96vw); max-height: 92vh; overflow: hidden; }
 </style>

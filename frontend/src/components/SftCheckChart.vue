@@ -12,8 +12,8 @@ const hist = computed<EChartsOption>(() => ({
   title: { text: `${t('sft.connHist')} (power = ${props.data.power})`, left: 'center', textStyle: { fontSize: 14 } },
   tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
   grid: { left: 60, right: 20, top: 50, bottom: 40 },
-  xAxis: { type: 'category', name: 'k', nameLocation: 'middle', nameGap: 28, data: props.data.hist_mids.map((m) => m.toFixed(1)) },
-  yAxis: { type: 'value', name: t('sft.freq') },
+  xAxis: { type: 'category', name: 'k', nameLocation: 'middle', nameGap: 32, data: props.data.hist_mids.map((m) => m.toFixed(1)) },
+  yAxis: { type: 'value', name: t('sft.freq'), nameLocation: 'middle', nameRotate: 90, nameGap: 55 },
   series: [{
     type: 'bar',
     data: props.data.hist_counts,
@@ -36,8 +36,8 @@ const loglog = computed<EChartsOption>(() => {
     },
     tooltip: { trigger: 'item' },
     grid: { left: 60, right: 20, top: 60, bottom: 40 },
-    xAxis: { type: 'value', name: 'log10(k)' },
-    yAxis: { type: 'value', name: 'log10(p(k))' },
+    xAxis: { type: 'value', name: 'log10(k)', nameLocation: 'middle', nameGap: 32 },
+    yAxis: { type: 'value', name: 'log10(p(k))', nameLocation: 'middle', nameRotate: 90, nameGap: 55 },
     series: [
       {
         type: 'scatter',

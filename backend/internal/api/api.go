@@ -34,6 +34,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/jobs/{id}/results/{step}", h.getResult)
 	mux.HandleFunc("GET /api/jobs/{id}/plots/dendrogram", h.plotDendrogram)
 	mux.HandleFunc("GET /api/jobs/{id}/plots/sft", h.plotSft)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/sft-check", h.plotSftCheck)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/mtrait", h.plotMtrait)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/eigengene", h.plotEigengene)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/gsmm", h.plotGsmm)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/geneheatmap", h.plotGeneHeatmap)
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
@@ -132,15 +137,26 @@ func (h *Handler) getResult(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) plotDendrogram(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	mode := r.URL.Query().Get("mode")
-	if mode != "interactive" {
-		mode = "static"
+	if mode == "" {
+		mode = "png"
+	}
+	params := plot.PlotParams{
+		Size:      qfloat(r, "size"),
+		Color:     r.URL.Query().Get("color"),
+		LineColor: r.URL.Query().Get("line_color"),
+		BaseSize:  qfloat(r, "base_size"),
+		AxisSize:  qfloat(r, "axis_size"),
+		AxisColor: r.URL.Query().Get("axis_color"),
+		Width:     qfloat(r, "width"),
+		Height:    qfloat(r, "height"),
+		Dpi:       qfloat(r, "dpi"),
 	}
 	jsonPath := filepath.Join(h.jobs.Dir(), id, "step3_modules.json")
 	if _, err := os.Stat(jsonPath); err != nil {
 		http.Error(w, "dendrogram not available", http.StatusNotFound)
 		return
 	}
-	out, ctype, err := plot.RenderDendrogram(jsonPath, mode)
+	out, ctype, err := plot.RenderDendrogram(jsonPath, mode, params)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -171,6 +187,7 @@ func (h *Handler) plotSft(w http.ResponseWriter, r *http.Request) {
 		AxisColor: r.URL.Query().Get("axis_color"),
 		Width:     qfloat(r, "width"),
 		Height:    qfloat(r, "height"),
+		Dpi:       qfloat(r, "dpi"),
 	}
 	jsonPath := filepath.Join(h.jobs.Dir(), id, "step2_sft.json")
 	if _, err := os.Stat(jsonPath); err != nil {
@@ -185,6 +202,165 @@ func (h *Handler) plotSft(w http.ResponseWriter, r *http.Request) {
 	defer os.RemoveAll(filepath.Dir(out))
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Content-Disposition", "attachment; filename=\"sft."+mode+"\"")
+	http.ServeFile(w, r, out)
+}
+
+// plotSftCheck renders the scale-free topology check via R (PDF/SVG/PNG).
+func (h *Handler) plotSftCheck(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	mode := r.URL.Query().Get("mode")
+	if mode != "pdf" && mode != "svg" {
+		mode = "png"
+	}
+	params := plot.PlotParams{
+		Size:      qfloat(r, "size"),
+		Color:     r.URL.Query().Get("color"),
+		LineColor: r.URL.Query().Get("line_color"),
+		BaseSize:  qfloat(r, "base_size"),
+		AxisSize:  qfloat(r, "axis_size"),
+		AxisColor: r.URL.Query().Get("axis_color"),
+		Width:     qfloat(r, "width"),
+		Height:    qfloat(r, "height"),
+		Dpi:       qfloat(r, "dpi"),
+	}
+	jsonPath := filepath.Join(h.jobs.Dir(), id, "step2_sft.json")
+	if _, err := os.Stat(jsonPath); err != nil {
+		http.Error(w, "sft result not available", http.StatusNotFound)
+		return
+	}
+	out, ctype, err := plot.RenderSftCheck(jsonPath, mode, params)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(filepath.Dir(out))
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", "attachment; filename=\"sft-check."+mode+"\"")
+	http.ServeFile(w, r, out)
+}
+
+// plotMtrait renders the module-trait heatmap via R (PDF/SVG/PNG).
+func (h *Handler) plotMtrait(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	mode := r.URL.Query().Get("mode")
+	if mode != "pdf" && mode != "svg" {
+		mode = "png"
+	}
+	params := plot.PlotParams{
+		Low:    r.URL.Query().Get("low"),
+		Mid:    r.URL.Query().Get("mid"),
+		High:   r.URL.Query().Get("high"),
+		Width:  qfloat(r, "width"),
+		Height: qfloat(r, "height"),
+		Dpi:    qfloat(r, "dpi"),
+	}
+	jsonPath := filepath.Join(h.jobs.Dir(), id, "step4_mtrait.json")
+	if _, err := os.Stat(jsonPath); err != nil {
+		http.Error(w, "module-trait result not available", http.StatusNotFound)
+		return
+	}
+	out, ctype, err := plot.RenderMtrait(jsonPath, mode, params)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(filepath.Dir(out))
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", "attachment; filename=\"mtrait."+mode+"\"")
+	http.ServeFile(w, r, out)
+}
+
+// plotGsmm renders the GS vs MM scatter via R (PDF/SVG/PNG).
+func (h *Handler) plotGsmm(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	mode := r.URL.Query().Get("mode")
+	if mode != "pdf" && mode != "svg" {
+		mode = "png"
+	}
+	params := plot.PlotParams{
+		Size:      qfloat(r, "size"),
+		LineColor: r.URL.Query().Get("line_color"),
+		BaseSize:  qfloat(r, "base_size"),
+		AxisSize:  qfloat(r, "axis_size"),
+		Width:     qfloat(r, "width"),
+		Height:    qfloat(r, "height"),
+		Dpi:       qfloat(r, "dpi"),
+	}
+	jsonPath := filepath.Join(h.jobs.Dir(), id, "step5_detail.json")
+	if _, err := os.Stat(jsonPath); err != nil {
+		http.Error(w, "module detail not available", http.StatusNotFound)
+		return
+	}
+	out, ctype, err := plot.RenderGsmm(jsonPath, mode, params)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(filepath.Dir(out))
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", "attachment; filename=\"gsmm."+mode+"\"")
+	http.ServeFile(w, r, out)
+}
+
+// plotGeneHeatmap renders the module gene heatmap via R (PDF/SVG/PNG).
+func (h *Handler) plotGeneHeatmap(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	mode := r.URL.Query().Get("mode")
+	if mode != "pdf" && mode != "svg" {
+		mode = "png"
+	}
+	params := plot.PlotParams{
+		Low:    r.URL.Query().Get("low"),
+		Mid:    r.URL.Query().Get("mid"),
+		High:   r.URL.Query().Get("high"),
+		Width:  qfloat(r, "width"),
+		Height: qfloat(r, "height"),
+		Dpi:    qfloat(r, "dpi"),
+	}
+	jsonPath := filepath.Join(h.jobs.Dir(), id, "step5_detail.json")
+	if _, err := os.Stat(jsonPath); err != nil {
+		http.Error(w, "module detail not available", http.StatusNotFound)
+		return
+	}
+	out, ctype, err := plot.RenderGeneHeatmap(jsonPath, mode, params)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(filepath.Dir(out))
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", "attachment; filename=\"geneheatmap."+mode+"\"")
+	http.ServeFile(w, r, out)
+}
+
+// plotEigengene renders the eigengene adjacency heatmap via R (PDF/SVG/PNG).
+func (h *Handler) plotEigengene(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	mode := r.URL.Query().Get("mode")
+	if mode != "pdf" && mode != "svg" {
+		mode = "png"
+	}
+	params := plot.PlotParams{
+		Low:    r.URL.Query().Get("low"),
+		Mid:    r.URL.Query().Get("mid"),
+		High:   r.URL.Query().Get("high"),
+		Width:  qfloat(r, "width"),
+		Height: qfloat(r, "height"),
+		Dpi:    qfloat(r, "dpi"),
+	}
+	jsonPath := filepath.Join(h.jobs.Dir(), id, "step4_mtrait.json")
+	if _, err := os.Stat(jsonPath); err != nil {
+		http.Error(w, "module-trait result not available", http.StatusNotFound)
+		return
+	}
+	out, ctype, err := plot.RenderEigengene(jsonPath, mode, params)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(filepath.Dir(out))
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", "attachment; filename=\"eigengene."+mode+"\"")
 	http.ServeFile(w, r, out)
 }
 
