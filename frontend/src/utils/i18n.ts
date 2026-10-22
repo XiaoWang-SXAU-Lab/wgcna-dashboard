@@ -80,6 +80,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'sft.title': 'sft (soft threshold)',
     'sft.desc': 'Scale-free fit R² and mean connectivity for choosing the soft-threshold power',
     'sft.recommend': 'Recommended power =',
+    'sft.experiencePower': 'R² below threshold · experience power',
     'sft.empty': 'Finish filtering in Data import first, then click Run.',
     'sft.col.power': 'Power',
     'sft.col.rsq': 'R²',
@@ -133,6 +134,8 @@ const messages: Record<Locale, Record<string, string>> = {
 
     'comp.resize': 'Drag bottom-right to resize · top-right button downloads PNG',
     'comp.downloadPng': 'Download PNG',
+    'comp.downloadPdf': 'Download PDF',
+    'comp.downloadSvg': 'Download SVG',
     'comp.color': 'Color',
     'comp.low': 'Low',
     'comp.mid': 'Mid',
@@ -236,6 +239,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'sft.title': 'sft（软阈值 β）',
     'sft.desc': '无标度网络拟合 R² 与平均连通性，用于选择软阈值 power',
     'sft.recommend': '推荐 power =',
+    'sft.experiencePower': 'R² 未达标，按样本数经验值兜底',
     'sft.empty': '先在「数据导入」完成过滤，再点击「运行」。',
     'sft.col.power': 'Power',
     'sft.col.rsq': 'R²',
@@ -289,6 +293,8 @@ const messages: Record<Locale, Record<string, string>> = {
 
     'comp.resize': '拖动右下角调整大小 · 右上角按钮下载 PNG',
     'comp.downloadPng': '下载 PNG',
+    'comp.downloadPdf': '下载 PDF',
+    'comp.downloadSvg': '下载 SVG',
     'comp.color': '配色',
     'comp.low': '低',
     'comp.mid': '中',
