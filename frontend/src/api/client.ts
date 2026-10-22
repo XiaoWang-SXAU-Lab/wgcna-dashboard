@@ -190,10 +190,10 @@ export async function chatStream(
   }
 }
 
-// plotUrl builds a download URL for a backend-rendered plot.
-// kind: 'sft' | 'dendrogram'; mode: 'pdf' | 'svg' | 'png' | 'interactive'.
-export function plotUrl(id: string, kind: string, mode: string, rsqCut?: number): string {
-  const params = new URLSearchParams({ mode })
-  if (rsqCut != null) params.set('rsq_cut', String(rsqCut))
-  return `${BASE}/jobs/${id}/plots/${kind}?${params}`
+// plotUrl builds a backend-rendered plot URL.
+// kind: 'sft' | 'dendrogram'; params: e.g. { mode:'pdf', size:2.4, ... }.
+export function plotUrl(id: string, kind: string, params: Record<string, string | number> = {}): string {
+  const q = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) q.set(k, String(v))
+  return `${BASE}/jobs/${id}/plots/${kind}?${q}`
 }

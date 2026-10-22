@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/job"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/plot"
@@ -161,12 +162,19 @@ func (h *Handler) plotSft(w http.ResponseWriter, r *http.Request) {
 	if rsqCut == "" {
 		rsqCut = "0.85"
 	}
+	params := plot.PlotParams{
+		Size:     qfloat(r, "size"),
+		Color:    r.URL.Query().Get("color"),
+		BaseSize: qfloat(r, "base_size"),
+		Width:    qfloat(r, "width"),
+		Height:   qfloat(r, "height"),
+	}
 	jsonPath := filepath.Join(h.jobs.Dir(), id, "step2_sft.json")
 	if _, err := os.Stat(jsonPath); err != nil {
 		http.Error(w, "sft result not available", http.StatusNotFound)
 		return
 	}
-	out, ctype, err := plot.RenderSft(jsonPath, mode, rsqCut)
+	out, ctype, err := plot.RenderSft(jsonPath, mode, rsqCut, params)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -175,6 +183,11 @@ func (h *Handler) plotSft(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Content-Disposition", "attachment; filename=\"sft."+mode+"\"")
 	http.ServeFile(w, r, out)
+}
+
+func qfloat(r *http.Request, key string) float64 {
+	v, _ := strconv.ParseFloat(r.URL.Query().Get(key), 64)
+	return v
 }
 
 func readFile(r *http.Request, field string) ([]byte, error) {

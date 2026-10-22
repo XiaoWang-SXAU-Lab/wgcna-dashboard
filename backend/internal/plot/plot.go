@@ -16,6 +16,37 @@ var dendrogramScript []byte
 //go:embed render_sft.R
 var sftScript []byte
 
+// PlotParams are optional styling parameters forwarded to the R script.
+// Zero values are omitted, so the R script falls back to its defaults.
+type PlotParams struct {
+	Size     float64 // point size
+	Color    string  // hex color
+	BaseSize float64 // font size (pt)
+	Width    float64 // output width (inches)
+	Height   float64 // output height (inches)
+}
+
+// rArgs renders non-zero params as R script arguments.
+func (p PlotParams) rArgs() []string {
+	var args []string
+	if p.Size != 0 {
+		args = append(args, "--size", fmt.Sprintf("%g", p.Size))
+	}
+	if p.Color != "" {
+		args = append(args, "--color", p.Color)
+	}
+	if p.BaseSize != 0 {
+		args = append(args, "--base-size", fmt.Sprintf("%g", p.BaseSize))
+	}
+	if p.Width != 0 {
+		args = append(args, "--width", fmt.Sprintf("%g", p.Width))
+	}
+	if p.Height != 0 {
+		args = append(args, "--height", fmt.Sprintf("%g", p.Height))
+	}
+	return args
+}
+
 // RenderDendrogram renders the module dendrogram (from step3_modules.json).
 // mode is "static" (PNG) or "interactive" (self-contained HTML).
 func RenderDendrogram(jsonPath, mode string) (string, string, error) {
@@ -30,14 +61,16 @@ func RenderDendrogram(jsonPath, mode string) (string, string, error) {
 
 // RenderSft renders the soft-threshold plot (scale-free fit R² and mean
 // connectivity vs power) from step2_sft.json. mode is "pdf", "svg" or "png".
-func RenderSft(jsonPath, mode, rsqCut string) (string, string, error) {
+func RenderSft(jsonPath, mode, rsqCut string, params PlotParams) (string, string, error) {
+	args := []string{"--json", jsonPath, "--mode", mode, "--rsq-cut", rsqCut}
+	args = append(args, params.rArgs()...)
 	switch mode {
 	case "pdf":
-		return renderR(sftScript, []string{"--json", jsonPath, "--mode", "pdf", "--rsq-cut", rsqCut}, "sft.pdf", "application/pdf")
+		return renderR(sftScript, args, "sft.pdf", "application/pdf")
 	case "svg":
-		return renderR(sftScript, []string{"--json", jsonPath, "--mode", "svg", "--rsq-cut", rsqCut}, "sft.svg", "image/svg+xml")
+		return renderR(sftScript, args, "sft.svg", "image/svg+xml")
 	default:
-		return renderR(sftScript, []string{"--json", jsonPath, "--mode", "png", "--rsq-cut", rsqCut}, "sft.png", "image/png")
+		return renderR(sftScript, args, "sft.png", "image/png")
 	}
 }
 

@@ -4,7 +4,7 @@ import { useWgcnaStore } from '../stores/wgcna'
 import SftPlot from '../components/SftPlot.vue'
 import SimpleTable from '../components/SimpleTable.vue'
 import { analyzeError } from '../utils/aiBus'
-import { plotUrl } from '../api/client'
+import PlotDownloadWidget from '../components/PlotDownloadWidget.vue'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
 import { t } from '../utils/i18n'
 import StepStatusBadge from '../components/StepStatusBadge.vue'
@@ -15,13 +15,6 @@ const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
   power: f.power, rsq: f.rsq.toFixed(3), slope: f.slope.toFixed(3),
   mean_k: f.mean_k.toFixed(1), median_k: f.median_k.toFixed(1), max_k: f.max_k.toFixed(1),
 })))
-
-function downloadSft(mode: 'pdf' | 'svg') {
-  const a = document.createElement('a')
-  a.href = plotUrl(store.jobId, 'sft', mode, store.rsquaredCut)
-  a.download = `sft.${mode}`
-  a.click()
-}
 </script>
 
 <template>
@@ -62,13 +55,10 @@ function downloadSft(mode: 'pdf' | 'svg') {
             {{ t('sft.recommend') }} <b>{{ store.sft.power_estimate }}</b>（{{ store.sft.network_type }}）
             <span v-if="store.sft.power_source === 'experience'" class="badge text-bg-warning ms-1">{{ t('sft.experiencePower') }}</span>
           </span>
-          <span class="ms-auto">
-            <button class="btn btn-sm btn-outline-secondary me-1" @click="downloadSft('pdf')">{{ t('comp.downloadPdf') }}</button>
-            <button class="btn btn-sm btn-outline-secondary" @click="downloadSft('svg')">{{ t('comp.downloadSvg') }}</button>
-          </span>
         </div>
         <SftPlot :data="store.sft" :rsquared-cut="store.rsquaredCut" />
         <SimpleTable :columns="[{ key: 'power', label: t('sft.col.power') }, { key: 'rsq', label: t('sft.col.rsq') }, { key: 'slope', label: t('sft.col.slope') }, { key: 'mean_k', label: t('sft.col.meanK') }, { key: 'median_k', label: t('sft.col.medianK') }, { key: 'max_k', label: t('sft.col.maxK') }]" :rows="rows" filename="sft" />
+        <PlotDownloadWidget kind="sft" :rsq-cut="store.rsquaredCut" class="mt-3" />
       </div>
       <p v-else class="text-muted">{{ t('sft.empty') }}</p>
   </SidebarDrawer>
