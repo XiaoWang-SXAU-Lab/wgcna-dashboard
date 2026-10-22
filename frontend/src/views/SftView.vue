@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
 import SftPlot from '../components/SftPlot.vue'
+import SftCheckChart from '../components/SftCheckChart.vue'
 import SimpleTable from '../components/SimpleTable.vue'
 import { analyzeError } from '../utils/aiBus'
 import PlotDownloadWidget from '../components/PlotDownloadWidget.vue'
@@ -62,6 +63,10 @@ const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
           </button>
         </div>
         <SftPlot :data="store.sft" :rsquared-cut="store.rsquaredCut" />
+        <template v-if="store.sft.scale_free_check">
+          <h6 class="fw-semibold mt-4 mb-2"><i class="bi bi-graph-up me-1"></i>{{ t('sft.checkTitle') }}</h6>
+          <SftCheckChart :data="store.sft.scale_free_check" />
+        </template>
         <SimpleTable :columns="[{ key: 'power', label: t('sft.col.power') }, { key: 'rsq', label: t('sft.col.rsq') }, { key: 'slope', label: t('sft.col.slope') }, { key: 'mean_k', label: t('sft.col.meanK') }, { key: 'median_k', label: t('sft.col.medianK') }, { key: 'max_k', label: t('sft.col.maxK') }]" :rows="rows" filename="sft" />
         <PlotDownloadWidget kind="sft" :rsq-cut="store.rsquaredCut" :show="showExport" @close="showExport = false" />
       </div>

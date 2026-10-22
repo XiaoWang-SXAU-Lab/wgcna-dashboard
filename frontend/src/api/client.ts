@@ -112,6 +112,18 @@ export interface SftResult {
   power_source?: string // "estimate"（R² 达标）| "experience"（经验兜底）
   network_type: string
   fit_indices: FitIndex[]
+  scale_free_check?: ScaleFreeCheck
+}
+
+export interface ScaleFreeCheck {
+  power: number
+  hist_mids: number[]
+  hist_counts: number[]
+  log_k: number[]
+  log_p: number[]
+  intercept: number
+  slope: number
+  adj_r2: number
 }
 
 export interface HubGene {

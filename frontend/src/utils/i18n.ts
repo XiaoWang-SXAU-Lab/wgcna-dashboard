@@ -109,6 +109,10 @@ const messages: Record<Locale, Record<string, string>> = {
     'im.empty': 'Finish module trait first, then click Run.',
     'sft.scaleTitle': 'Scale independence',
     'sft.connTitle': 'Mean connectivity',
+    'sft.checkTitle': 'Scale-free topology check',
+    'sft.connHist': 'Soft connectivity',
+    'sft.scaleCheckTitle': 'Check Scale free topology',
+    'sft.freq': 'Frequency',
     'gs.title': 'Module membership vs. gene significance',
     'mgh.title': 'gene expression (Z-score) & Eigengene',
 
@@ -280,6 +284,10 @@ const messages: Record<Locale, Record<string, string>> = {
     'im.empty': '先在 module trait 完成，再点击「运行」。',
     'sft.scaleTitle': '无标度独立性',
     'sft.connTitle': '平均连通性',
+    'sft.checkTitle': '无标度拓扑检验',
+    'sft.connHist': '软连通度',
+    'sft.scaleCheckTitle': '检验无标度拓扑',
+    'sft.freq': '频率',
     'gs.title': '模块隶属度 vs. 基因显著性',
     'mgh.title': '基因表达（Z-score）与 Eigengene',
 
