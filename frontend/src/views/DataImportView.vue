@@ -54,8 +54,9 @@ function onSelectSample(name: string) {
           <div>
             <label class="form-label small mb-1">{{ t('di.normalize') }}</label>
             <select class="form-select form-select-sm" v-model="store.normalizeMethod">
+              <option value="vst">vst (DESeq2) — Raw count</option>
+              <option value="log2p1">log2(x+1) — Raw count (simple)</option>
               <option value="log10p1">log10(x+1) — FPKM/TPM</option>
-              <option value="log2p1">log2(x+1) — Raw count</option>
               <option value="log10">log10(x) — Peak area</option>
               <option value="log2">log2(x) — Protein</option>
               <option value="log">ln(x)</option>
