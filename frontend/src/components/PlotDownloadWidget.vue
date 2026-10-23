@@ -4,12 +4,13 @@ import { useWgcnaStore } from '../stores/wgcna'
 import { plotUrl } from '../api/client'
 import { t } from '../utils/i18n'
 
-const props = defineProps<{ kind: string; rsqCut?: number; show: boolean }>()
+const props = defineProps<{ kind: string; rsqCut?: number; show: boolean; attrs?: string }>()
 const emit = defineEmits<{ close: [] }>()
 const store = useWgcnaStore()
 
 const isSimple = computed(() => props.kind === 'dendrogram')
 const isHeatmap = computed(() => props.kind === 'mtrait' || props.kind === 'eigengene' || props.kind === 'geneheatmap')
+const isSampleTree = computed(() => props.kind === 'sample-tree')
 
 const size = ref(2.4)
 const color = ref('#5470c6')
@@ -57,6 +58,10 @@ function baseParams(mode: string): Record<string, string | number> {
     p.mid = preview.value.midColor
     p.high = preview.value.highColor
     p.legend = preview.value.legend
+  } else if (isSampleTree.value) {
+    p.base_size = preview.value.baseSize
+    p.line_color = preview.value.lineColor
+    if (props.attrs) p.attrs = props.attrs
   } else if (!isSimple.value) {
     p.size = preview.value.size
     p.color = preview.value.color
@@ -115,7 +120,20 @@ function download() {
                 </select>
               </div>
             </template>
-            <template v-if="!isSimple && !isHeatmap">
+            <template v-if="isSampleTree">
+              <div>
+                <label class="form-label small mb-1">{{ t('plot.lineColor') }}</label>
+                <div class="d-flex align-items-center gap-1">
+                  <input type="color" class="form-control form-control-color" v-model="lineColor" />
+                  <code class="small">{{ lineColor }}</code>
+                </div>
+              </div>
+              <div>
+                <label class="form-label small mb-1">{{ t('plot.fontSize') }}: <b>{{ baseSize }}</b></label>
+                <input type="range" class="form-range" min="8" max="20" step="1" v-model.number="baseSize" />
+              </div>
+            </template>
+            <template v-if="!isSimple && !isHeatmap && !isSampleTree">
               <div>
                 <label class="form-label small mb-1">{{ t('plot.size') }}: <b>{{ size.toFixed(1) }}</b></label>
                 <input type="range" class="form-range" min="1" max="6" step="0.1" v-model.number="size" />

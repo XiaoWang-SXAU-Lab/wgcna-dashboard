@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import {
-  createJob, getJob, getResult, runStep as runStepApi, uploadTrait,
+  createJob, getJob, getResult, loadDemoApi, runStep as runStepApi, uploadMeta, uploadTrait,
   type DetailResult, type FilterResult, type HubResult, type JobStatus, type ModulesResult, type MtaitResult, type SftResult,
 } from '../api/client'
 
@@ -10,6 +10,12 @@ export const useWgcnaStore = defineStore('wgcna', () => {
   const job = ref<JobStatus | null>(null)
   const exprFile = ref<File | null>(null)
   const traitFile = ref<File | null>(null)
+  const sampleInfoFile = ref<File | null>(null)
+  const annotationFile = ref<File | null>(null)
+  const gene2goFile = ref<File | null>(null)
+  const gene2keggFile = ref<File | null>(null)
+  const demoLoaded = ref(false)
+  const threads = ref(Math.max(1, (navigator.hardwareConcurrency || 4) - 2))
   const nKeep = ref(8000)
   const normalizeMethod = ref('log10p1')
   const filterMethod = ref('mad')
@@ -35,8 +41,8 @@ export const useWgcnaStore = defineStore('wgcna', () => {
   const detail = ref<DetailResult | null>(null)
 const selectedModule = ref('')
 const selectedTrait = ref('')
-const kmeCutoff = ref(0.5)
-const gsCutoff = ref(0.5)
+const kmeCutoff = ref(0.8)
+const gsCutoff = ref(0)
 const weightThreshold = ref(0.02)
 const topNNeighbors = ref(20)
 const maxHubs = ref(30)
@@ -59,12 +65,33 @@ const maxHubs = ref(30)
     if (!exprFile.value) return
     error.value = ''
     try {
-      const { id } = await createJob(exprFile.value, params())
+      const { id } = await createJob(exprFile.value, params(), threads.value)
       jobId.value = id
+      demoLoaded.value = false
       if (traitFile.value) {
         await uploadTrait(id, traitFile.value)
         traitUploaded.value = true
       }
+      await uploadMeta(id, {
+        sample_info: sampleInfoFile.value,
+        annotation: annotationFile.value,
+        gene2go: gene2goFile.value,
+        gene2kegg: gene2keggFile.value,
+      })
+      await refresh()
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  async function loadDemo() {
+    error.value = ''
+    try {
+      const { id } = await loadDemoApi(threads.value)
+      jobId.value = id
+      traitUploaded.value = true
+      normalizeMethod.value = 'vst'
+      demoLoaded.value = true
       await refresh()
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
@@ -154,7 +181,7 @@ const maxHubs = ref(30)
     error.value = ''
     clearDownstream(step)
     try {
-      await runStepApi(jobId.value, step, params())
+      await runStepApi(jobId.value, step, params(), threads.value)
       await waitForDone()
       await loadStep(step)
     } catch (e) {
@@ -179,7 +206,7 @@ const maxHubs = ref(30)
           cutoff: cutoff.value,
           exclude_samples: samples,
         },
-      })
+      }, threads.value)
       await waitForDone()
       await loadStep('filter')
     } catch (e) {
@@ -205,10 +232,10 @@ const maxHubs = ref(30)
   }
 
   return {
-    jobId, job, exprFile, traitFile, nKeep, normalizeMethod, filterMethod, samplePercentage, cutoff,
+    jobId, job, exprFile, traitFile, sampleInfoFile, annotationFile, gene2goFile, gene2keggFile, demoLoaded, threads, nKeep, normalizeMethod, filterMethod, samplePercentage, cutoff,
     rsquaredCut, sftNetworkType, power, netNetworkType, tomType, tomDenom, minModuleSize, mergeCutHeight, deepSplit, detectCutHeight,
     traitUploaded, stepRunning, error,
     sft, modules, mtait, detail, hub, filterResult, created, selectedModule, selectedTrait, kmeCutoff, gsCutoff, weightThreshold, topNNeighbors, maxHubs,
-    createJobAndUpload, runStep, removeSamples, refresh, isDone, stepReady, stepStatus,
+    createJobAndUpload, loadDemo, runStep, removeSamples, refresh, isDone, stepReady, stepStatus,
   }
 })

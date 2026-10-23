@@ -41,10 +41,11 @@ export interface JobStatus {
 
 const BASE = '/api'
 
-export async function createJob(expr: File, params: unknown): Promise<{ id: string }> {
+export async function createJob(expr: File, params: unknown, threads?: number): Promise<{ id: string }> {
   const fd = new FormData()
   fd.append('expr', expr)
   fd.append('params', JSON.stringify(params))
+  if (threads) fd.append('threads', String(threads))
   const res = await fetch(`${BASE}/jobs`, { method: 'POST', body: fd })
   if (!res.ok) throw new Error(await res.text())
   return res.json()
@@ -61,9 +62,10 @@ export async function runAll(id: string): Promise<void> {
   if (!res.ok) throw new Error(await res.text())
 }
 
-export async function runStep(id: string, step: string, params?: unknown): Promise<void> {
+export async function runStep(id: string, step: string, params?: unknown, threads?: number): Promise<void> {
   const fd = new FormData()
   if (params !== undefined) fd.append('params', JSON.stringify(params))
+  if (threads) fd.append('threads', String(threads))
   const res = await fetch(`${BASE}/jobs/${id}/steps/${step}/run`, { method: 'POST', body: fd })
   if (!res.ok) throw new Error(await res.text())
 }
@@ -72,6 +74,16 @@ export async function uploadTrait(id: string, trait: File): Promise<void> {
   const fd = new FormData()
   fd.append('trait', trait)
   const res = await fetch(`${BASE}/jobs/${id}/trait`, { method: 'POST', body: fd })
+  if (!res.ok) throw new Error(await res.text())
+}
+
+export async function uploadMeta(id: string, files: Record<string, File | null>): Promise<void> {
+  const fd = new FormData()
+  for (const [name, file] of Object.entries(files)) {
+    if (file) fd.append(name, file)
+  }
+  if ([...fd.entries()].length === 0) return
+  const res = await fetch(`${BASE}/jobs/${id}/meta`, { method: 'POST', body: fd })
   if (!res.ok) throw new Error(await res.text())
 }
 
@@ -141,6 +153,7 @@ export interface NetNode {
   kme: number
   gs: number
   degree: number
+  is_hub: boolean
 }
 
 export interface NetEdge {
@@ -163,6 +176,102 @@ export interface HubResult {
 
 export async function getResult<T>(id: string, step: string): Promise<T> {
   const res = await fetch(`${BASE}/jobs/${id}/results/${step}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export interface AnnotationRow {
+  gene_id: string
+  gene_name: string
+  symbol: string
+  description: string
+}
+
+export interface EnrichResult {
+  id: string
+  description: string
+  gene_ratio: string
+  bg_ratio: string
+  pvalue: number
+  'p.adjust': number
+  qvalue: number
+  gene_id: string[]
+  count: number
+}
+
+export async function getAnnotation(id: string, module: string): Promise<AnnotationRow[]> {
+  const res = await fetch(`${BASE}/jobs/${id}/annotation?module=${encodeURIComponent(module)}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getEnrich(
+  id: string,
+  module: string,
+  type: 'go' | 'kegg',
+  fdr = 0.05,
+  top = 20,
+): Promise<EnrichResult[]> {
+  const res = await fetch(
+    `${BASE}/jobs/${id}/enrich?module=${encodeURIComponent(module)}&type=${type}&fdr=${fdr}&top=${top}`,
+  )
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export interface ExpressionRow {
+  gene: string
+  values: number[]
+  symbol: string
+  gene_name: string
+  description: string
+  mean: number
+}
+
+export interface ExpressionResult {
+  samples: string[]
+  rows: ExpressionRow[]
+}
+
+export async function getExpression(id: string, genes: string[]): Promise<ExpressionResult> {
+  const res = await fetch(`${BASE}/jobs/${id}/expression?genes=${encodeURIComponent(genes.join(','))}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export interface SampleInfo {
+  sample_id: string
+  attrs: Record<string, string>
+}
+
+export async function getSampleInfo(id: string): Promise<SampleInfo[]> {
+  const res = await fetch(`${BASE}/jobs/${id}/sample-info`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function loadDemoApi(threads?: number): Promise<{ id: string }> {
+  const q = threads ? `?threads=${threads}` : ''
+  const res = await fetch(`${BASE}/demo/load${q}`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export interface GOVersionInfo {
+  current: string
+  latest: string
+  update_available: boolean
+  error?: string
+}
+
+export async function getGOVersion(): Promise<GOVersionInfo> {
+  const res = await fetch(`${BASE}/meta/go-version`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function updateGO(): Promise<{ version: string }> {
+  const res = await fetch(`${BASE}/meta/go-update`, { method: 'POST' })
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }

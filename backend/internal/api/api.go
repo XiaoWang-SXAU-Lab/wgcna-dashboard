@@ -8,8 +8,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/demo"
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/enrich"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/job"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/plot"
 )
@@ -28,6 +32,15 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/jobs", h.createJob)
 	mux.HandleFunc("GET /api/jobs/{id}", h.getJob)
 	mux.HandleFunc("POST /api/jobs/{id}/trait", h.uploadTrait)
+	mux.HandleFunc("POST /api/jobs/{id}/meta", h.uploadMeta)
+	mux.HandleFunc("GET /api/jobs/{id}/annotation", h.getAnnotation)
+	mux.HandleFunc("GET /api/jobs/{id}/enrich", h.enrich)
+	mux.HandleFunc("GET /api/jobs/{id}/expression", h.expression)
+	mux.HandleFunc("GET /api/jobs/{id}/sample-info", h.getSampleInfo)
+	mux.HandleFunc("POST /api/demo/load", h.loadDemo)
+	mux.HandleFunc("GET /api/demo/download", h.downloadDemo)
+	mux.HandleFunc("GET /api/meta/go-version", h.goVersion)
+	mux.HandleFunc("POST /api/meta/go-update", h.goUpdate)
 	mux.HandleFunc("POST /api/jobs/{id}/steps/{step}/run", h.runStep)
 	mux.HandleFunc("POST /api/jobs/{id}/run-all", h.runAll)
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", h.cancel)
@@ -39,6 +52,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/jobs/{id}/plots/eigengene", h.plotEigengene)
 	mux.HandleFunc("GET /api/jobs/{id}/plots/gsmm", h.plotGsmm)
 	mux.HandleFunc("GET /api/jobs/{id}/plots/geneheatmap", h.plotGeneHeatmap)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/enrich", h.plotEnrich)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/sample-tree", h.plotSampleTree)
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
@@ -54,7 +69,11 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	params := json.RawMessage(r.FormValue("params"))
-	id, err := h.jobs.Create(expr, params)
+	threads, _ := strconv.Atoi(r.FormValue("threads"))
+	if threads <= 0 {
+		threads = runtime.NumCPU()
+	}
+	id, err := h.jobs.Create(expr, params, threads)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -92,6 +111,323 @@ func (h *Handler) uploadTrait(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// uploadMeta accepts optional multipart files: sample_info, annotation,
+// gene2go, gene2kegg.
+func (h *Handler) uploadMeta(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := r.ParseMultipartForm(128 << 20); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	files := map[string][]byte{}
+	for _, name := range []string{"sample_info", "annotation", "gene2go", "gene2kegg"} {
+		file, _, err := r.FormFile(name)
+		if err != nil {
+			continue // optional
+		}
+		b, err := io.ReadAll(file)
+		file.Close()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(b) > 0 {
+			files[name] = b
+		}
+	}
+	if err := h.jobs.StoreMeta(id, files); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// getAnnotation returns the annotation rows for one module's genes.
+func (h *Handler) getAnnotation(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	module := r.URL.Query().Get("module")
+	if module == "" {
+		http.Error(w, "module required", http.StatusBadRequest)
+		return
+	}
+	jobDir := filepath.Join(h.jobs.Dir(), id)
+	genes, err := enrich.ModuleGenes(jobDir, module)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	rows, err := enrich.Annotate(jobDir, genes)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+// enrich runs GO or KEGG over-representation for one module.
+func (h *Handler) enrich(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	module := r.URL.Query().Get("module")
+	kind := r.URL.Query().Get("type")
+	if module == "" {
+		http.Error(w, "module required", http.StatusBadRequest)
+		return
+	}
+	if kind != "go" && kind != "kegg" {
+		kind = "go"
+	}
+	fdr := qfloat(r, "fdr")
+	if fdr <= 0 || fdr > 1 {
+		fdr = 0.05
+	}
+	top := int(qfloat(r, "top"))
+	if top <= 0 {
+		top = 20
+	}
+
+	jobDir := filepath.Join(h.jobs.Dir(), id)
+	genes, err := enrich.ModuleGenes(jobDir, module)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var results []enrich.Result
+	if kind == "go" {
+		results, err = enrich.GOEnrich(jobDir, genes, fdr, top)
+	} else {
+		results, err = enrich.KEGGEnrich(jobDir, genes, fdr, top)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
+// expression returns expression values for the requested genes (comma-separated).
+func (h *Handler) expression(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	genesParam := r.URL.Query().Get("genes")
+	if genesParam == "" {
+		http.Error(w, "genes required", http.StatusBadRequest)
+		return
+	}
+	genes := strings.Split(genesParam, ",")
+	res, err := enrich.Expression(filepath.Join(h.jobs.Dir(), id), genes)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// getSampleInfo returns the parsed sample metadata (from sample_info.tsv).
+func (h *Handler) getSampleInfo(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	data, err := os.ReadFile(filepath.Join(h.jobs.Dir(), id, "sample_info.tsv"))
+	if err != nil {
+		http.Error(w, "sample info not available", http.StatusNotFound)
+		return
+	}
+	infos, err := enrich.ParseSampleInfo(data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, infos)
+}
+
+// plotEnrich renders a GO/KEGG enrichment dot plot (ggplot2).
+func (h *Handler) plotEnrich(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	module := r.URL.Query().Get("module")
+	kind := r.URL.Query().Get("type")
+	mode := r.URL.Query().Get("mode")
+	if module == "" {
+		http.Error(w, "module required", http.StatusBadRequest)
+		return
+	}
+	if kind != "go" && kind != "kegg" {
+		kind = "go"
+	}
+	if mode != "pdf" && mode != "svg" {
+		mode = "png"
+	}
+	fdr := qfloat(r, "fdr")
+	if fdr <= 0 || fdr > 1 {
+		fdr = 0.05
+	}
+	top := int(qfloat(r, "top"))
+	if top <= 0 {
+		top = 20
+	}
+
+	jobDir := filepath.Join(h.jobs.Dir(), id)
+	genes, err := enrich.ModuleGenes(jobDir, module)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var results []enrich.Result
+	if kind == "go" {
+		results, err = enrich.GOEnrich(jobDir, genes, fdr, top)
+	} else {
+		results, err = enrich.KEGGEnrich(jobDir, genes, fdr, top)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	params := plot.PlotParams{
+		Low:      r.URL.Query().Get("low"),
+		High:     r.URL.Query().Get("high"),
+		BaseSize: qfloat(r, "base_size"),
+		Width:    qfloat(r, "width"),
+		Height:   qfloat(r, "height"),
+		Dpi:      qfloat(r, "dpi"),
+	}
+	out, ctype, err := plot.RenderEnrich(results, mode, params)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(filepath.Dir(out))
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", `attachment; filename="enrich_`+kind+`.`+mode+`"`)
+	http.ServeFile(w, r, out)
+}
+
+// plotSampleTree renders the sample dendrogram with optional color bands.
+func (h *Handler) plotSampleTree(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	mode := r.URL.Query().Get("mode")
+	if mode != "pdf" && mode != "svg" {
+		mode = "png"
+	}
+	jobDir := filepath.Join(h.jobs.Dir(), id)
+
+	var filter struct {
+		Samples []string `json:"samples"`
+		Tree    struct {
+			Merge  [][]int   `json:"merge"`
+			Height []float64 `json:"height"`
+			Order  []int     `json:"order"`
+		} `json:"sample_tree"`
+	}
+	if b, err := os.ReadFile(filepath.Join(jobDir, "step1_filter.json")); err == nil {
+		if err := json.Unmarshal(b, &filter); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		http.Error(w, "sample tree not available", http.StatusNotFound)
+		return
+	}
+
+	var bands []map[string]any
+	if raw, err := os.ReadFile(filepath.Join(jobDir, "sample_info.tsv")); err == nil {
+		if infos, err := enrich.ParseSampleInfo(raw); err == nil {
+			for _, attr := range strings.Split(r.URL.Query().Get("attrs"), ",") {
+				attr = strings.TrimSpace(attr)
+				if attr == "" {
+					continue
+				}
+				values := map[string]string{}
+				for _, s := range infos {
+					values[s.SampleID] = s.Attrs[attr]
+				}
+				bands = append(bands, map[string]any{"name": attr, "values": values})
+			}
+		}
+	}
+
+	combined := map[string]any{"samples": filter.Samples, "tree": filter.Tree, "bands": bands}
+	data, err := json.Marshal(combined)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	params := plot.PlotParams{Width: qfloat(r, "width"), Height: qfloat(r, "height"), Dpi: qfloat(r, "dpi")}
+	out, ctype, err := plot.RenderSampleTree(data, mode, params)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(filepath.Dir(out))
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", `attachment; filename="sample_tree.`+mode+`"`)
+	http.ServeFile(w, r, out)
+}
+
+// loadDemo creates a job from the bundled demo dataset (expr + trait + meta).
+func (h *Handler) loadDemo(w http.ResponseWriter, r *http.Request) {
+	expr, err := demo.Expr()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	threads, _ := strconv.Atoi(r.URL.Query().Get("threads"))
+	if threads <= 0 {
+		threads = runtime.NumCPU()
+	}
+	id, err := h.jobs.Create(expr, json.RawMessage(`{"filter":{"normalize_method":"vst"}}`), threads)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if trait, err := demo.Trait(); err == nil {
+		_ = h.jobs.UploadTrait(id, trait)
+	}
+	if meta, err := demo.Meta(); err == nil {
+		_ = h.jobs.StoreMeta(id, meta)
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
+}
+
+// downloadDemo returns a zip of the demo dataset.
+func (h *Handler) downloadDemo(w http.ResponseWriter, _ *http.Request) {
+	z, err := demo.Zip()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="rs-wgcna-demo.zip"`)
+	w.Header().Set("Content-Length", strconv.Itoa(len(z)))
+	_, _ = w.Write(z)
+}
+
+// goVersion reports the bundled/in-use GO data version and the latest upstream.
+func (h *Handler) goVersion(w http.ResponseWriter, _ *http.Request) {
+	current, err := enrich.CurrentVersion()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	latest, lerr := enrich.LatestVersion()
+	if lerr != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"current": current, "latest": "", "update_available": false, "error": lerr.Error(),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"current": current, "latest": latest, "update_available": current != latest,
+	})
+}
+
+// goUpdate downloads and installs the latest go-basic.obo.
+func (h *Handler) goUpdate(w http.ResponseWriter, _ *http.Request) {
+	ver, err := enrich.Update()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"version": ver})
+}
+
 // runStep runs a single step asynchronously.
 func (h *Handler) runStep(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -104,6 +440,11 @@ func (h *Handler) runStep(w http.ResponseWriter, r *http.Request) {
 		if err := h.jobs.UpdateParams(id, json.RawMessage(p)); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+	}
+	if t := r.FormValue("threads"); t != "" {
+		if n, err := strconv.Atoi(t); err == nil && n > 0 {
+			h.jobs.SetThreads(id, n)
 		}
 	}
 	go h.jobs.RunStep(id, step)

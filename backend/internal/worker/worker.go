@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // Extract writes the embedded worker binary to a temp dir and returns its path.
@@ -19,7 +20,11 @@ func Extract() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, "rs-wgcna-worker")
+	name := "rs-wgcna-worker"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, binary, 0o755); err != nil {
 		return "", err
 	}

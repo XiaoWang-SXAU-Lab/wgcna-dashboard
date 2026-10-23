@@ -7,4 +7,5 @@
 .DS_Store
 /frontend/tsconfig.tsbuildinfo
 /wgcna-dashboard
+/wgcna-dashboard.exe
 Rplots.pdf

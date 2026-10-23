@@ -53,7 +53,7 @@ const option = computed<EChartsOption>(() => {
       },
     },
     xAxis: { type: 'value', name: 'Module Membership (|MM|)', nameLocation: 'middle', nameGap: 32, min: 0 },
-    yAxis: { type: 'value', name: 'Gene Significance (|GS|)', nameLocation: 'middle', nameRotate: 90, nameGap: 55, min: 0 },
+    yAxis: { type: 'value', name: 'Gene Significance (|GS|)', nameLocation: 'middle', nameRotate: 90, nameGap: 55 },
     toolbox: {
       right: 10, top: 10,
       feature: { saveAsImage: { title: t('comp.downloadPng'), name: 'gs_mm_scatter', pixelRatio: 2, backgroundColor: '#ffffff' } },

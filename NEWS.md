@@ -3,6 +3,31 @@
 All notable changes to the wgcna-dashboard are documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] — 2026-10-24
+
+### Added
+
+- Data import: optional sample info / gene annotation / Gene2GO / Gene2KEGG
+  uploads, a worker-threads option (default cores-2), and a built-in demo
+  dataset (load / download).
+- Sample tree: multiple classification color bands, red highlight for selected
+  samples, and a publication export widget (SVG/PDF/PNG via R).
+- Module Explorer panel merging "module of interest" and "hub genes", with tabs
+  for scatter+heatmap, network, gene annotation, and enrichment.
+- GO/KEGG over-representation analysis (hypergeometric test + Benjamini-Hochberg
+  FDR, clusterProfiler-style output); interactive bubble plot with click-to-gene
+  table + clustered expression heatmap, and ggplot2 publication export.
+- GO ontology support (bundled go-basic.obo): Wang semantic similarity +
+  simplify (redundancy removal), plus GO version check/update.
+- Network visualization: node color by kME/GS/degree/hub/module, edge weights
+  normalized to their actual range, hub emphasis, hover tooltips, legend, and
+  hub-and-spoke / hierarchical layouts.
+
+### Changed
+
+- Hub defaults: kME cutoff 0.8, GS cutoff 0, node size by degree.
+- pnpm: allow build scripts via `pnpm-workspace.yaml` (pnpm 11).
+
 ## [0.2.0] — 2026-10-23
 
 ### Added

@@ -15,8 +15,7 @@ const features = [
   { icon: 'bi-activity', titleKey: 'home.f2title', descKey: 'home.f2desc', to: '/sft' },
   { icon: 'bi-diagram-3', titleKey: 'home.f3title', descKey: 'home.f3desc', to: '/network' },
   { icon: 'bi-table', titleKey: 'home.f4title', descKey: 'home.f4desc', to: '/module-trait' },
-  { icon: 'bi-search', titleKey: 'home.f5title', descKey: 'home.f5desc', to: '/interested-mod' },
-  { icon: 'bi-stars', titleKey: 'home.f6title', descKey: 'home.f6desc', to: '/hub-gene' },
+  { icon: 'bi-search', titleKey: 'home.f5title', descKey: 'home.f5desc', to: '/module-explorer' },
 ]
 </script>
 

@@ -17,8 +17,7 @@ const nav = [
   { to: '/sft', key: 'nav.sft', icon: 'bi-activity' },
   { to: '/network', key: 'nav.network', icon: 'bi-diagram-3' },
   { to: '/module-trait', key: 'nav.moduleTrait', icon: 'bi-table' },
-  { to: '/interested-mod', key: 'nav.interestedMod', icon: 'bi-search' },
-  { to: '/hub-gene', key: 'nav.hubGene', icon: 'bi-stars' },
+  { to: '/module-explorer', key: 'nav.moduleExplorer', icon: 'bi-search' },
   { to: '/one-step', key: 'nav.oneStep', icon: 'bi-lightning-charge' },
 ]
 </script>
@@ -28,7 +27,7 @@ const nav = [
     <div class="container-fluid flex-nowrap">
       <router-link class="navbar-brand fw-bold d-flex align-items-center gap-2 me-3" to="/">
         <img src="/rsWGCNA_icon.svg" alt="rsWGCNA" width="30" height="30" />
-        <span>rsWGCNA</span><small class="text-muted fw-normal ms-1">v0.2.0</small>
+        <span>rsWGCNA</span><small class="text-muted fw-normal ms-1">v0.3.0</small>
       </router-link>
       <ul class="navbar-nav flex-row flex-nowrap overflow-auto">
         <li v-for="n in nav" :key="n.to" class="nav-item">

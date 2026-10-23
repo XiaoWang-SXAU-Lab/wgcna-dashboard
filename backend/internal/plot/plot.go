@@ -4,10 +4,13 @@ package plot
 
 import (
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/enrich"
 )
 
 //go:embed render_dendrogram.R
@@ -30,6 +33,12 @@ var gsmmScript []byte
 
 //go:embed render_geneheatmap.R
 var geneHeatmapScript []byte
+
+//go:embed render_enrich.R
+var enrichScript []byte
+
+//go:embed render_sample_tree.R
+var sampleTreeScript []byte
 
 // PlotParams are optional styling parameters forwarded to the R script.
 // Zero values are omitted, so the R script falls back to its defaults.
@@ -195,6 +204,93 @@ func RenderEigengene(jsonPath, mode string, params PlotParams) (string, string, 
 	default:
 		return renderR(eigengeneScript, args, "eigengene.png", "image/png")
 	}
+}
+
+// RenderEnrich renders a GO/KEGG enrichment dot plot (ggplot2). mode is
+// "pdf", "svg" or "png".
+func RenderEnrich(results []enrich.Result, mode string, params PlotParams) (string, string, error) {
+	dir, err := os.MkdirTemp("", "wgcna-plot-*")
+	if err != nil {
+		return "", "", err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+
+	if err := os.WriteFile(filepath.Join(dir, "render.R"), enrichScript, 0o644); err != nil {
+		cleanup()
+		return "", "", err
+	}
+	data, err := json.Marshal(results)
+	if err != nil {
+		cleanup()
+		return "", "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "enrich.json"), data, 0o644); err != nil {
+		cleanup()
+		return "", "", err
+	}
+
+	rs := os.Getenv("WGCNA_RSCRIPT")
+	if rs == "" {
+		rs = "Rscript"
+	}
+	out := filepath.Join(dir, "enrich."+mode)
+	args := []string{filepath.Join(dir, "render.R"), "--json", filepath.Join(dir, "enrich.json"), "--mode", mode, "--out", out}
+	args = append(args, params.rArgs()...)
+	cmd := exec.Command(rs, args...)
+	cmd.Env = plotEnv(rs)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		cleanup()
+		return "", "", fmt.Errorf("R plot failed: %v: %s", err, string(b))
+	}
+
+	ctype := "image/png"
+	if mode == "pdf" {
+		ctype = "application/pdf"
+	} else if mode == "svg" {
+		ctype = "image/svg+xml"
+	}
+	return out, ctype, nil
+}
+
+// RenderSampleTree renders the sample dendrogram with optional color bands.
+// data is the pre-assembled JSON: {samples, tree:{merge,height,order}, bands:[{name,values}]}.
+func RenderSampleTree(data []byte, mode string, params PlotParams) (string, string, error) {
+	dir, err := os.MkdirTemp("", "wgcna-plot-*")
+	if err != nil {
+		return "", "", err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+
+	if err := os.WriteFile(filepath.Join(dir, "render.R"), sampleTreeScript, 0o644); err != nil {
+		cleanup()
+		return "", "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data.json"), data, 0o644); err != nil {
+		cleanup()
+		return "", "", err
+	}
+
+	rs := os.Getenv("WGCNA_RSCRIPT")
+	if rs == "" {
+		rs = "Rscript"
+	}
+	out := filepath.Join(dir, "sample_tree."+mode)
+	args := []string{filepath.Join(dir, "render.R"), "--json", filepath.Join(dir, "data.json"), "--mode", mode, "--out", out}
+	args = append(args, params.rArgs()...)
+	cmd := exec.Command(rs, args...)
+	cmd.Env = plotEnv(rs)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		cleanup()
+		return "", "", fmt.Errorf("R plot failed: %v: %s", err, string(b))
+	}
+
+	ctype := "image/png"
+	if mode == "pdf" {
+		ctype = "application/pdf"
+	} else if mode == "svg" {
+		ctype = "image/svg+xml"
+	}
+	return out, ctype, nil
 }
 
 // renderR writes an embedded R script to a temp dir, runs it with Rscript, and

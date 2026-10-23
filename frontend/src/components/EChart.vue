@@ -7,6 +7,7 @@ const props = defineProps<{
   option: EChartsOption
   height?: string
 }>()
+const emit = defineEmits<{ (e: 'chart-click', params: unknown): void }>()
 
 const el = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
@@ -16,6 +17,7 @@ onMounted(() => {
   if (!el.value) return
   chart = echarts.init(el.value)
   chart.setOption(props.option)
+  chart.on('click', (params: unknown) => emit('chart-click', params))
   window.addEventListener('resize', onResize)
   ro = new ResizeObserver(() => chart?.resize())
   ro.observe(el.value)

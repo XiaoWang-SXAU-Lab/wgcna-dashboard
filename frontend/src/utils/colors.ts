@@ -57,3 +57,22 @@ export const MODULE_COLORS: Record<string, string> = {
 export function moduleColor(name: string): string {
   return MODULE_COLORS[name] ?? '#cccccc'
 }
+
+function parseHex(hex: string): { r: number; g: number; b: number } {
+  let h = hex.replace('#', '')
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('')
+  const n = parseInt(h, 16)
+  if (Number.isNaN(n)) return { r: 204, g: 204, b: 204 }
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
+}
+
+// Linear interpolation between two hex colors. t is clamped to [0, 1].
+export function mixHex(a: string, b: string, t: number): string {
+  const pa = parseHex(a)
+  const pb = parseHex(b)
+  const c = Math.max(0, Math.min(1, t))
+  const r = Math.round(pa.r + (pb.r - pa.r) * c)
+  const g = Math.round(pa.g + (pb.g - pa.g) * c)
+  const bl = Math.round(pa.b + (pb.b - pa.b) * c)
+  return `rgb(${r},${g},${bl})`
+}

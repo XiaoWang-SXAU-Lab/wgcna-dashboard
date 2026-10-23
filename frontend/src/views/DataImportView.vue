@@ -1,23 +1,74 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
+import { getSampleInfo, type SampleInfo } from '../api/client'
 import { analyzeError } from '../utils/aiBus'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
 import { t } from '../utils/i18n'
 import StepStatusBadge from '../components/StepStatusBadge.vue'
 import SampleTreeChart from '../components/SampleTreeChart.vue'
+import PlotDownloadWidget from '../components/PlotDownloadWidget.vue'
+import type { CategoryBand } from '../components/SampleTreeChart.vue'
 
 const store = useWgcnaStore()
 
 function onExpr(e: Event) { store.exprFile = (e.target as HTMLInputElement).files?.[0] ?? null }
 function onTrait(e: Event) { store.traitFile = (e.target as HTMLInputElement).files?.[0] ?? null }
+function onSampleInfo(e: Event) { store.sampleInfoFile = (e.target as HTMLInputElement).files?.[0] ?? null }
+function onAnnotation(e: Event) { store.annotationFile = (e.target as HTMLInputElement).files?.[0] ?? null }
+function onGene2go(e: Event) { store.gene2goFile = (e.target as HTMLInputElement).files?.[0] ?? null }
+function onGene2kegg(e: Event) { store.gene2keggFile = (e.target as HTMLInputElement).files?.[0] ?? null }
+
+function fileName(file: File | null, demoName: string): string {
+  if (store.demoLoaded) return `demo · ${demoName}`
+  return file ? file.name : t('di.chooseFile')
+}
 
 async function createAndFilter() {
   if (!store.created) await store.createJobAndUpload()
   if (store.created) await store.runStep('filter')
 }
 
+async function loadDemoData() {
+  await store.loadDemo()
+}
+
 const selectedOutliers = ref<string[]>([])
+const sampleInfos = ref<SampleInfo[]>([])
+const attrColumns = ref<string[]>([])
+const colorAttrs = ref<string[]>([])
+const EXCLUDE_ATTRS = new Set(['sample_id', 'sample_name', 'species'])
+
+watch(() => store.jobId, async (id) => {
+  if (!id) {
+    sampleInfos.value = []
+    attrColumns.value = []
+    colorAttrs.value = []
+    return
+  }
+  try {
+    const infos = await getSampleInfo(id)
+    sampleInfos.value = infos
+    const cols = (infos.length ? Object.keys(infos[0].attrs) : []).filter((c) => !EXCLUDE_ATTRS.has(c))
+    attrColumns.value = cols
+    colorAttrs.value = cols.includes('group') ? ['group'] : (cols.length ? [cols[0]] : [])
+  } catch {
+    sampleInfos.value = []
+    attrColumns.value = []
+    colorAttrs.value = []
+  }
+})
+
+const categories = computed<CategoryBand[]>(() => {
+  if (!colorAttrs.value.length || !sampleInfos.value.length) return []
+  return colorAttrs.value.map((attr) => {
+    const values: Record<string, string> = {}
+    for (const s of sampleInfos.value) values[s.sample_id] = s.attrs[attr] ?? ''
+    return { name: attr, values }
+  })
+})
+
+const showTreeExport = ref(false)
 
 async function removeOutliers() {
   await store.removeSamples(selectedOutliers.value)
@@ -35,20 +86,60 @@ function onSelectSample(name: string) {
   <SidebarDrawer>
     <template #sidebar>
       <div>
+        <div class="border rounded p-2 mb-2">
+          <div class="small fw-semibold mb-1">{{ t('di.demo') }}</div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-primary flex-fill" :disabled="store.stepRunning !== ''" @click="loadDemoData">
+              <i class="bi bi-magic me-1"></i>{{ t('di.loadDemo') }}
+            </button>
+            <a class="btn btn-sm btn-outline-secondary flex-fill" href="/api/demo/download" download>
+              <i class="bi bi-download me-1"></i>{{ t('di.downloadDemo') }}
+            </a>
+          </div>
+          <div v-if="store.demoLoaded" class="small text-success mt-1"><i class="bi bi-check-circle me-1"></i>{{ t('di.demoLoaded') }}</div>
+        </div>
         <h6 class="fw-bold mb-3">{{ t('param.parameters') }}</h6>
         <div class="vstack gap-2">
           <div>
             <label class="form-label small mb-1">{{ t('di.expr') }}<span class="text-danger">*</span></label>
             <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
-              <i class="bi bi-upload me-1"></i>{{ store.exprFile ? store.exprFile.name : t('di.chooseFile') }}
+              <i class="bi bi-upload me-1"></i>{{ fileName(store.exprFile, 'expr.tsv') }}
               <input type="file" accept=".tsv,.txt,.csv,.xlsx,.xls" class="d-none" @change="onExpr" />
             </label>
           </div>
           <div>
             <label class="form-label small mb-1">{{ t('di.trait') }}</label>
             <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
-              <i class="bi bi-upload me-1"></i>{{ store.traitFile ? store.traitFile.name : t('di.chooseFile') }}
+              <i class="bi bi-upload me-1"></i>{{ fileName(store.traitFile, 'trait.tsv') }}
               <input type="file" accept=".tsv,.txt,.csv,.xlsx,.xls" class="d-none" @change="onTrait" />
+            </label>
+          </div>
+          <div>
+            <label class="form-label small mb-1">{{ t('di.sampleInfo') }}</label>
+            <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
+              <i class="bi bi-upload me-1"></i>{{ fileName(store.sampleInfoFile, 'sample_info.tsv') }}
+              <input type="file" accept=".tsv,.txt,.csv" class="d-none" @change="onSampleInfo" />
+            </label>
+          </div>
+          <div>
+            <label class="form-label small mb-1">{{ t('di.annotation') }}</label>
+            <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
+              <i class="bi bi-upload me-1"></i>{{ fileName(store.annotationFile, 'annotation.tsv') }}
+              <input type="file" accept=".tsv,.txt,.csv" class="d-none" @change="onAnnotation" />
+            </label>
+          </div>
+          <div>
+            <label class="form-label small mb-1">{{ t('di.gene2go') }}</label>
+            <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
+              <i class="bi bi-upload me-1"></i>{{ fileName(store.gene2goFile, 'gene2go.tsv') }}
+              <input type="file" accept=".tsv,.txt,.csv" class="d-none" @change="onGene2go" />
+            </label>
+          </div>
+          <div>
+            <label class="form-label small mb-1">{{ t('di.gene2kegg') }}</label>
+            <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
+              <i class="bi bi-upload me-1"></i>{{ fileName(store.gene2keggFile, 'gene2kegg.tsv') }}
+              <input type="file" accept=".tsv,.txt,.csv" class="d-none" @change="onGene2kegg" />
             </label>
           </div>
           <div>
@@ -82,7 +173,11 @@ function onSelectSample(name: string) {
             <label class="form-label small mb-1">{{ t('param.cutoff') }}</label>
             <input class="form-control form-control-sm" type="number" v-model.number="store.cutoff" step="0.1" />
           </div>
-          <button class="btn btn-primary w-100 mt-2" :disabled="!store.exprFile || store.stepRunning !== ''" @click="createAndFilter">
+          <div>
+            <label class="form-label small mb-1">{{ t('di.threads') }}</label>
+            <input class="form-control form-control-sm" type="number" v-model.number="store.threads" min="1" max="32" />
+          </div>
+          <button class="btn btn-primary w-100 mt-2" :disabled="(!store.created && !store.exprFile) || store.stepRunning !== ''" @click="createAndFilter">
             {{ store.stepRunning ? t('common.running') : store.isDone('filter') ? t('di.rerun') : t('di.run') }}
           </button>
         </div>
@@ -111,7 +206,22 @@ function onSelectSample(name: string) {
 
         <div class="mb-3">
           <h6 class="fw-semibold mb-2"><i class="bi bi-diagram-3 me-1"></i>{{ t('di.sampleTree') }}</h6>
-          <SampleTreeChart :samples="store.filterResult.samples" :tree="store.filterResult.sample_tree" @select="onSelectSample" />
+          <div v-if="attrColumns.length" class="d-flex align-items-center gap-2 mb-2">
+            <label class="form-label small mb-0 text-nowrap">{{ t('di.colorBy') }}</label>
+            <div class="d-flex flex-wrap gap-2">
+              <label v-for="c in attrColumns" :key="c" class="form-check form-check-inline small mb-0">
+                <input class="form-check-input" type="checkbox" :value="c" v-model="colorAttrs" />
+                <span class="form-check-label">{{ c }}</span>
+              </label>
+            </div>
+          </div>
+          <div class="mb-2">
+            <button class="btn btn-sm btn-outline-primary" @click="showTreeExport = true">
+              <i class="bi bi-download me-1"></i>{{ t('plot.export') }}
+            </button>
+          </div>
+          <SampleTreeChart :samples="store.filterResult.samples" :tree="store.filterResult.sample_tree" :categories="categories" :selected="selectedOutliers" @select="onSelectSample" />
+          <PlotDownloadWidget kind="sample-tree" :attrs="colorAttrs.join(',')" :show="showTreeExport" @close="showTreeExport = false" />
         </div>
 
         <div class="card">

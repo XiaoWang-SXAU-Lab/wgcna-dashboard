@@ -39,6 +39,7 @@ type Job struct {
 	Error       string          `json:"error,omitempty"`
 	Result      json.RawMessage `json:"result,omitempty"` // step3_modules.json when done
 	CreatedAt   time.Time       `json:"created_at"`
+	Threads     int             `json:"-"`
 }
 
 // Manager owns the on-disk jobs directory and the in-memory job registry.
@@ -68,7 +69,7 @@ func NewManager(dir, workerBin string, threads int) *Manager {
 func (m *Manager) Dir() string { return m.dir }
 
 // Create stores the uploaded expression matrix + params. It does not run anything.
-func (m *Manager) Create(expr []byte, params json.RawMessage) (string, error) {
+func (m *Manager) Create(expr []byte, params json.RawMessage, threads int) (string, error) {
 	id := fmt.Sprintf("%d%s", time.Now().UnixMilli(), randHex(6))
 	jobDir := filepath.Join(m.dir, id)
 	if err := os.MkdirAll(jobDir, 0o755); err != nil {
@@ -81,17 +82,50 @@ func (m *Manager) Create(expr []byte, params json.RawMessage) (string, error) {
 		_ = os.WriteFile(filepath.Join(jobDir, "params.json"), params, 0o644)
 	}
 
-	j := &Job{ID: id, Status: "idle", CreatedAt: time.Now()}
+	j := &Job{ID: id, Status: "idle", CreatedAt: time.Now(), Threads: threads}
 	m.mu.Lock()
 	m.jobs[id] = j
 	m.mu.Unlock()
 	return id, nil
 }
 
+// SetThreads updates the number of worker threads used for a job's steps.
+func (m *Manager) SetThreads(id string, threads int) {
+	m.mu.Lock()
+	if j, ok := m.jobs[id]; ok && threads > 0 {
+		j.Threads = threads
+	}
+	m.mu.Unlock()
+}
+
+func (m *Manager) threadsFor(id string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if j, ok := m.jobs[id]; ok && j.Threads > 0 {
+		return j.Threads
+	}
+	return m.threads
+}
+
 // UploadTrait stores the trait table (needed by the module_trait step onwards).
 func (m *Manager) UploadTrait(id string, trait []byte) error {
 	jobDir := filepath.Join(m.dir, id)
 	return os.WriteFile(filepath.Join(jobDir, "trait.tsv"), trait, 0o644)
+}
+
+// StoreMeta writes optional per-job metadata files (sample_info, annotation,
+// gene2go, gene2kegg). Empty values are skipped.
+func (m *Manager) StoreMeta(id string, files map[string][]byte) error {
+	jobDir := filepath.Join(m.dir, id)
+	for name, data := range files {
+		if len(data) == 0 {
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(jobDir, name+".tsv"), data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // UpdateParams overwrites the job's params.json (e.g. to exclude outlier samples).
@@ -129,7 +163,7 @@ func (m *Manager) RunStep(id, step string) {
 		m.mu.Unlock()
 	}()
 
-	cmd := exec.CommandContext(ctx, m.workerBin, "--job-dir", jobDir, "--step", step, "--threads", fmt.Sprint(m.threads))
+	cmd := exec.CommandContext(ctx, m.workerBin, "--job-dir", jobDir, "--step", step, "--threads", fmt.Sprint(m.threadsFor(id)))
 	out, err := cmd.CombinedOutput()
 
 	select {
@@ -180,6 +214,44 @@ func (m *Manager) RunAll(id string) {
 		if st, _ := m.status(id); st != "done" {
 			return // stop on error / cancel
 		}
+		if step == "soft_threshold" {
+			m.syncPowerFromSft(id)
+		}
+	}
+}
+
+// syncPowerFromSft copies the SFT power estimate into params.json's network.power
+// so the one-step pipeline uses the automatically selected power.
+func (m *Manager) syncPowerFromSft(id string) {
+	jobDir := filepath.Join(m.dir, id)
+	b, err := os.ReadFile(filepath.Join(jobDir, "step2_sft.json"))
+	if err != nil {
+		return
+	}
+	var sft struct {
+		PowerEstimate *float64 `json:"power_estimate"`
+	}
+	if err := json.Unmarshal(b, &sft); err != nil || sft.PowerEstimate == nil {
+		return
+	}
+
+	paramsPath := filepath.Join(jobDir, "params.json")
+	pb, err := os.ReadFile(paramsPath)
+	if err != nil {
+		return
+	}
+	var p map[string]any
+	if err := json.Unmarshal(pb, &p); err != nil {
+		return
+	}
+	net, ok := p["network"].(map[string]any)
+	if !ok {
+		net = map[string]any{}
+		p["network"] = net
+	}
+	net["power"] = *sft.PowerEstimate
+	if out, err := json.Marshal(p); err == nil {
+		_ = os.WriteFile(paramsPath, out, 0o644)
 	}
 }
 
