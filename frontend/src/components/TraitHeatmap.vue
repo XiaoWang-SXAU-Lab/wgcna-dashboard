@@ -8,9 +8,9 @@ import { t } from '../utils/i18n'
 
 const props = defineProps<{ data: MtaitResult }>()
 
-const lowColor = ref('#4575b4')
+const lowColor = ref('#2166ac')
 const midColor = ref('#ffffff')
-const highColor = ref('#d73027')
+const highColor = ref('#b2182b')
 
 function sig(p: number): string {
   if (p < 0.001) return '***'

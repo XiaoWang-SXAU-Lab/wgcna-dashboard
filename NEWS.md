@@ -3,7 +3,7 @@
 All notable changes to the wgcna-dashboard are documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.2.0] — 2026-10-23
 
 ### Added
 
@@ -13,6 +13,15 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - AI navigator markdown (rich-text) rendering + "thinking" spinner.
 - Per-step status badge + prominent friendly error display with one-click AI
   diagnosis.
+- **Gephi-style full-screen network graph** (cytoscape.js + fcose/ForceAtlas2):
+  hub-and-spoke extraction, multiple layouts, edge weight gradient, node size
+  by degree/kME/GS, zoom/fit, and editable gene→label mapping.
+- **ComplexHeatmap** rewrite of the module–trait / eigengene / gene-expression
+  heatmaps (clustering + module color band + p-value annotation), with a
+  colorblind-friendly RdBu palette.
+- GS/MM scatter confidence-interval band.
+- Scale-free topology check plots (connectivity histogram + log-log regression).
+- Excel (.xlsx/.xls) file input.
 
 ### Changed
 

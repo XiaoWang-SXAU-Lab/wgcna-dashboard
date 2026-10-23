@@ -17,9 +17,10 @@ const lineColor = ref('#5470c6')
 const baseSize = ref(13)
 const axisSize = ref(11)
 const axisColor = ref('#333333')
-const lowColor = ref('#4575b4')
+const lowColor = ref('#2166ac')
 const midColor = ref('#ffffff')
-const highColor = ref('#d73027')
+const highColor = ref('#b2182b')
+const legend = ref<'right' | 'bottom' | 'none'>('right')
 const width = ref(10)
 const height = ref(8)
 const dpi = ref(150)
@@ -29,18 +30,18 @@ const preview = ref({
   size: size.value, color: color.value, lineColor: lineColor.value,
   baseSize: baseSize.value, axisSize: axisSize.value, axisColor: axisColor.value,
   lowColor: lowColor.value, midColor: midColor.value, highColor: highColor.value,
-  width: width.value, height: height.value, dpi: dpi.value,
+  legend: legend.value, width: width.value, height: height.value, dpi: dpi.value,
 })
 const loading = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
-watch([size, color, lineColor, baseSize, axisSize, axisColor, lowColor, midColor, highColor, width, height, dpi], () => {
+watch([size, color, lineColor, baseSize, axisSize, axisColor, lowColor, midColor, highColor, legend, width, height, dpi], () => {
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => {
     preview.value = {
       size: size.value, color: color.value, lineColor: lineColor.value,
       baseSize: baseSize.value, axisSize: axisSize.value, axisColor: axisColor.value,
       lowColor: lowColor.value, midColor: midColor.value, highColor: highColor.value,
-      width: width.value, height: height.value, dpi: dpi.value,
+      legend: legend.value, width: width.value, height: height.value, dpi: dpi.value,
     }
     loading.value = true
   }, 350)
@@ -55,6 +56,7 @@ function baseParams(mode: string): Record<string, string | number> {
     p.low = preview.value.lowColor
     p.mid = preview.value.midColor
     p.high = preview.value.highColor
+    p.legend = preview.value.legend
   } else if (!isSimple.value) {
     p.size = preview.value.size
     p.color = preview.value.color
@@ -103,6 +105,14 @@ function download() {
                   <label class="form-label small mb-1">{{ t('comp.high') }}</label>
                   <input type="color" class="form-control form-control-color" v-model="highColor" />
                 </div>
+              </div>
+              <div>
+                <label class="form-label small mb-1">{{ t('plot.legend') }}</label>
+                <select class="form-select form-select-sm" v-model="legend">
+                  <option value="right">right</option>
+                  <option value="bottom">bottom</option>
+                  <option value="none">none</option>
+                </select>
               </div>
             </template>
             <template v-if="!isSimple && !isHeatmap">

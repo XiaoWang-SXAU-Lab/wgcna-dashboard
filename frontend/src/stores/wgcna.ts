@@ -38,6 +38,8 @@ const selectedTrait = ref('')
 const kmeCutoff = ref(0.5)
 const gsCutoff = ref(0.5)
 const weightThreshold = ref(0.02)
+const topNNeighbors = ref(20)
+const maxHubs = ref(30)
   const hub = ref<HubResult | null>(null)
   const filterResult = ref<FilterResult | null>(null)
 
@@ -49,7 +51,7 @@ const weightThreshold = ref(0.02)
       soft_threshold: { network_type: sftNetworkType.value, rsquared_cut: rsquaredCut.value },
       network: { power: power.value, network_type: netNetworkType.value, tom_type: tomType.value, tom_denom: tomDenom.value, min_module_size: minModuleSize.value, merge_cut_height: mergeCutHeight.value, deep_split: deepSplit.value, detect_cut_height: detectCutHeight.value },
       module_detail: { select_module: selectedModule.value, select_trait: selectedTrait.value },
-      hub: { select_module: selectedModule.value, select_trait: selectedTrait.value, kme_cutoff: kmeCutoff.value, gs_cutoff: gsCutoff.value, weight_threshold: weightThreshold.value, power: power.value },
+      hub: { select_module: selectedModule.value, select_trait: selectedTrait.value, kme_cutoff: kmeCutoff.value, gs_cutoff: gsCutoff.value, weight_threshold: weightThreshold.value, power: power.value, top_n_neighbors: topNNeighbors.value, max_hubs: maxHubs.value },
     }
   }
 
@@ -206,7 +208,7 @@ const weightThreshold = ref(0.02)
     jobId, job, exprFile, traitFile, nKeep, normalizeMethod, filterMethod, samplePercentage, cutoff,
     rsquaredCut, sftNetworkType, power, netNetworkType, tomType, tomDenom, minModuleSize, mergeCutHeight, deepSplit, detectCutHeight,
     traitUploaded, stepRunning, error,
-    sft, modules, mtait, detail, hub, filterResult, created, selectedModule, selectedTrait, kmeCutoff, gsCutoff, weightThreshold,
+    sft, modules, mtait, detail, hub, filterResult, created, selectedModule, selectedTrait, kmeCutoff, gsCutoff, weightThreshold, topNNeighbors, maxHubs,
     createJobAndUpload, runStep, removeSamples, refresh, isDone, stepReady, stepStatus,
   }
 })

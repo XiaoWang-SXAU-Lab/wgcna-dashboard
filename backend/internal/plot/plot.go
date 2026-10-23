@@ -43,6 +43,7 @@ type PlotParams struct {
 	Low       string  // heatmap low color (hex)
 	Mid       string  // heatmap mid color (hex)
 	High      string  // heatmap high color (hex)
+	Legend    string  // heatmap legend position: right | bottom | none
 	Width     float64 // output width (inches)
 	Height    float64 // output height (inches)
 	Dpi       float64 // raster resolution (PNG only)
@@ -86,6 +87,9 @@ func (p PlotParams) rArgs() []string {
 	}
 	if p.High != "" {
 		args = append(args, "--high", p.High)
+	}
+	if p.Legend != "" {
+		args = append(args, "--legend", p.Legend)
 	}
 	return args
 }

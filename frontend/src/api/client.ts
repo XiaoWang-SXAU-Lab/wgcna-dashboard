@@ -138,6 +138,9 @@ export interface HubGene {
 export interface NetNode {
   id: string
   color: string
+  kme: number
+  gs: number
+  degree: number
 }
 
 export interface NetEdge {

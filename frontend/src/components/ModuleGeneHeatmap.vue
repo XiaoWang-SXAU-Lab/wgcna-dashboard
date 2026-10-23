@@ -8,9 +8,9 @@ import { t } from '../utils/i18n'
 
 const props = defineProps<{ data: DetailResult }>()
 
-const lowColor = ref('#008000')
-const midColor = ref('#000000')
-const highColor = ref('#ff0000')
+const lowColor = ref('#2166ac')
+const midColor = ref('#ffffff')
+const highColor = ref('#b2182b')
 
 // Z-score each gene (row) across samples, matching R's scale() (sample sd, n-1).
 function zscore(matrix: number[][]): number[][] {

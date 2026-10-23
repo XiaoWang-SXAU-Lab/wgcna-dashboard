@@ -41,14 +41,14 @@ function onSelectSample(name: string) {
             <label class="form-label small mb-1">{{ t('di.expr') }}<span class="text-danger">*</span></label>
             <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
               <i class="bi bi-upload me-1"></i>{{ store.exprFile ? store.exprFile.name : t('di.chooseFile') }}
-              <input type="file" accept=".tsv,.txt,.csv,.xlsx" class="d-none" @change="onExpr" />
+              <input type="file" accept=".tsv,.txt,.csv,.xlsx,.xls" class="d-none" @change="onExpr" />
             </label>
           </div>
           <div>
             <label class="form-label small mb-1">{{ t('di.trait') }}</label>
             <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
               <i class="bi bi-upload me-1"></i>{{ store.traitFile ? store.traitFile.name : t('di.chooseFile') }}
-              <input type="file" accept=".tsv,.txt,.csv,.xlsx" class="d-none" @change="onTrait" />
+              <input type="file" accept=".tsv,.txt,.csv,.xlsx,.xls" class="d-none" @change="onTrait" />
             </label>
           </div>
           <div>

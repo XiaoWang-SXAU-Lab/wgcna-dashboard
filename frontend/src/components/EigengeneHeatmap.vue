@@ -11,9 +11,9 @@ import { t } from '../utils/i18n'
 
 const props = defineProps<{ data: MtaitResult }>()
 
-const lowColor = ref('#313695')
+const lowColor = ref('#2166ac')
 const midColor = ref('#ffffff')
-const highColor = ref('#a50026')
+const highColor = ref('#b2182b')
 
 function hexToRgb(hex: string): number[] {
   const h = hex.replace('#', '')

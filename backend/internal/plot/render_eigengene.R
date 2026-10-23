@@ -1,11 +1,11 @@
 #!/usr/bin/env Rscript
-# Module eigengene adjacency heatmap (plotEigengeneNetworks style): top dendrogram
-# (x-axis clustering only), left color band, no axis lines.
+# Module eigengene adjacency heatmap (ComplexHeatmap, plotEigengeneNetworks style).
+# NOTE: body size uses ComplexHeatmap's default unit(1,"npc") (fills the canvas);
+# do NOT set an explicit width/height in Heatmap().
 suppressPackageStartupMessages({
   library(jsonlite)
-  library(ggplot2)
-  library(patchwork)
-  library(ggdendro)
+  library(ComplexHeatmap)
+  library(circlize)
 })
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -18,12 +18,13 @@ get_arg <- function(name, default = NULL) {
 json_path <- get_arg("--json")
 mode      <- get_arg("--mode", "png")
 out_path  <- get_arg("--out")
-width     <- as.numeric(get_arg("--width", "10"))
-height    <- as.numeric(get_arg("--height", "8"))
-dpi       <- as.numeric(get_arg("--dpi", "150"))
-low       <- get_arg("--low", "#313695")
+low       <- get_arg("--low", "#2166ac")
 mid       <- get_arg("--mid", "#ffffff")
-high      <- get_arg("--high", "#a50026")
+high      <- get_arg("--high", "#b2182b")
+legend    <- get_arg("--legend", "right")   # right | bottom | none
+width     <- as.numeric(get_arg("--width", "7"))
+height    <- as.numeric(get_arg("--height", "7"))
+dpi       <- as.numeric(get_arg("--dpi", "150"))
 if (is.null(json_path) || is.null(out_path)) stop("usage: render_eigengene.R --json <f> --out <f>")
 
 d <- fromJSON(json_path, simplifyVector = TRUE)
@@ -32,72 +33,62 @@ eg <- as.matrix(d$eigengenes)
 
 corm <- cor(eg)
 adj <- (1 + corm) / 2
+rownames(adj) <- modules
+colnames(adj) <- modules
 hc <- hclust(as.dist(1 - adj), method = "average")
-ord <- hc$order
-mod_ord <- modules[ord]
-adj_ord <- adj[ord, ord]
-n <- length(modules)
 
-heat <- expand.grid(j = seq_len(n), i = seq_len(n))
-heat$adj <- mapply(function(ii, jj) adj_ord[ii, jj], heat$i, heat$j)
-heat$x <- factor(mod_ord[heat$j], levels = mod_ord)
-heat$y <- factor(mod_ord[heat$i], levels = rev(mod_ord))
+col_fun <- colorRamp2(c(0, 0.5, 1), c(low, mid, high))
 
-# --- top dendrogram (x-axis clustering) ---
-ddata <- ggdendro::dendro_data(as.dendrogram(hc))
-p_dendro <- ggplot(ddata$segments) +
-  geom_segment(aes(x = x, y = y, xend = xend, yend = yend), linewidth = 0.4) +
-  scale_x_continuous(expand = c(0, 0), limits = c(0.5, n + 0.5)) +
-  scale_y_continuous(expand = c(0, 0.05)) +
-  theme_void() +
-  theme(plot.margin = margin(6, 10, 0, 2))
+mod_col <- setNames(modules, modules)
+row_ha <- rowAnnotation(
+  Module = modules,
+  col = list(Module = mod_col),
+  show_legend = FALSE,
+  show_annotation_name = FALSE
+)
+col_ha <- columnAnnotation(
+  Module = modules,
+  col = list(Module = mod_col),
+  show_legend = FALSE,
+  show_annotation_name = FALSE
+)
 
-blank <- ggplot() + theme_void()
+show_legend <- legend != "none"
+leg_direction <- if (legend == "bottom") "horizontal" else "vertical"
 
-# --- color band (left) ---
-band <- data.frame(module = factor(mod_ord, levels = rev(mod_ord)), color = mod_ord)
-p_band <- ggplot(band, aes(1, module)) +
-  geom_tile(aes(fill = color), colour = "#333333", linewidth = 0.5) +
-  scale_fill_identity() +
-  scale_x_continuous(expand = c(0, 0)) +
-  scale_y_discrete(expand = c(0, 0)) +
-  theme_classic(base_size = 12) +
-  theme(
-    axis.title = element_blank(),
-    axis.text.x = element_blank(),
-    axis.ticks = element_blank(),
-    axis.line = element_blank(),
-    legend.position = "none",
-    plot.margin = margin(0, 0, 6, 2)
-  )
-
-# --- heatmap (no y labels, x labels 90deg) ---
-p_heat <- ggplot(heat, aes(x, y)) +
-  geom_tile(aes(fill = adj), colour = NA) +
-  scale_fill_gradient2(low = low, mid = mid, high = high, midpoint = 0.5, limits = c(0, 1)) +
-  scale_x_discrete(expand = c(0, 0)) +
-  scale_y_discrete(expand = c(0, 0)) +
-  theme_classic(base_size = 12) +
-  theme(
-    axis.title = element_blank(),
-    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
-    axis.text.y = element_blank(),
-    axis.ticks = element_blank(),
-    axis.line = element_blank(),
-    legend.position = "none",
-    plot.margin = margin(0, 10, 6, 0)
-  )
-
-# --- assemble: [blank|dendro] on top, [band|heat] on bottom ---
-top <- blank + p_dendro + plot_layout(widths = c(1, 8))
-bottom <- p_band + p_heat + plot_layout(widths = c(1, 8))
-combined <- top / bottom + plot_layout(heights = c(1, 5))
+ht <- Heatmap(
+  adj,
+  name = "adjacency",
+  col = col_fun,
+  cluster_rows = hc,
+  cluster_columns = hc,
+  left_annotation = row_ha,
+  top_annotation = col_ha,
+  row_names_gp = gpar(fontsize = 10),
+  column_names_gp = gpar(fontsize = 10),
+  column_names_rot = 45,
+  heatmap_legend_param = list(
+    title = "Adjacency",
+    direction = leg_direction,
+    title_position = if (legend == "bottom") "topcenter" else "lefttop-rot"
+  ),
+  show_heatmap_legend = show_legend,
+  border_gp = gpar(col = "grey40"),
+  column_title = "Eigengene adjacency",
+  column_title_gp = gpar(fontsize = 15, fontface = "bold")
+)
 
 if (mode == "pdf") {
-  ggsave(out_path, combined, width = width, height = height, device = "pdf")
+  pdf(out_path, width = width, height = height)
 } else if (mode == "svg") {
-  ggsave(out_path, combined, width = width, height = height, device = "svg")
+  svg(out_path, width = width, height = height)
 } else {
-  ggsave(out_path, combined, width = width, height = height, dpi = dpi, device = "png")
+  png(out_path, width = width, height = height, units = "in", res = dpi)
 }
+if (legend == "bottom") {
+  draw(ht, heatmap_legend_side = "bottom")
+} else {
+  draw(ht, heatmap_legend_side = "right")
+}
+dev.off()
 cat("done:", out_path, "\n")

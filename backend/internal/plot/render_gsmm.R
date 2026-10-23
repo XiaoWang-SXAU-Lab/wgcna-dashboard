@@ -36,7 +36,7 @@ pv <- cor.test(df$mm, df$gs)$p.value
 
 p <- ggplot(df, aes(mm, gs)) +
   geom_point(color = point_col, size = size, alpha = 0.6) +
-  geom_abline(slope = coef(fit)[2], intercept = coef(fit)[1], color = line_color, linewidth = 1) +
+  geom_smooth(method = "lm", se = TRUE, color = line_color, fill = "grey60", alpha = 0.3, linewidth = 1) +
   labs(x = "Module Membership (|MM|)", y = "Gene Significance (|GS|)",
        title = paste0("GS vs MM (", mod, " / ", trait, ")"),
        subtitle = paste0("cor = ", sprintf("%.3f", corv), "  p = ", format(pv, scientific = TRUE, digits = 3))) +
