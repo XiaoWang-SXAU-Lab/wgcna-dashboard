@@ -4,13 +4,14 @@ import { useWgcnaStore } from '../stores/wgcna'
 import { plotUrl } from '../api/client'
 import { t } from '../utils/i18n'
 
-const props = defineProps<{ kind: string; rsqCut?: number; show: boolean; attrs?: string }>()
+const props = defineProps<{ kind: string; rsqCut?: number; show: boolean; attrs?: string; type?: string; module?: string; fdr?: number; top?: number }>()
 const emit = defineEmits<{ close: [] }>()
 const store = useWgcnaStore()
 
 const isSimple = computed(() => props.kind === 'dendrogram')
 const isHeatmap = computed(() => props.kind === 'mtrait' || props.kind === 'eigengene' || props.kind === 'geneheatmap')
 const isSampleTree = computed(() => props.kind === 'sample-tree')
+const isEnrich = computed(() => props.kind === 'enrich')
 
 const size = ref(2.4)
 const color = ref('#5470c6')
@@ -27,15 +28,28 @@ const height = ref(8)
 const dpi = ref(150)
 const format = ref<'pdf' | 'svg' | 'png'>('pdf')
 
+const enrichX = ref<'GeneRatio' | 'Count'>('GeneRatio')
+const enrichColor = ref<'p.adjust' | 'pvalue' | 'qvalue'>('p.adjust')
+const showCategory = ref(10)
+const sizeMin = ref(3)
+const sizeMax = ref(8)
+const enrichLow = ref('red')
+const enrichHigh = ref('blue')
+const enrichTitle = ref('')
+const wrap = ref(30)
+
 const preview = ref({
   size: size.value, color: color.value, lineColor: lineColor.value,
   baseSize: baseSize.value, axisSize: axisSize.value, axisColor: axisColor.value,
   lowColor: lowColor.value, midColor: midColor.value, highColor: highColor.value,
   legend: legend.value, width: width.value, height: height.value, dpi: dpi.value,
+  enrichX: enrichX.value, enrichColor: enrichColor.value, showCategory: showCategory.value,
+  sizeMin: sizeMin.value, sizeMax: sizeMax.value, enrichLow: enrichLow.value,
+  enrichHigh: enrichHigh.value, enrichTitle: enrichTitle.value, wrap: wrap.value,
 })
 const loading = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
-watch([size, color, lineColor, baseSize, axisSize, axisColor, lowColor, midColor, highColor, legend, width, height, dpi], () => {
+watch([size, color, lineColor, baseSize, axisSize, axisColor, lowColor, midColor, highColor, legend, width, height, dpi, enrichX, enrichColor, showCategory, sizeMin, sizeMax, enrichLow, enrichHigh, enrichTitle, wrap], () => {
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => {
     preview.value = {
@@ -43,6 +57,9 @@ watch([size, color, lineColor, baseSize, axisSize, axisColor, lowColor, midColor
       baseSize: baseSize.value, axisSize: axisSize.value, axisColor: axisColor.value,
       lowColor: lowColor.value, midColor: midColor.value, highColor: highColor.value,
       legend: legend.value, width: width.value, height: height.value, dpi: dpi.value,
+      enrichX: enrichX.value, enrichColor: enrichColor.value, showCategory: showCategory.value,
+      sizeMin: sizeMin.value, sizeMax: sizeMax.value, enrichLow: enrichLow.value,
+      enrichHigh: enrichHigh.value, enrichTitle: enrichTitle.value, wrap: wrap.value,
     }
     loading.value = true
   }, 350)
@@ -62,6 +79,21 @@ function baseParams(mode: string): Record<string, string | number> {
     p.base_size = preview.value.baseSize
     p.line_color = preview.value.lineColor
     if (props.attrs) p.attrs = props.attrs
+  } else if (isEnrich.value) {
+    if (props.type) p.type = props.type
+    if (props.module) p.module = props.module
+    if (props.fdr != null) p.fdr = props.fdr
+    if (props.top != null) p.top = props.top
+    p.x = preview.value.enrichX
+    p.color_var = preview.value.enrichColor
+    p.show_category = preview.value.showCategory
+    p.size_min = preview.value.sizeMin
+    p.size_max = preview.value.sizeMax
+    p.low = preview.value.enrichLow
+    p.high = preview.value.enrichHigh
+    p.base_size = preview.value.baseSize
+    p.wrap = preview.value.wrap
+    if (preview.value.enrichTitle) p.title = preview.value.enrichTitle
   } else if (!isSimple.value) {
     p.size = preview.value.size
     p.color = preview.value.color
@@ -133,7 +165,62 @@ function download() {
                 <input type="range" class="form-range" min="8" max="20" step="1" v-model.number="baseSize" />
               </div>
             </template>
-            <template v-if="!isSimple && !isHeatmap && !isSampleTree">
+            <template v-if="isEnrich">
+              <div class="row g-2">
+                <div class="col-6">
+                  <label class="form-label small mb-1">{{ t('plot.xAxis') }}</label>
+                  <select v-model="enrichX" class="form-select form-select-sm">
+                    <option value="GeneRatio">GeneRatio</option>
+                    <option value="Count">Count</option>
+                  </select>
+                </div>
+                <div class="col-6">
+                  <label class="form-label small mb-1">{{ t('plot.colorBy') }}</label>
+                  <select v-model="enrichColor" class="form-select form-select-sm">
+                    <option value="p.adjust">p.adjust</option>
+                    <option value="pvalue">pvalue</option>
+                    <option value="qvalue">qvalue</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="form-label small mb-1">{{ t('plot.showCategory') }}: <b>{{ showCategory }}</b></label>
+                <input type="number" class="form-control form-control-sm" min="5" max="100" v-model.number="showCategory" />
+              </div>
+              <div>
+                <label class="form-label small mb-1">{{ t('plot.wrap') }}: <b>{{ wrap }}</b></label>
+                <input type="number" class="form-control form-control-sm" min="0" max="120" v-model.number="wrap" />
+              </div>
+              <div class="row g-2">
+                <div class="col-6">
+                  <label class="form-label small mb-1">{{ t('plot.sizeMin') }}: <b>{{ sizeMin }}</b></label>
+                  <input type="range" class="form-range" min="1" max="12" step="1" v-model.number="sizeMin" />
+                </div>
+                <div class="col-6">
+                  <label class="form-label small mb-1">{{ t('plot.sizeMax') }}: <b>{{ sizeMax }}</b></label>
+                  <input type="range" class="form-range" min="3" max="16" step="1" v-model.number="sizeMax" />
+                </div>
+              </div>
+              <div class="row g-2">
+                <div class="col-6">
+                  <label class="form-label small mb-1">{{ t('plot.lowColor') }}</label>
+                  <input type="color" class="form-control form-control-color" v-model="enrichLow" />
+                </div>
+                <div class="col-6">
+                  <label class="form-label small mb-1">{{ t('plot.highColor') }}</label>
+                  <input type="color" class="form-control form-control-color" v-model="enrichHigh" />
+                </div>
+              </div>
+              <div>
+                <label class="form-label small mb-1">{{ t('plot.fontSize') }}: <b>{{ baseSize }}</b></label>
+                <input type="range" class="form-range" min="8" max="20" step="1" v-model.number="baseSize" />
+              </div>
+              <div>
+                <label class="form-label small mb-1">{{ t('plot.title') }}</label>
+                <input type="text" class="form-control form-control-sm" v-model="enrichTitle" />
+              </div>
+            </template>
+            <template v-if="!isSimple && !isHeatmap && !isSampleTree && !isEnrich">
               <div>
                 <label class="form-label small mb-1">{{ t('plot.size') }}: <b>{{ size.toFixed(1) }}</b></label>
                 <input type="range" class="form-range" min="1" max="6" step="0.1" v-model.number="size" />

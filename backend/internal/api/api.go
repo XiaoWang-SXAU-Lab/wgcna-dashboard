@@ -5,10 +5,12 @@ package api
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -54,6 +56,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/jobs/{id}/plots/geneheatmap", h.plotGeneHeatmap)
 	mux.HandleFunc("GET /api/jobs/{id}/plots/enrich", h.plotEnrich)
 	mux.HandleFunc("GET /api/jobs/{id}/plots/sample-tree", h.plotSampleTree)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/enrich-heatmap", h.plotEnrichHeatmap)
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
@@ -287,6 +290,13 @@ func (h *Handler) plotEnrich(w http.ResponseWriter, r *http.Request) {
 		Width:    qfloat(r, "width"),
 		Height:   qfloat(r, "height"),
 		Dpi:      qfloat(r, "dpi"),
+		X:            r.URL.Query().Get("x"),
+		ColorVar:     r.URL.Query().Get("color_var"),
+		ShowCategory: int(qfloat(r, "show_category")),
+		SizeMin:      qfloat(r, "size_min"),
+		SizeMax:      qfloat(r, "size_max"),
+		Title:        r.URL.Query().Get("title"),
+		Wrap:         int(qfloat(r, "wrap")),
 	}
 	out, ctype, err := plot.RenderEnrich(results, mode, params)
 	if err != nil {
@@ -359,6 +369,126 @@ func (h *Handler) plotSampleTree(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Content-Disposition", `attachment; filename="sample_tree.`+mode+`"`)
 	http.ServeFile(w, r, out)
+}
+
+// plotEnrichHeatmap renders the enrichment gene-expression heatmap (ComplexHeatmap).
+func (h *Handler) plotEnrichHeatmap(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	mode := r.URL.Query().Get("mode")
+	if mode != "pdf" && mode != "svg" {
+		mode = "png"
+	}
+	genesParam := r.URL.Query().Get("genes")
+	if genesParam == "" {
+		http.Error(w, "genes required", http.StatusBadRequest)
+		return
+	}
+	genes := strings.Split(genesParam, ",")
+	jobDir := filepath.Join(h.jobs.Dir(), id)
+	expr, err := enrich.Expression(jobDir, genes)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	n := len(expr.Samples)
+	z := make([][]float64, len(expr.Rows))
+	labels := make([]string, len(expr.Rows))
+	for i, row := range expr.Rows {
+		mean := row.Mean
+		var ss float64
+		for _, v := range row.Values {
+			ss += (v - mean) * (v - mean)
+		}
+		sd := math.Sqrt(ss / float64(maxInt(n-1, 1)))
+		zi := make([]float64, n)
+		for j, v := range row.Values {
+			if sd == 0 {
+				zi[j] = 0
+			} else {
+				zi[j] = (v - mean) / sd
+			}
+		}
+		z[i] = zi
+		if row.Symbol != "" {
+			labels[i] = row.Symbol
+		} else {
+			labels[i] = row.Gene
+		}
+	}
+
+	group := make([]string, n)
+	if raw, err := os.ReadFile(filepath.Join(jobDir, "sample_info.tsv")); err == nil {
+		if infos, perr := enrich.ParseSampleInfo(raw); perr == nil {
+			m := map[string]string{}
+			for _, s := range infos {
+				if g := s.Attrs["group"]; g != "" {
+					m[s.SampleID] = g
+				} else if g := s.Attrs["genotype"]; g != "" {
+					m[s.SampleID] = g
+				} else {
+					m[s.SampleID] = s.Attrs["condition"]
+				}
+			}
+			for j, s := range expr.Samples {
+				group[j] = m[s]
+			}
+		}
+	}
+
+	// Sort samples by group (stable) so biological replicates of the same
+	// group are adjacent; only rows (genes) are clustered.
+	type sg struct {
+		i int
+		g string
+	}
+	order := make([]sg, n)
+	for i := range expr.Samples {
+		order[i] = sg{i, group[i]}
+	}
+	sort.SliceStable(order, func(a, b int) bool { return order[a].g < order[b].g })
+	samples2 := make([]string, n)
+	group2 := make([]string, n)
+	for j, o := range order {
+		samples2[j] = expr.Samples[o.i]
+		group2[j] = o.g
+	}
+	z2 := make([][]float64, len(z))
+	for i, row := range z {
+		zi := make([]float64, n)
+		for j, o := range order {
+			zi[j] = row[o.i]
+		}
+		z2[i] = zi
+	}
+
+	data, err := json.Marshal(map[string]any{"samples": samples2, "genes": labels, "z": z2, "group": group2})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	params := plot.PlotParams{
+		Width:    qfloat(r, "width"),
+		Height:   qfloat(r, "height"),
+		Dpi:      qfloat(r, "dpi"),
+		BaseSize: qfloat(r, "base_size"),
+	}
+	out, ctype, err := plot.RenderEnrichHeatmap(data, mode, params)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(filepath.Dir(out))
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", `attachment; filename="enrich_heatmap.`+mode+`"`)
+	http.ServeFile(w, r, out)
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // loadDemo creates a job from the bundled demo dataset (expr + trait + meta).

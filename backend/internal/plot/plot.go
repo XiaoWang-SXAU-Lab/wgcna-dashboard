@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/enrich"
 )
@@ -40,6 +41,9 @@ var enrichScript []byte
 //go:embed render_sample_tree.R
 var sampleTreeScript []byte
 
+//go:embed render_enrich_heatmap.R
+var enrichHeatmapScript []byte
+
 // PlotParams are optional styling parameters forwarded to the R script.
 // Zero values are omitted, so the R script falls back to its defaults.
 type PlotParams struct {
@@ -56,6 +60,13 @@ type PlotParams struct {
 	Width     float64 // output width (inches)
 	Height    float64 // output height (inches)
 	Dpi       float64 // raster resolution (PNG only)
+	X            string  // enrichment x-axis: GeneRatio | Count
+	ColorVar     string  // enrichment color variable: p.adjust | pvalue | qvalue
+	ShowCategory int     // enrichment top-N terms
+	SizeMin      float64 // enrichment dot size range
+	SizeMax      float64
+	Title        string  // enrichment plot title
+	Wrap         int     // enrichment label wrap width (chars; 0 = off)
 }
 
 // rArgs renders non-zero params as R script arguments.
@@ -99,6 +110,27 @@ func (p PlotParams) rArgs() []string {
 	}
 	if p.Legend != "" {
 		args = append(args, "--legend", p.Legend)
+	}
+	if p.X != "" {
+		args = append(args, "--x", p.X)
+	}
+	if p.ColorVar != "" {
+		args = append(args, "--color-var", p.ColorVar)
+	}
+	if p.ShowCategory > 0 {
+		args = append(args, "--show-category", strconv.Itoa(p.ShowCategory))
+	}
+	if p.SizeMin > 0 {
+		args = append(args, "--size-min", fmt.Sprintf("%g", p.SizeMin))
+	}
+	if p.SizeMax > 0 {
+		args = append(args, "--size-max", fmt.Sprintf("%g", p.SizeMax))
+	}
+	if p.Title != "" {
+		args = append(args, "--title", p.Title)
+	}
+	if p.Wrap > 0 {
+		args = append(args, "--wrap", strconv.Itoa(p.Wrap))
 	}
 	return args
 }
@@ -275,6 +307,46 @@ func RenderSampleTree(data []byte, mode string, params PlotParams) (string, stri
 		rs = "Rscript"
 	}
 	out := filepath.Join(dir, "sample_tree."+mode)
+	args := []string{filepath.Join(dir, "render.R"), "--json", filepath.Join(dir, "data.json"), "--mode", mode, "--out", out}
+	args = append(args, params.rArgs()...)
+	cmd := exec.Command(rs, args...)
+	cmd.Env = plotEnv(rs)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		cleanup()
+		return "", "", fmt.Errorf("R plot failed: %v: %s", err, string(b))
+	}
+
+	ctype := "image/png"
+	if mode == "pdf" {
+		ctype = "application/pdf"
+	} else if mode == "svg" {
+		ctype = "image/svg+xml"
+	}
+	return out, ctype, nil
+}
+
+// RenderEnrichHeatmap renders the enrichment expression heatmap (ComplexHeatmap).
+func RenderEnrichHeatmap(data []byte, mode string, params PlotParams) (string, string, error) {
+	dir, err := os.MkdirTemp("", "wgcna-plot-*")
+	if err != nil {
+		return "", "", err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+
+	if err := os.WriteFile(filepath.Join(dir, "render.R"), enrichHeatmapScript, 0o644); err != nil {
+		cleanup()
+		return "", "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data.json"), data, 0o644); err != nil {
+		cleanup()
+		return "", "", err
+	}
+
+	rs := os.Getenv("WGCNA_RSCRIPT")
+	if rs == "" {
+		rs = "Rscript"
+	}
+	out := filepath.Join(dir, "enrich_heatmap."+mode)
 	args := []string{filepath.Join(dir, "render.R"), "--json", filepath.Join(dir, "data.json"), "--mode", mode, "--out", out}
 	args = append(args, params.rArgs()...)
 	cmd := exec.Command(rs, args...)

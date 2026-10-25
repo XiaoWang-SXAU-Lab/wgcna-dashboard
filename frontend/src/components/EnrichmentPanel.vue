@@ -3,8 +3,9 @@ import { computed, onMounted, ref, watch } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { getEnrich, getExpression, getGOVersion, getSampleInfo, updateGO, type EnrichResult, type ExpressionResult, type GOVersionInfo, type SampleInfo } from '../api/client'
 import { useWgcnaStore } from '../stores/wgcna'
-import EChart from './EChart.vue'
+import ResizableChart from './ResizableChart.vue'
 import SimpleTable from './SimpleTable.vue'
+import PlotDownloadWidget from './PlotDownloadWidget.vue'
 import { mixHex } from '../utils/colors'
 import { hclustAverage } from '../utils/hclust'
 import { t } from '../utils/i18n'
@@ -28,19 +29,27 @@ const error = ref('')
 const fdr = ref(0.05)
 const top = ref(20)
 const mode = ref<'separate' | 'combined'>('separate')
-const exportMode = ref<'png' | 'svg' | 'pdf'>('png')
 const goVersion = ref<GOVersionInfo | null>(null)
 const updatingGO = ref(false)
+const exportType = ref<'go' | 'kegg'>('go')
+const heatExportMode = ref<'png' | 'svg' | 'pdf'>('png')
 
 const selected = ref<{ termId: string; description: string; source: Source; genes: string[]; count: number; qvalue: number } | null>(null)
 const expr = ref<ExpressionResult | null>(null)
 const sampleInfos = ref<SampleInfo[]>([])
 const PALETTE = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#aec7e8', '#ffbb78']
+const showExport = ref(false)
+const wrap = ref(30)
 
-function exportUrl(type: 'go' | 'kegg'): string {
-  if (!store.jobId || !store.selectedModule) return '#'
-  return `/api/jobs/${store.jobId}/plots/enrich?module=${encodeURIComponent(store.selectedModule)}&type=${type}&fdr=${fdr.value}&top=${top.value}&mode=${exportMode.value}`
+function openExport(type: 'go' | 'kegg') {
+  exportType.value = type
+  showExport.value = true
 }
+
+const heatExportUrl = computed(() => {
+  if (!store.jobId || !selected.value?.genes?.length) return '#'
+  return `/api/jobs/${store.jobId}/plots/enrich-heatmap?genes=${encodeURIComponent(selected.value.genes.join(','))}&mode=${heatExportMode.value}`
+})
 
 async function checkGO() {
   try {
@@ -102,8 +111,16 @@ function ratioFrac(r: string): number {
 }
 
 function sigColor(q: number): string {
-  const t = q >= 0.1 ? 0 : 1 - q / 0.1
-  return mixHex('#2166ac', '#b2182b', t)
+  // clusterProfiler dotplot: low p.adjust (significant) = red, high = blue.
+  const t = q >= 0.1 ? 1 : q / 0.1
+  return mixHex('#ff0000', '#0000ff', t)
+}
+
+function wrapLabel(s: string): string {
+  if (wrap.value <= 0) return s
+  const out: string[] = []
+  for (let i = 0; i < s.length; i += wrap.value) out.push(s.slice(i, i + wrap.value))
+  return out.join('\n')
 }
 
 function makePoints(results: EnrichResult[], source: Source): BubblePoint[] {
@@ -128,11 +145,11 @@ function optionFromPoints(points: BubblePoint[], title: string, height: string):
       },
     },
     grid: { left: 300, right: 40, top: 42, bottom: 36 },
-    xAxis: { type: 'value', name: 'GeneRatio', min: 0 },
+    xAxis: { type: 'value', name: 'GeneRatio', min: 0, nameLocation: 'middle', nameGap: 30 },
     yAxis: {
       type: 'category',
-      data: points.map((p) => p.description),
-      axisLabel: { width: 280, overflow: 'truncate', fontSize: 11 },
+      data: [...points].reverse().map((p) => p.description),
+      axisLabel: { width: 280, fontSize: 11, formatter: (v: string) => wrapLabel(v) },
     },
     series: [
       {
@@ -201,11 +218,19 @@ const heatOption = computed<EChartsOption>(() => {
   const order = clusterOrder(expr.value.rows)
   const rows = order.map((i) => expr.value!.rows[i])
   const z = order.map((i) => zAll[i])
-  const samples = expr.value.samples
+  const origSamples = expr.value.samples
   const geneLabels = rows.map((r) => r.symbol || r.gene)
 
+  // x-axis: sort samples by group (stable), keeping biological replicates of
+  // the same group together. Only the y-axis (genes) is clustered.
+  const sampleIdx = origSamples
+    .map((s, i) => ({ i, g: sampleCategory(s) }))
+    .sort((a, b) => a.g.localeCompare(b.g) || a.i - b.i)
+  const samples = sampleIdx.map((x) => origSamples[x.i])
+  const idxMap = sampleIdx.map((x) => x.i)
+
   const heat: [number, number, number][] = []
-  z.forEach((row, gi) => row.forEach((v, si) => heat.push([si, gi, +v.toFixed(3)])))
+  z.forEach((row, gi) => idxMap.forEach((origSi, newSi) => heat.push([newSi, gi, +row[origSi].toFixed(3)])))
   let maxAbs = 1
   z.forEach((row) => row.forEach((v) => (maxAbs = Math.max(maxAbs, Math.abs(v)))))
 
@@ -216,7 +241,7 @@ const heatOption = computed<EChartsOption>(() => {
   const n = samples.length
 
   return {
-    title: { text: (selected.value?.description ?? '') + ' (' + rows.length + ' genes)', left: 'center', textStyle: { fontSize: 13 } },
+    title: { text: (selected.value?.description ?? '') + ' (' + rows.length + ' genes)', left: 'center', top: 2, textStyle: { fontSize: 13 } },
     tooltip: {
       formatter: (p: any) => {
         if (p.seriesType === 'heatmap') {
@@ -228,8 +253,8 @@ const heatOption = computed<EChartsOption>(() => {
       },
     },
     grid: [
-      { left: 170, right: 30, top: 46, bottom: 56 },
-      { left: 170, right: 30, bottom: 16, height: 22 },
+      { left: 170, right: 40, top: 64, bottom: 120 },
+      { left: 170, right: 40, bottom: 10, height: 16 },
     ],
     xAxis: [
       { type: 'category', data: samples, gridIndex: 0, axisLabel: { rotate: 90, fontSize: 9 } },
@@ -240,7 +265,7 @@ const heatOption = computed<EChartsOption>(() => {
       { type: 'value', min: 0, max: 1, gridIndex: 1, show: false },
     ],
     visualMap: {
-      min: -maxAbs, max: maxAbs, calculable: true, orient: 'horizontal', left: 'center', bottom: 40,
+      min: -maxAbs, max: maxAbs, calculable: true, orient: 'horizontal', left: 'center', top: 28,
       inRange: { color: ['#2166ac', '#ffffff', '#b2182b'] },
     },
     series: [
@@ -293,23 +318,18 @@ onMounted(() => { if (store.selectedModule) load(); checkGO(); loadSampleInfo() 
 
     <div v-if="!loading && (goResults.length || keggResults.length)" class="d-flex align-items-center gap-2 mb-2">
       <span class="text-muted small">{{ t('plot.export') }}</span>
-      <select v-model="exportMode" class="form-select form-select-sm" style="width:90px">
-        <option value="png">PNG</option>
-        <option value="svg">SVG</option>
-        <option value="pdf">PDF</option>
-      </select>
-      <a class="btn btn-sm btn-outline-secondary" :href="exportUrl('go')" download>GO</a>
-      <a class="btn btn-sm btn-outline-secondary" :href="exportUrl('kegg')" download>KEGG</a>
+      <button class="btn btn-sm btn-outline-primary" @click="openExport('go')"><i class="bi bi-download me-1"></i>GO</button>
+      <button class="btn btn-sm btn-outline-primary" @click="openExport('kegg')"><i class="bi bi-download me-1"></i>KEGG</button>
     </div>
 
     <div v-if="error" class="alert alert-warning py-2 small">{{ error }}</div>
     <div v-if="loading" class="text-muted small py-2">{{ t('common.running') }}</div>
     <template v-else>
       <div v-if="mode === 'separate'" class="row g-3">
-        <div class="col-lg-6"><EChart :option="goOption" height="460px" @chart-click="onChartClick" /></div>
-        <div class="col-lg-6"><EChart :option="keggOption" height="460px" @chart-click="onChartClick" /></div>
+        <div class="col-lg-6"><ResizableChart :option="goOption" @chart-click="onChartClick" /></div>
+        <div class="col-lg-6"><ResizableChart :option="keggOption" @chart-click="onChartClick" /></div>
       </div>
-      <div v-else><EChart :option="combinedOption" height="540px" @chart-click="onChartClick" /></div>
+      <div v-else><ResizableChart :option="combinedOption" @chart-click="onChartClick" /></div>
     </template>
 
     <div v-if="selected" class="mt-3">
@@ -320,7 +340,17 @@ onMounted(() => { if (store.selectedModule) load(); checkGO(); loadSampleInfo() 
         { key: 'gene_name', label: 'Gene name' },
         { key: 'mean', label: 'Mean expr' },
       ]" :rows="geneRows" scroll-height="320px" :filename="selected.termId + '_genes'" />
-      <EChart :option="heatOption" height="520px" />
+      <div class="d-flex align-items-center gap-2 my-2">
+        <span class="text-muted small">{{ t('plot.export') }} · ComplexHeatmap</span>
+        <select v-model="heatExportMode" class="form-select form-select-sm" style="width:90px">
+          <option value="png">PNG</option>
+          <option value="svg">SVG</option>
+          <option value="pdf">PDF</option>
+        </select>
+        <a class="btn btn-sm btn-outline-secondary" :href="heatExportUrl" download><i class="bi bi-download me-1"></i>{{ t('plot.download') }}</a>
+      </div>
+      <ResizableChart :option="heatOption" />
     </div>
+    <PlotDownloadWidget kind="enrich" :type="exportType" :module="store.selectedModule" :fdr="fdr" :top="top" :show="showExport" @close="showExport = false" />
   </div>
 </template>
