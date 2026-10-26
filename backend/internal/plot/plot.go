@@ -12,6 +12,7 @@ import (
 	"strconv"
 
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/enrich"
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/subproc"
 )
 
 // findRscript resolves the Rscript executable: an explicit WGCNA_RSCRIPT env
@@ -289,6 +290,7 @@ func RenderEnrich(results []enrich.Result, mode string, params PlotParams) (stri
 	args := []string{filepath.Join(dir, "render.R"), "--json", filepath.Join(dir, "enrich.json"), "--mode", mode, "--out", out}
 	args = append(args, params.rArgs()...)
 	cmd := exec.Command(rs, args...)
+	subproc.HideWindow(cmd)
 	cmd.Env = plotEnv(rs)
 	if b, err := cmd.CombinedOutput(); err != nil {
 		cleanup()
@@ -327,6 +329,7 @@ func RenderSampleTree(data []byte, mode string, params PlotParams) (string, stri
 	args := []string{filepath.Join(dir, "render.R"), "--json", filepath.Join(dir, "data.json"), "--mode", mode, "--out", out}
 	args = append(args, params.rArgs()...)
 	cmd := exec.Command(rs, args...)
+	subproc.HideWindow(cmd)
 	cmd.Env = plotEnv(rs)
 	if b, err := cmd.CombinedOutput(); err != nil {
 		cleanup()
@@ -364,6 +367,7 @@ func RenderEnrichHeatmap(data []byte, mode string, params PlotParams) (string, s
 	args := []string{filepath.Join(dir, "render.R"), "--json", filepath.Join(dir, "data.json"), "--mode", mode, "--out", out}
 	args = append(args, params.rArgs()...)
 	cmd := exec.Command(rs, args...)
+	subproc.HideWindow(cmd)
 	cmd.Env = plotEnv(rs)
 	if b, err := cmd.CombinedOutput(); err != nil {
 		cleanup()
@@ -400,6 +404,7 @@ func renderR(script []byte, args []string, outName, ctype string) (string, strin
 	full := append([]string{scriptPath}, args...)
 	full = append(full, "--out", out)
 	cmd := exec.Command(rs, full...)
+	subproc.HideWindow(cmd)
 	cmd.Env = plotEnv(rs)
 	if b, err := cmd.CombinedOutput(); err != nil {
 		cleanup()

@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/subproc"
 )
 
 // StepOrder is the linear execution order of the WGCNA pipeline.
@@ -164,6 +166,7 @@ func (m *Manager) RunStep(id, step string) {
 	}()
 
 	cmd := exec.CommandContext(ctx, m.workerBin, "--job-dir", jobDir, "--step", step, "--threads", fmt.Sprint(m.threadsFor(id)))
+	subproc.HideWindow(cmd)
 	out, err := cmd.CombinedOutput()
 
 	select {
