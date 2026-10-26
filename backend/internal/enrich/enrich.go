@@ -13,6 +13,7 @@ import (
 type Result struct {
 	ID          string   `json:"id"`
 	Description string   `json:"description"`
+	Ontology    string   `json:"ontology"` // GO namespace: BP / MF / CC (empty for KEGG)
 	GeneRatio   string   `json:"gene_ratio"` // "k/n"
 	BgRatio     string   `json:"bg_ratio"`   // "K/N"
 	Pvalue      float64  `json:"pvalue"`
@@ -25,9 +26,10 @@ type Result struct {
 // Background is a gene -> term mapping with a fixed universe (the set of all
 // genes participating in the annotation).
 type Background struct {
-	Gene2Term map[string][]string
-	TermName  map[string]string
-	Universe  []string // sorted, unique
+	Gene2Term    map[string][]string
+	TermName     map[string]string
+	TermOntology map[string]string // term id -> GO namespace short code (BP/MF/CC)
+	Universe     []string          // sorted, unique
 }
 
 // Run performs one-tailed over-representation for every term and returns rows
@@ -84,6 +86,7 @@ func Run(genes []string, bg Background, padjCut float64, top int) []Result {
 		rows = append(rows, Result{
 			ID:          term,
 			Description: bg.TermName[term],
+			Ontology:    bg.TermOntology[term],
 			GeneRatio:   ratio(k, n),
 			BgRatio:     ratio(K, N),
 			Pvalue:      p,

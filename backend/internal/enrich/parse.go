@@ -89,10 +89,11 @@ func ParseGene2GO(data []byte) (Background, error) {
 	gene := colIndex(hdr, "gene_id", "geneid", "gene", "id")
 	goID := colIndex(hdr, "go_id", "goid", "go", "term")
 	name := colIndex(hdr, "go_name", "goname", "description", "term_name")
+	ont := colIndex(hdr, "ontology", "namespace", "category")
 	if gene < 0 || goID < 0 {
 		return Background{}, fmt.Errorf("gene2go needs gene_id and go_id columns")
 	}
-	bg := Background{Gene2Term: map[string][]string{}, TermName: map[string]string{}}
+	bg := Background{Gene2Term: map[string][]string{}, TermName: map[string]string{}, TermOntology: map[string]string{}}
 	uni := map[string]bool{}
 	for _, r := range rows {
 		g, t := cell(r, gene), cell(r, goID)
@@ -106,9 +107,39 @@ func ParseGene2GO(data []byte) (Background, error) {
 		} else if bg.TermName[t] == "" {
 			bg.TermName[t] = t
 		}
+		if o := shortOntology(cell(r, ont)); o != "" && bg.TermOntology[t] == "" {
+			bg.TermOntology[t] = o
+		}
 	}
 	bg.Universe = sortedKeys(uni)
 	return bg, nil
+}
+
+// shortOntology maps a GO namespace string to its short code (BP/MF/CC).
+func shortOntology(ns string) string {
+	switch ns {
+	case "biological_process":
+		return "BP"
+	case "molecular_function":
+		return "MF"
+	case "cellular_component":
+		return "CC"
+	case "BP", "MF", "CC":
+		return ns
+	default:
+		return ""
+	}
+}
+
+// normalizeGOID ensures a GO term id carries the "GO:" prefix so it can be
+// looked up in the obo (which stores ids like "GO:0008150"). Handles inputs
+// such as "GO:0008150", "0008150" and "GO0008150".
+func normalizeGOID(id string) string {
+	id = strings.TrimSpace(id)
+	if strings.HasPrefix(id, "GO:") {
+		return id
+	}
+	return "GO:" + strings.TrimPrefix(id, "GO")
 }
 
 // ParseGene2KEGG parses a gene -> KO mapping. Recognized headers: gene_id +

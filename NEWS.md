@@ -3,6 +3,32 @@
 All notable changes to the wgcna-dashboard are documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] — 2026-10-26
+
+### Added
+
+- Enrichment split into separate **GO enrichment** and **KEGG enrichment**
+  panels; GO gains an ALL/MF/BP/CC ontology selector (ontology read from the
+  gene2go table with an obo fallback + GO-id normalization).
+- Enrichment chart↔table linkage: clicking a dot highlights the matching table
+  row, and clicking a table row opens the gene detail + heatmap.
+- AI navigator skills: type `@` or `/` to summon a skill menu (literature /
+  interpret / background / troubleshoot); animated cat mascot with a random
+  reminder bubble.
+
+### Changed
+
+- Module explorer is now five sub-panels: Scatter & heatmap / Network /
+  Annotation / GO enrichment / KEGG enrichment.
+- Dotplot ordering follows clusterProfiler (GeneRatio), with a drawn x-axis,
+  inward x title, outward y-axis, and >30-char term truncation (full term in
+  hover).
+- Module heatmap x-axis sorts samples by name (natural order).
+- Annotation table gains kME/GS columns; the network/hub table gains gene
+  annotation columns (when annotation is uploaded).
+- Chat input: Enter = newline, ⌘/Ctrl+Enter = send.
+- Network type exposes `signed hybrid`.
+
 ## [0.3.0] — 2026-10-24
 
 ### Added

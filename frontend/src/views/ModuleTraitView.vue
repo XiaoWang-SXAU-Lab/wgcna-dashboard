@@ -45,8 +45,21 @@ const mtraitRows = computed(() => {
 <template>
   <SidebarDrawer>
     <template #sidebar>
-      <div>
-        <p v-if="!store.traitUploaded" class="alert alert-warning small">{{ t('mt.warn') }}</p>
+      <div class="vstack gap-2">
+        <div>
+          <label class="form-label small mb-0">{{ t('mt.traitSource') }}</label>
+          <select class="form-select form-select-sm" v-model="store.traitSource">
+            <option value="uploaded" :disabled="!store.traitUploaded">{{ t('mt.traitSourceUploaded') }}</option>
+            <option value="sample_info" :disabled="!store.sampleInfo">{{ t('mt.traitSourceSampleInfo') }}</option>
+          </select>
+        </div>
+        <div v-if="store.traitSource === 'sample_info'">
+          <label class="form-label small mb-0">{{ t('mt.traitColumn') }}</label>
+          <select class="form-select form-select-sm" v-model="store.traitColumn">
+            <option v-for="c in store.sampleColumns" :key="c" :value="c">{{ c }}</option>
+          </select>
+        </div>
+        <p v-if="store.traitSource === 'uploaded' && !store.traitUploaded" class="alert alert-warning small mb-0">{{ t('mt.warn') }}</p>
         <button class="btn btn-primary w-100" :disabled="!store.stepReady('module_trait') || store.stepRunning !== ''" @click="store.runStep('module_trait')">
           {{ store.stepRunning === 'module_trait' ? t('common.running') : store.isDone('module_trait') ? t('common.rerun') : t('common.run') }}
         </button>

@@ -190,6 +190,7 @@ export interface AnnotationRow {
 export interface EnrichResult {
   id: string
   description: string
+  ontology: string
   gene_ratio: string
   bg_ratio: string
   pvalue: number

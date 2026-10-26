@@ -36,6 +36,7 @@ const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
             <select class="form-select form-select-sm" v-model="store.sftNetworkType">
               <option value="unsigned">unsigned</option>
               <option value="signed">signed</option>
+              <option value="signed hybrid">signed hybrid</option>
             </select>
           </div>
           <button class="btn btn-primary w-100 mt-2" :disabled="!store.stepReady('soft_threshold') || store.stepRunning !== ''" @click="store.runStep('soft_threshold')">

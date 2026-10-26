@@ -14,7 +14,7 @@ import SidebarDrawer from '../components/SidebarDrawer.vue'
 import StepStatusBadge from '../components/StepStatusBadge.vue'
 import { t } from '../utils/i18n'
 
-type Tab = 'detail' | 'network' | 'annotation' | 'enrich'
+type Tab = 'detail' | 'network' | 'annotation' | 'go' | 'kegg'
 
 const store = useWgcnaStore()
 const tab = ref<Tab>('detail')
@@ -52,12 +52,44 @@ const showMap = ref(false)
 const showExportGsmm = ref(false)
 const showExportHeatmap = ref(false)
 
-const hubRows = computed(() => (store.hub?.hub_genes ?? []).map((h) => ({
-  gene: h.gene, kme: h.kme.toFixed(4), gs: h.gs.toFixed(4),
-})))
-
 const annotationRows = ref<AnnotationRow[]>([])
 const annotationLoading = ref(false)
+
+// gene_id -> annotation (from uploaded annotation.tsv)
+const annMap = computed(() => {
+  const m: Record<string, AnnotationRow> = {}
+  for (const r of annotationRows.value) m[r.gene_id] = r
+  return m
+})
+
+// gene -> kME/GS (from module_detail result for the selected module+trait)
+const detailMap = computed(() => {
+  const m: Record<string, { kme: number; gs: number }> = {}
+  const d = store.detail
+  if (d) d.genes.forEach((g, i) => { m[g] = { kme: d.mm[i] ?? 0, gs: d.gs[i] ?? 0 } })
+  return m
+})
+
+const hubRows = computed(() => (store.hub?.hub_genes ?? []).map((h) => {
+  const a = annMap.value[h.gene]
+  return {
+    gene: h.gene,
+    symbol: a?.symbol || '',
+    gene_name: a?.gene_name || '',
+    description: a?.description || '',
+    kme: h.kme.toFixed(4),
+    gs: h.gs.toFixed(4),
+  }
+}))
+
+const annotationRowsDisplay = computed(() => annotationRows.value.map((r) => {
+  const d = detailMap.value[r.gene_id]
+  return {
+    ...r,
+    kme: d ? d.kme.toFixed(4) : '',
+    gs: d ? d.gs.toFixed(4) : '',
+  }
+}))
 
 function onTraitChange() {
   if (!store.selectedTrait) return
@@ -231,7 +263,8 @@ watch(() => store.selectedModule, (m) => {
       <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'detail' }" @click="tab = 'detail'">{{ t('me.tabDetail') }}</a></li>
       <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'network' }" @click="tab = 'network'">{{ t('me.tabNetwork') }}</a></li>
       <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'annotation' }" @click="tab = 'annotation'">{{ t('me.tabAnnotation') }}</a></li>
-      <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'enrich' }" @click="tab = 'enrich'">{{ t('me.tabEnrich') }}</a></li>
+      <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'go' }" @click="tab = 'go'">{{ t('me.tabGo') }}</a></li>
+      <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'kegg' }" @click="tab = 'kegg'">{{ t('me.tabKegg') }}</a></li>
     </ul>
 
     <template v-if="tab === 'detail'">
@@ -277,7 +310,14 @@ watch(() => store.selectedModule, (m) => {
           :hub-border-color="hubBorderColor"
           :hub-border-width="hubBorderWidth"
         />
-        <SimpleTable class="mt-3" :columns="[{ key: 'gene', label: t('hub.col.gene') }, { key: 'kme', label: t('hub.col.kme') }, { key: 'gs', label: t('hub.col.gs') }]" :rows="hubRows" filename="hub_gene" />
+        <SimpleTable class="mt-3" :columns="[
+          { key: 'gene', label: t('hub.col.gene') },
+          { key: 'symbol', label: 'Symbol' },
+          { key: 'gene_name', label: 'Gene name' },
+          { key: 'description', label: 'Description' },
+          { key: 'kme', label: t('hub.col.kme') },
+          { key: 'gs', label: t('hub.col.gs') },
+        ]" :rows="hubRows" filename="hub_gene" />
       </div>
       <p v-else class="text-muted">{{ t('hub.empty') }}</p>
     </template>
@@ -289,11 +329,17 @@ watch(() => store.selectedModule, (m) => {
         { key: 'symbol', label: 'Symbol' },
         { key: 'gene_name', label: 'Gene name' },
         { key: 'description', label: 'Description' },
-      ]" :rows="annotationRows" scroll-height="560px" filename="module_annotation" />
+        { key: 'kme', label: 'kME' },
+        { key: 'gs', label: 'GS' },
+      ]" :rows="annotationRowsDisplay" scroll-height="560px" filename="module_annotation" />
+    </template>
+
+    <template v-else-if="tab === 'go'">
+      <EnrichmentPanel type="go" />
     </template>
 
     <template v-else>
-      <EnrichmentPanel />
+      <EnrichmentPanel type="kegg" />
     </template>
   </SidebarDrawer>
 </template>

@@ -21,6 +21,7 @@ interface BubblePoint {
 }
 
 const store = useWgcnaStore()
+const props = defineProps<{ type: 'go' | 'kegg' }>()
 
 const goResults = ref<EnrichResult[]>([])
 const keggResults = ref<EnrichResult[]>([])
@@ -28,18 +29,18 @@ const loading = ref(false)
 const error = ref('')
 const fdr = ref(0.05)
 const top = ref(20)
-const mode = ref<'separate' | 'combined'>('separate')
 const goVersion = ref<GOVersionInfo | null>(null)
 const updatingGO = ref(false)
 const exportType = ref<'go' | 'kegg'>('go')
 const heatExportMode = ref<'png' | 'svg' | 'pdf'>('png')
 
 const selected = ref<{ termId: string; description: string; source: Source; genes: string[]; count: number; qvalue: number } | null>(null)
+const selectedTermId = ref('')
 const expr = ref<ExpressionResult | null>(null)
 const sampleInfos = ref<SampleInfo[]>([])
 const PALETTE = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#aec7e8', '#ffbb78']
 const showExport = ref(false)
-const wrap = ref(30)
+const goOntology = ref<'ALL' | 'MF' | 'BP' | 'CC'>('ALL')
 
 function openExport(type: 'go' | 'kegg') {
   exportType.value = type
@@ -116,21 +117,20 @@ function sigColor(q: number): string {
   return mixHex('#ff0000', '#0000ff', t)
 }
 
-function wrapLabel(s: string): string {
-  if (wrap.value <= 0) return s
-  const out: string[] = []
-  for (let i = 0; i < s.length; i += wrap.value) out.push(s.slice(i, i + wrap.value))
-  return out.join('\n')
+function truncateLabel(s: string): string {
+  return s.length > 30 ? s.slice(0, 30) + '…' : s
 }
 
 function makePoints(results: EnrichResult[], source: Source): BubblePoint[] {
-  return results.map((r) => ({
-    value: [ratioFrac(r.gene_ratio), r.description, r.count, r.qvalue],
-    termId: r.id,
-    description: r.description,
-    genes: r.gene_id,
-    source,
-  }))
+  return results
+    .map((r): BubblePoint => ({
+      value: [ratioFrac(r.gene_ratio), r.description, r.count, r.qvalue],
+      termId: r.id,
+      description: r.description,
+      genes: r.gene_id,
+      source,
+    }))
+    .sort((a, b) => a.value[0] - b.value[0]) // GeneRatio ascending → highest at top (clusterProfiler)
 }
 
 function optionFromPoints(points: BubblePoint[], title: string, height: string): EChartsOption {
@@ -144,12 +144,13 @@ function optionFromPoints(points: BubblePoint[], title: string, height: string):
         return `<b>${d.termId}</b> (${d.source})<br/>${d.description}<br/>GeneRatio ${d.value[0].toFixed(3)} · Count ${d.value[2]}<br/>p.adjust ${d.value[3].toExponential(2)}`
       },
     },
-    grid: { left: 300, right: 40, top: 42, bottom: 36 },
-    xAxis: { type: 'value', name: 'GeneRatio', min: 0, nameLocation: 'middle', nameGap: 30 },
+    grid: { left: 330, right: 48, top: 42, bottom: 48 },
+    xAxis: { type: 'value', name: 'GeneRatio', min: 0, nameLocation: 'middle', nameGap: 26, axisLine: { show: true, lineStyle: { color: '#9ca3af' } } },
     yAxis: {
       type: 'category',
-      data: [...points].reverse().map((p) => p.description),
-      axisLabel: { width: 280, fontSize: 11, formatter: (v: string) => wrapLabel(v) },
+      data: points.map((p) => p.description),
+      axisLabel: { fontSize: 11, margin: 14, formatter: (v: string) => truncateLabel(v) },
+      axisLine: { show: true, lineStyle: { color: '#9ca3af' } },
     },
     series: [
       {
@@ -162,11 +163,31 @@ function optionFromPoints(points: BubblePoint[], title: string, height: string):
   }
 }
 
-const goOption = computed(() => optionFromPoints(makePoints(goResults.value, 'GO'), 'GO ' + t('enrich.title'), '460px'))
+const filteredGo = computed(() => goOntology.value === 'ALL' ? goResults.value : goResults.value.filter((r) => r.ontology === goOntology.value))
+const goOption = computed(() => optionFromPoints(makePoints(filteredGo.value, 'GO'), 'GO ' + t('enrich.title'), '460px'))
 const keggOption = computed(() => optionFromPoints(makePoints(keggResults.value, 'KEGG'), 'KEGG ' + t('enrich.title'), '460px'))
-const combinedOption = computed(() =>
-  optionFromPoints([...makePoints(goResults.value, 'GO'), ...makePoints(keggResults.value, 'KEGG')], 'GO + KEGG ' + t('enrich.title'), '540px'),
-)
+
+const enrichColumns = [
+  { key: 'id', label: 'ID' },
+  { key: 'description', label: 'Description' },
+  { key: 'gene_ratio', label: 'GeneRatio' },
+  { key: 'bg_ratio', label: 'BgRatio' },
+  { key: 'p_adjust', label: 'p.adjust' },
+  { key: 'count', label: 'Count' },
+]
+function enrichRows(results: EnrichResult[], source: Source) {
+  return results.map((r) => ({
+    id: r.id,
+    description: r.description,
+    _source: source,
+    gene_ratio: r.gene_ratio,
+    bg_ratio: r.bg_ratio,
+    p_adjust: r['p.adjust'].toExponential(2),
+    count: r.count,
+  }))
+}
+const goTableRows = computed(() => enrichRows(filteredGo.value, 'GO'))
+const keggTableRows = computed(() => enrichRows(keggResults.value, 'KEGG'))
 
 async function load() {
   if (!store.jobId || !store.selectedModule) return
@@ -175,12 +196,9 @@ async function load() {
   selected.value = null
   expr.value = null
   try {
-    const [go, kegg] = await Promise.all([
-      getEnrich(store.jobId, store.selectedModule, 'go', fdr.value, top.value),
-      getEnrich(store.jobId, store.selectedModule, 'kegg', fdr.value, top.value),
-    ])
-    goResults.value = go
-    keggResults.value = kegg
+    const res = await getEnrich(store.jobId, store.selectedModule, props.type, fdr.value, top.value)
+    if (props.type === 'go') goResults.value = res
+    else keggResults.value = res
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -188,15 +206,32 @@ async function load() {
   }
 }
 
-async function onChartClick(params: any) {
-  const d = params.data as BubblePoint | undefined
+function selectTerm(d: BubblePoint) {
   if (!d || !d.genes?.length) return
+  selectedTermId.value = d.termId
   selected.value = { termId: d.termId, description: d.description, source: d.source, genes: d.genes, count: d.value[2], qvalue: d.value[3] }
-  try {
-    expr.value = await getExpression(store.jobId, d.genes)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+  getExpression(store.jobId, d.genes)
+    .then((e) => { expr.value = e })
+    .catch((e) => { error.value = e instanceof Error ? e.message : String(e) })
+}
+
+function onChartClick(params: any) {
+  const d = params.data as BubblePoint | undefined
+  if (d) selectTerm(d)
+}
+
+function onTableRowClick(row: Record<string, any>) {
+  const results = row._source === 'GO' ? filteredGo.value : keggResults.value
+  const r = results.find((x) => x.id === row.id)
+  if (!r) return
+  const d: BubblePoint = {
+    value: [ratioFrac(r.gene_ratio), r.description, r.count, r.qvalue],
+    termId: r.id,
+    description: r.description,
+    genes: r.gene_id,
+    source: row._source as Source,
   }
+  selectTerm(d)
 }
 
 const geneRows = computed(() => (expr.value?.rows ?? []).map((r) => ({
@@ -296,19 +331,14 @@ onMounted(() => { if (store.selectedModule) load(); checkGO(); loadSampleInfo() 
 <template>
   <div class="mt-4">
     <div class="d-flex align-items-center gap-3 flex-wrap mb-2">
-      <h6 class="fw-semibold mb-0"><i class="bi bi-bar-chart me-1"></i>{{ t('enrich.title') }}</h6>
       <label class="small mb-0 d-flex align-items-center gap-1">{{ t('enrich.fdr') }}
         <input type="number" class="form-control form-control-sm" style="width:80px" v-model.number="fdr" step="0.01" min="0.01" max="1" />
       </label>
       <label class="small mb-0 d-flex align-items-center gap-1">{{ t('enrich.top') }}
         <input type="number" class="form-control form-control-sm" style="width:72px" v-model.number="top" min="5" max="100" />
       </label>
-      <div class="btn-group btn-group-sm">
-        <button class="btn" :class="mode === 'separate' ? 'btn-primary' : 'btn-outline-primary'" @click="mode = 'separate'">{{ t('enrich.separate') }}</button>
-        <button class="btn" :class="mode === 'combined' ? 'btn-primary' : 'btn-outline-primary'" @click="mode = 'combined'">{{ t('enrich.combined') }}</button>
-      </div>
       <button class="btn btn-sm btn-primary" :disabled="loading || !store.selectedModule" @click="load"><i class="bi bi-arrow-repeat me-1"></i>{{ t('enrich.run') }}</button>
-      <span v-if="goVersion" class="small text-muted">
+      <span v-if="props.type === 'go' && goVersion" class="small text-muted">
         GO {{ goVersion.current }}
         <button v-if="goVersion.update_available" class="btn btn-sm btn-outline-warning py-0 px-1 ms-1" :disabled="updatingGO" @click="doUpdateGO">
           {{ updatingGO ? '…' : t('enrich.update') + ' ' + goVersion.latest }}
@@ -316,20 +346,34 @@ onMounted(() => { if (store.selectedModule) load(); checkGO(); loadSampleInfo() 
       </span>
     </div>
 
-    <div v-if="!loading && (goResults.length || keggResults.length)" class="d-flex align-items-center gap-2 mb-2">
-      <span class="text-muted small">{{ t('plot.export') }}</span>
-      <button class="btn btn-sm btn-outline-primary" @click="openExport('go')"><i class="bi bi-download me-1"></i>GO</button>
-      <button class="btn btn-sm btn-outline-primary" @click="openExport('kegg')"><i class="bi bi-download me-1"></i>KEGG</button>
-    </div>
-
     <div v-if="error" class="alert alert-warning py-2 small">{{ error }}</div>
     <div v-if="loading" class="text-muted small py-2">{{ t('common.running') }}</div>
     <template v-else>
-      <div v-if="mode === 'separate'" class="row g-3">
-        <div class="col-lg-6"><ResizableChart :option="goOption" @chart-click="onChartClick" /></div>
-        <div class="col-lg-6"><ResizableChart :option="keggOption" @chart-click="onChartClick" /></div>
+      <div v-if="props.type === 'go' && goResults.length" class="border rounded p-3">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <div class="btn-group btn-group-sm">
+            <button class="btn" :class="goOntology === 'ALL' ? 'btn-primary' : 'btn-outline-primary'" @click="goOntology = 'ALL'">ALL</button>
+            <button class="btn" :class="goOntology === 'MF' ? 'btn-primary' : 'btn-outline-primary'" @click="goOntology = 'MF'">MF</button>
+            <button class="btn" :class="goOntology === 'BP' ? 'btn-primary' : 'btn-outline-primary'" @click="goOntology = 'BP'">BP</button>
+            <button class="btn" :class="goOntology === 'CC' ? 'btn-primary' : 'btn-outline-primary'" @click="goOntology = 'CC'">CC</button>
+          </div>
+          <button class="btn btn-sm btn-outline-primary ms-auto" @click="openExport('go')"><i class="bi bi-download me-1"></i>GO</button>
+        </div>
+        <div class="row g-3">
+          <div class="col-lg-7"><ResizableChart :option="goOption" @chart-click="onChartClick" /></div>
+          <div class="col-lg-5"><SimpleTable :columns="enrichColumns" :rows="goTableRows" :filename="'go_enrich'" scroll-height="460px" :selected-key="selectedTermId" row-key="id" @row-click="onTableRowClick" /></div>
+        </div>
       </div>
-      <div v-else><ResizableChart :option="combinedOption" @chart-click="onChartClick" /></div>
+
+      <div v-if="props.type === 'kegg' && keggResults.length" class="border rounded p-3">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <button class="btn btn-sm btn-outline-primary ms-auto" @click="openExport('kegg')"><i class="bi bi-download me-1"></i>KEGG</button>
+        </div>
+        <div class="row g-3">
+          <div class="col-lg-7"><ResizableChart :option="keggOption" @chart-click="onChartClick" /></div>
+          <div class="col-lg-5"><SimpleTable :columns="enrichColumns" :rows="keggTableRows" :filename="'kegg_enrich'" scroll-height="460px" :selected-key="selectedTermId" row-key="id" @row-click="onTableRowClick" /></div>
+        </div>
+      </div>
     </template>
 
     <div v-if="selected" class="mt-3">

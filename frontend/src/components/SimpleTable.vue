@@ -4,7 +4,16 @@ import { t } from '../utils/i18n'
 
 type Column = { key: string; label: string; fmt?: (v: any) => string }
 
-const props = defineProps<{ columns: Column[]; rows: Record<string, any>[]; scrollHeight?: string; filename?: string }>()
+const props = defineProps<{
+  columns: Column[]
+  rows: Record<string, any>[]
+  scrollHeight?: string
+  filename?: string
+  selectedKey?: string
+  rowKey?: string
+}>()
+
+const emit = defineEmits<{ (e: 'row-click', row: Record<string, any>): void }>()
 
 const search = ref('')
 const sortKey = ref('')
@@ -97,7 +106,13 @@ function download() {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(r, i) in sorted" :key="i">
+          <tr
+            v-for="(r, i) in sorted"
+            :key="i"
+            style="cursor: pointer"
+            :class="{ 'table-active': !!selectedKey && String(r[rowKey ?? 'id']) === selectedKey }"
+            @click="emit('row-click', r)"
+          >
             <td v-for="c in columns" :key="c.key" class="text-nowrap">{{ c.fmt ? c.fmt(r[c.key]) : r[c.key] }}</td>
           </tr>
           <tr v-if="sorted.length === 0">

@@ -30,13 +30,20 @@ const option = computed<EChartsOption>(() => {
   const genes = props.data.genes
   const z = zscore(props.data.expression)
   const nSamples = z[0]?.length ?? 0
-  const sampleLabels = props.data.samples?.length === nSamples
+  const rawSamples = props.data.samples?.length === nSamples
     ? props.data.samples
     : Array.from({ length: nSamples }, (_, i) => 'S' + (i + 1))
+  // sort samples by name (natural order) so the x-axis follows a pattern
+  const order = rawSamples
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => a.s.localeCompare(b.s, undefined, { numeric: true }))
+  const sampleLabels = order.map((x) => x.s)
+  const sampleIdx = order.map((x) => x.i)
   const eigengene = props.data.eigengene ?? []
+  const eigSorted = sampleIdx.map((origSi) => eigengene[origSi] ?? 0)
 
   const heat: [number, number, number][] = []
-  z.forEach((row, gi) => row.forEach((v, si) => heat.push([si, gi, +v.toFixed(3)])))
+  z.forEach((row, gi) => sampleIdx.forEach((origSi, newSi) => heat.push([newSi, gi, +row[origSi].toFixed(3)])))
 
   let maxAbs = 1
   for (const row of z) for (const v of row) maxAbs = Math.max(maxAbs, Math.abs(v))
@@ -55,7 +62,7 @@ const option = computed<EChartsOption>(() => {
           return genes[gi] + ' × ' + sampleLabels[si] + '<br/>z = ' + params.value[2]
         }
         const si = params.dataIndex as number
-        return sampleLabels[si] + '<br/>Eigengene = ' + (eigengene[si] ?? 0).toFixed(4)
+        return sampleLabels[si] + '<br/>Eigengene = ' + (eigSorted[si] ?? 0).toFixed(4)
       },
     },
     grid: [
@@ -87,7 +94,7 @@ const option = computed<EChartsOption>(() => {
       },
       {
         type: 'bar', xAxisIndex: 1, yAxisIndex: 1,
-        data: eigengene.map((v) => +v.toFixed(3)),
+        data: eigSorted.map((v) => +v.toFixed(3)),
         itemStyle: { color: moduleColor(props.data.module) },
       },
     ],

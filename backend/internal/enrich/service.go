@@ -42,7 +42,16 @@ func GOEnrich(jobDir string, genes []string, padjCut float64, top int) ([]Result
 	if err != nil {
 		return nil, err
 	}
-	return Run(genes, bg, padjCut, top), nil
+	rows := Run(genes, bg, padjCut, top)
+	// fallback: if the gene2go table had no ontology column, derive it from the obo
+	if g, err := LoadGO(); err == nil {
+		for i := range rows {
+			if rows[i].Ontology == "" {
+				rows[i].Ontology = shortOntology(g.TermNamespace(normalizeGOID(rows[i].ID)))
+			}
+		}
+	}
+	return rows, nil
 }
 
 // KEGGEnrich runs KEGG over-representation for the query genes using the job's

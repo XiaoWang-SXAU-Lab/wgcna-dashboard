@@ -39,6 +39,7 @@ const geneRows = computed(() => (store.modules?.genes ?? []).map((g, i) => ({ ge
             <select class="form-select form-select-sm" v-model="store.netNetworkType">
               <option value="unsigned">unsigned</option>
               <option value="signed">signed</option>
+              <option value="signed hybrid">signed hybrid</option>
             </select>
           </div>
           <div>
