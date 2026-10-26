@@ -15,6 +15,23 @@
 
 ---
 
+## Download / Install
+
+Prebuilt desktop packages are published on the
+[Releases](https://github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/releases) page.
+They bundle the R runtime used for publication exports, so **no separate R
+installation is required**.
+
+- **Windows** — `rsWGCNA-setup-0.5.0.exe`: a standard Inno Setup installer
+  (no admin rights needed). Installs to `%LOCALAPPDATA%\rsWGCNA` with Start
+  Menu / desktop shortcuts and an uninstaller. Win10/11's built-in WebView2 is
+  used for the window.
+- **macOS** — `rsWGCNA-0.5.0.dmg`: drag `rsWGCNA.app` to Applications.
+
+To build from source, see [Build](#build) below.
+
+---
+
 ## Overview
 
 `rsWGCNA Dashboard` is a **B/S (browser/server) application** that wraps the
@@ -112,7 +129,7 @@ WGCNA_JOBS_DIR=/tmp/wgcna-home ./wgcna-dashboard   # http://localhost:8080
 - [x] Raw-count vst normalization (pure Rust)
 - [ ] Drop the R plotting dependency (native Rust/SVG charts) for a fully
       self-contained, R-free DMG/EXE package
-- [ ] Desktop packaging (macOS `.dmg` / Windows `.exe`)
+- [x] Desktop packaging (macOS `.dmg` / Windows installer `.exe`)
 
 ---
 

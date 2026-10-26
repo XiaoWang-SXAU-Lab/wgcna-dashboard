@@ -10,6 +10,9 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Agentic AI navigator**: tool-calling agent loop that reads the params and
   results of every pipeline step (9 tools: params / filter / SFT / network /
   module-trait / module detail / hub / enrichment / literature).
+- **Desktop packaging**: Windows Inno Setup installer (`rsWGCNA-setup-0.5.0.exe`,
+  bundled R, app icon, GUI subsystem so no console window appears) and a macOS
+  `rsWGCNA-0.5.0.dmg`.
 - **Multi-source literature search** (Europe PMC + PubMed + Semantic Scholar,
   with optional Google Scholar), merged + de-duplicated by PMID/DOI.
 - Source attribution + anti-hallucination: answers must cite sources, and
