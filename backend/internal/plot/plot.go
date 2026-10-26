@@ -14,6 +14,29 @@ import (
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/enrich"
 )
 
+// findRscript resolves the Rscript executable: an explicit WGCNA_RSCRIPT env
+// var wins, then a bundled R next to the executable, then PATH.
+func findRscript() string {
+	if rs := os.Getenv("WGCNA_RSCRIPT"); rs != "" {
+		return rs
+	}
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		candidates := []string{
+			filepath.Join(dir, "R", "R-4.5.1", "bin", "Rscript.exe"),
+			filepath.Join(dir, "R", "bin", "Rscript.exe"),
+			filepath.Join(dir, "RPortable", "App", "R-Portable", "bin", "Rscript.exe"),
+			filepath.Join(dir, "RPortable", "App", "R-Portable", "bin", "x64", "Rscript.exe"),
+		}
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				return c
+			}
+		}
+	}
+	return "Rscript"
+}
+
 //go:embed render_dendrogram.R
 var dendrogramScript []byte
 
@@ -261,10 +284,7 @@ func RenderEnrich(results []enrich.Result, mode string, params PlotParams) (stri
 		return "", "", err
 	}
 
-	rs := os.Getenv("WGCNA_RSCRIPT")
-	if rs == "" {
-		rs = "Rscript"
-	}
+	rs := findRscript()
 	out := filepath.Join(dir, "enrich."+mode)
 	args := []string{filepath.Join(dir, "render.R"), "--json", filepath.Join(dir, "enrich.json"), "--mode", mode, "--out", out}
 	args = append(args, params.rArgs()...)
@@ -302,10 +322,7 @@ func RenderSampleTree(data []byte, mode string, params PlotParams) (string, stri
 		return "", "", err
 	}
 
-	rs := os.Getenv("WGCNA_RSCRIPT")
-	if rs == "" {
-		rs = "Rscript"
-	}
+	rs := findRscript()
 	out := filepath.Join(dir, "sample_tree."+mode)
 	args := []string{filepath.Join(dir, "render.R"), "--json", filepath.Join(dir, "data.json"), "--mode", mode, "--out", out}
 	args = append(args, params.rArgs()...)
@@ -342,10 +359,7 @@ func RenderEnrichHeatmap(data []byte, mode string, params PlotParams) (string, s
 		return "", "", err
 	}
 
-	rs := os.Getenv("WGCNA_RSCRIPT")
-	if rs == "" {
-		rs = "Rscript"
-	}
+	rs := findRscript()
 	out := filepath.Join(dir, "enrich_heatmap."+mode)
 	args := []string{filepath.Join(dir, "render.R"), "--json", filepath.Join(dir, "data.json"), "--mode", mode, "--out", out}
 	args = append(args, params.rArgs()...)
@@ -381,10 +395,7 @@ func renderR(script []byte, args []string, outName, ctype string) (string, strin
 	}
 
 	out := filepath.Join(dir, outName)
-	rs := os.Getenv("WGCNA_RSCRIPT")
-	if rs == "" {
-		rs = "Rscript"
-	}
+	rs := findRscript()
 
 	full := append([]string{scriptPath}, args...)
 	full = append(full, "--out", out)

@@ -1,13 +1,19 @@
-// Command server is the WGCNA dashboard backend: HTTP API + Rust worker
-// orchestration + embedded frontend (single-binary in release builds).
+// Command server is the WGCNA dashboard: HTTP API + Rust worker orchestration
+// + embedded frontend, wrapped in a native WebView window (single binary).
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
+
+	webview "github.com/webview/webview_go"
 
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/ai"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/api"
@@ -37,11 +43,57 @@ func main() {
 	aiHandler.Register(mux)
 	mux.Handle("/", web.Handler())
 
-	addr := ":8080"
-	log.Printf("wgcna-dashboard listening on %s (worker=%s jobs=%s)", addr, workerBin, jobsDir)
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatal(err)
+	// pick a free localhost port (desktop app: avoid clashing with other apps)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		log.Fatalf("bind: %v", err)
 	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+
+	srv := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", port), Handler: mux}
+	go func() {
+		log.Printf("rsWGCNA listening on %s (worker=%s jobs=%s)", baseURL, workerBin, jobsDir)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server: %v", err)
+		}
+	}()
+
+	waitReady(baseURL)
+
+	// headless mode (servers / CI): keep serving without a window
+	if os.Getenv("WGCNA_NO_WEBVIEW") != "" {
+		select {}
+	}
+
+	openWindow(baseURL)
+
+	_ = srv.Shutdown(context.Background())
+}
+
+func waitReady(baseURL string) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	for i := 0; i < 100; i++ {
+		resp, err := client.Get(baseURL)
+		if err == nil {
+			resp.Body.Close()
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	log.Printf("warning: server not ready at %s", baseURL)
+}
+
+// openWindow opens a native WebView window (WKWebView on macOS, WebView2 on
+// Windows) pointing at the embedded server.
+func openWindow(baseURL string) {
+	w := webview.New(false)
+	defer w.Destroy()
+	w.SetTitle("rsWGCNA")
+	w.SetSize(1280, 800, webview.HintNone)
+	w.Navigate(baseURL)
+	w.Run()
 }
 
 // resolveWorker prefers the WGCNA_WORKER env var (dev), then falls back to the
