@@ -24,8 +24,8 @@
 - **Windows** — `rsWGCNA-setup-0.5.0.exe`：标准 Inno Setup 安装器，无需管理员
   权限，安装到 `%LOCALAPPDATA%\rsWGCNA`，创建开始菜单 / 桌面快捷方式，自带卸载程序。
   窗口使用 Win10/11 内置的 WebView2。
-- **macOS** — `rsWGCNA-0.5.0.dmg`：打开镜像，把 `rsWGCNA.app` 拖进“应用程序”。
-  应用做了临时签名但未做 Apple 公证，首次打开若被 Gatekeeper 拦截，可右键（或
+- **macOS（Apple Silicon）** — `rsWGCNA-0.5.0.dmg`：打开镜像，把 `rsWGCNA.app`
+  拖进“应用程序”。应用做了临时签名但未做 Apple 公证，首次打开若被 Gatekeeper 拦截，可右键（或
   Control 点击）应用选择“打开”，或在终端执行
   `xattr -cr /Applications/rsWGCNA.app` 后再双击。
 

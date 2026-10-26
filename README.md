@@ -26,8 +26,8 @@ installation is required**.
   (no admin rights needed). Installs to `%LOCALAPPDATA%\rsWGCNA` with Start
   Menu / desktop shortcuts and an uninstaller. Win10/11's built-in WebView2 is
   used for the window.
-- **macOS** — `rsWGCNA-0.5.0.dmg`: open the disk image and drag `rsWGCNA.app`
-  to Applications. The app is ad-hoc signed but not notarized, so on first
+- **macOS (Apple Silicon)** — `rsWGCNA-0.5.0.dmg`: open the disk image and drag
+  `rsWGCNA.app` to Applications. The app is ad-hoc signed but not notarized, so on first
   launch Gatekeeper may block it — right-click (Control-click) the app and
   choose **Open**, or run: `xattr -cr /Applications/rsWGCNA.app`.
 
