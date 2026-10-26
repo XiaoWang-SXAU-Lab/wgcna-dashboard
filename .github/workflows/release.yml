@@ -70,7 +70,12 @@ jobs:
           cp packaging/Info.plist build/macos/rsWGCNA.app/Contents/Info.plist
           cp packaging/icon.icns build/macos/rsWGCNA.app/Contents/Resources/icon.icns
           cp -R /Library/Frameworks/R.framework build/macos/rsWGCNA.app/Contents/Frameworks/
-          codesign --deep --force -s - build/macos/rsWGCNA.app
+          FR="build/macos/rsWGCNA.app/Contents/Frameworks/R.framework"
+          # Framework-root symlinks (Headers/PrivateHeaders/R/Resources) cannot be
+          # sealed by codesign; Rscript does not need them at runtime.
+          find "$FR" -maxdepth 1 -type l -delete
+          codesign --force --deep -s - "$FR"
+          codesign --force -s - build/macos/rsWGCNA.app
 
       - name: Create DMG
         run: |
