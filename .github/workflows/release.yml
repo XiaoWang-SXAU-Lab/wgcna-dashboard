@@ -1,0 +1,160 @@
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  macos:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: XiaoWang-SXAU-Lab/rs-wgcna
+          path: rs_WGCNA
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build frontend
+        run: |
+          cd frontend && pnpm install && pnpm build
+          rm -rf backend/internal/web/dist
+          cp -r frontend/dist backend/internal/web/dist
+
+      - name: Build Rust worker
+        run: |
+          cd rs_WGCNA
+          cargo build --release --bin rs-wgcna-worker
+          cp target/release/rs-wgcna-worker ../backend/internal/worker/worker-bin
+
+      - name: Build Go binary (macOS)
+        run: |
+          mkdir -p build/macos
+          cd backend
+          CGO_ENABLED=1 go build -tags release -o ../build/macos/rsWGCNA ./cmd/server
+
+      - name: Assemble app bundle and ad-hoc sign
+        run: |
+          mkdir -p build/macos/rsWGCNA.app/Contents/MacOS
+          mkdir -p build/macos/rsWGCNA.app/Contents/Resources
+          cp build/macos/rsWGCNA build/macos/rsWGCNA.app/Contents/MacOS/rsWGCNA
+          cp packaging/Info.plist build/macos/rsWGCNA.app/Contents/Info.plist
+          cp packaging/icon.icns build/macos/rsWGCNA.app/Contents/Resources/icon.icns
+          codesign --deep --force -s - build/macos/rsWGCNA.app
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname rsWGCNA \
+            -srcfolder build/macos/rsWGCNA.app \
+            -ov -format UDZO build/macos/rsWGCNA-0.5.0.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: build/macos/rsWGCNA-0.5.0.dmg
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: XiaoWang-SXAU-Lab/rs-wgcna
+          path: rs_WGCNA
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Install mingw (cgo compiler)
+        run: choco install mingw -y
+
+      - name: Build frontend
+        shell: pwsh
+        run: |
+          cd frontend
+          pnpm install
+          pnpm build
+          Remove-Item -Recurse -Force ../backend/internal/web/dist -ErrorAction SilentlyContinue
+          Copy-Item -Recurse dist ../backend/internal/web/dist
+
+      - name: Build Rust worker
+        shell: pwsh
+        run: |
+          cd rs_WGCNA
+          cargo build --release --bin rs-wgcna-worker
+          Copy-Item target\release\rs-wgcna-worker.exe ..\backend\internal\worker\worker-bin -Force
+
+      - name: Build Go executable (Windows)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path ..\dist-windows -Force | Out-Null
+          cd backend
+          $env:CGO_ENABLED = '1'
+          go build -tags release -ldflags "-H=windowsgui" -o ..\dist-windows\wgcna-dashboard.exe ./cmd/server
+
+      - name: Install R and plot packages
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://cloud.r-project.org/bin/windows/base/old/4.5.1/R-4.5.1-win.exe' -OutFile R-win.exe
+          Start-Process -Wait -FilePath .\R-win.exe -ArgumentList '/SILENT','/DIR=C:\R'
+          & 'C:\R\bin\Rscript.exe' -e 'install.packages(c("jsonlite","ggplot2","patchwork","circlize"), repos="https://cloud.r-project.org", Ncpus=2)'
+          & 'C:\R\bin\Rscript.exe' -e 'if (!requireNamespace("BiocManager", quietly=TRUE)) install.packages("BiocManager", repos="https://cloud.r-project.org"); BiocManager::install("ComplexHeatmap", ask=FALSE, update=FALSE)'
+
+      - name: Bundle R runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist-windows\R -Force | Out-Null
+          Copy-Item 'C:\R\*' dist-windows\R -Recurse -Force
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' packaging\setup.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist-windows/rsWGCNA-setup-0.5.0.exe
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            macos-dmg/*.dmg
+            windows-installer/*.exe
