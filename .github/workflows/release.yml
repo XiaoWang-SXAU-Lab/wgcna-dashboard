@@ -141,8 +141,8 @@ jobs:
       - name: Bundle R runtime
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path dist-windows\R -Force | Out-Null
-          Copy-Item 'C:\R\*' dist-windows\R -Recurse -Force
+          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\dist-windows\R" -Force | Out-Null
+          Copy-Item 'C:\R\*' "$env:GITHUB_WORKSPACE\dist-windows\R" -Recurse -Force
 
       - name: Build installer (Inno Setup)
         shell: pwsh

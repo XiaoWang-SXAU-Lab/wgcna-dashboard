@@ -9,7 +9,7 @@ AppPublisher=XiaoWang-SXAU-Lab
 AppPublisherURL=https://github.com/XiaoWang-SXAU-Lab
 DefaultDirName={localappdata}\rsWGCNA
 DefaultGroupName=rsWGCNA
-OutputDir=..\..\dist-windows
+OutputDir=..\dist-windows
 OutputBaseFilename=rsWGCNA-setup-0.5.0
 Compression=lzma2
 SolidCompression=yes
@@ -21,8 +21,8 @@ SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\wgcna-dashboard.exe
 
 [Files]
-Source: "..\..\dist-windows\wgcna-dashboard.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\dist-windows\R\*"; DestDir: "{app}\R"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist-windows\wgcna-dashboard.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist-windows\R\*"; DestDir: "{app}\R"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\rsWGCNA"; Filename: "{app}\wgcna-dashboard.exe"
