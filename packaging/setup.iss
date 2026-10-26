@@ -17,6 +17,7 @@ ArchitecturesAllowed=x64compatible
 PrivilegesRequired=lowest
 WizardStyle=modern
 DisableProgramGroupPage=yes
+SetupIconFile=..\..\releases\icon.ico
 UninstallDisplayIcon={app}\wgcna-dashboard.exe
 
 [Files]
