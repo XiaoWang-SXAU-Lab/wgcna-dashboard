@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 
 	webview "github.com/webview/webview_go"
@@ -43,12 +44,19 @@ func main() {
 	aiHandler.Register(mux)
 	mux.Handle("/", web.Handler())
 
-	// pick a free localhost port (desktop app: avoid clashing with other apps)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	// Pick a localhost port: WGCNA_PORT wins (used by the TBtools plugin and
+	// headless embeds), otherwise the OS picks a free port.
+	port := 0
+	if p := os.Getenv("WGCNA_PORT"); p != "" {
+		if n, err := strconv.Atoi(p); err == nil && n > 0 && n < 65536 {
+			port = n
+		}
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		log.Fatalf("bind: %v", err)
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
+	port = ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
