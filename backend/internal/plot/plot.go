@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/enrich"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/subproc"
@@ -28,6 +29,10 @@ func findRscript() string {
 			filepath.Join(dir, "R", "bin", "Rscript.exe"),
 			filepath.Join(dir, "RPortable", "App", "R-Portable", "bin", "Rscript.exe"),
 			filepath.Join(dir, "RPortable", "App", "R-Portable", "bin", "x64", "Rscript.exe"),
+			// Bundled R.framework inside a macOS .app bundle.
+			filepath.Join(dir, "..", "Frameworks", "R.framework", "Versions", "Current", "Resources", "bin", "Rscript"),
+			filepath.Join(dir, "..", "Frameworks", "R.framework", "Resources", "bin", "Rscript"),
+			filepath.Join(dir, "..", "Frameworks", "R.framework", "Versions", "4.5", "Resources", "bin", "Rscript"),
 		}
 		for _, c := range candidates {
 			if _, err := os.Stat(c); err == nil {
@@ -414,21 +419,60 @@ func renderR(script []byte, args []string, outName, ctype string) (string, strin
 }
 
 // plotEnv returns the subprocess environment with the Rscript directory
-// prepended to PATH (so pandoc and friends next to Rscript are found).
+// prepended to PATH (so pandoc and friends next to Rscript are found). For a
+// bundled macOS R.framework it also pins R_HOME and the dynamic-library search
+// paths so R keeps working after the framework is relocated inside the .app.
 func plotEnv(rsPath string) []string {
 	base := os.Environ()
 	dir := filepath.Dir(rsPath)
 	if dir == "" || dir == "." {
 		return base
 	}
-	out := make([]string, 0, len(base)+1)
+
+	rHome, libDir := frameworkDirs(rsPath)
+	out := make([]string, 0, len(base)+3)
 	prefix := "PATH=" + dir + string(os.PathListSeparator)
 	for _, kv := range base {
-		if len(kv) >= 5 && kv[:5] == "PATH=" {
+		key := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			key = kv[:i]
+		}
+		switch key {
+		case "PATH":
 			out = append(out, prefix+kv[5:])
-		} else {
+		case "R_HOME":
+			// Replaced below when a bundled framework is in use.
+		case "DYLD_FALLBACK_LIBRARY_PATH":
+			if libDir != "" {
+				out = append(out, kv+string(os.PathListSeparator)+libDir)
+			} else {
+				out = append(out, kv)
+			}
+		default:
 			out = append(out, kv)
 		}
 	}
+	if rHome != "" {
+		out = append(out, "R_HOME="+rHome)
+	}
+	if libDir != "" {
+		out = append(out, "DYLD_LIBRARY_PATH="+libDir)
+	}
 	return out
+}
+
+// frameworkDirs extracts R_HOME (the framework's Resources dir) and the lib dir
+// from an Rscript path that lives inside an R.framework bundle.
+func frameworkDirs(rsPath string) (string, string) {
+	idx := strings.Index(rsPath, "R.framework")
+	if idx < 0 {
+		return "", ""
+	}
+	seg := rsPath[idx:]
+	ri := strings.LastIndex(seg, "Resources")
+	if ri < 0 {
+		return "", ""
+	}
+	rHome := rsPath[:idx] + seg[:ri+len("Resources")]
+	return rHome, filepath.Join(rHome, "lib")
 }

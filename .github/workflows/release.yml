@@ -49,13 +49,21 @@ jobs:
           cd backend
           CGO_ENABLED=1 go build -tags release -o ../build/macos/rsWGCNA ./cmd/server
 
+      - name: Install R and plot packages
+        run: |
+          brew install --cask r
+          sudo /Library/Frameworks/R.framework/Resources/bin/Rscript -e 'install.packages(c("jsonlite","ggplot2","patchwork","circlize"), repos="https://cloud.r-project.org")'
+          sudo /Library/Frameworks/R.framework/Resources/bin/Rscript -e 'if (!requireNamespace("BiocManager", quietly=TRUE)) install.packages("BiocManager", repos="https://cloud.r-project.org"); BiocManager::install("ComplexHeatmap", ask=FALSE, update=FALSE)'
+
       - name: Assemble app bundle and ad-hoc sign
         run: |
           mkdir -p build/macos/rsWGCNA.app/Contents/MacOS
           mkdir -p build/macos/rsWGCNA.app/Contents/Resources
+          mkdir -p build/macos/rsWGCNA.app/Contents/Frameworks
           cp build/macos/rsWGCNA build/macos/rsWGCNA.app/Contents/MacOS/rsWGCNA
           cp packaging/Info.plist build/macos/rsWGCNA.app/Contents/Info.plist
           cp packaging/icon.icns build/macos/rsWGCNA.app/Contents/Resources/icon.icns
+          cp -R /Library/Frameworks/R.framework build/macos/rsWGCNA.app/Contents/Frameworks/
           codesign --deep --force -s - build/macos/rsWGCNA.app
 
       - name: Create DMG
