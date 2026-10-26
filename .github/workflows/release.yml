@@ -125,10 +125,10 @@ jobs:
       - name: Build Go executable (Windows)
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path ..\dist-windows -Force | Out-Null
-          cd backend
+          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\dist-windows" -Force | Out-Null
+          Set-Location "$env:GITHUB_WORKSPACE\backend"
           $env:CGO_ENABLED = '1'
-          go build -tags release -ldflags "-H=windowsgui" -o ..\dist-windows\wgcna-dashboard.exe ./cmd/server
+          go build -tags release -ldflags "-H=windowsgui" -o "$env:GITHUB_WORKSPACE\dist-windows\wgcna-dashboard.exe" ./cmd/server
 
       - name: Install R and plot packages
         shell: pwsh
