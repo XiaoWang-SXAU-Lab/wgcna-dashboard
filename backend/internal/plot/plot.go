@@ -441,7 +441,10 @@ func plotEnv(rsPath string) []string {
 		case "PATH":
 			out = append(out, prefix+kv[5:])
 		case "R_HOME":
-			// Replaced below when a bundled framework is in use.
+			if rHome == "" {
+				out = append(out, kv)
+			}
+			// else: dropped and replaced below with the bundled framework's R_HOME.
 		case "DYLD_FALLBACK_LIBRARY_PATH":
 			if libDir != "" {
 				out = append(out, kv+string(os.PathListSeparator)+libDir)
