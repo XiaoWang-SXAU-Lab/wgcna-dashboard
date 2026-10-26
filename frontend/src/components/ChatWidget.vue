@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
+import CatMascot from './CatMascot.vue'
 import { marked } from 'marked'
 import { chatStream, getAIConfig, saveAIConfig } from '../api/client'
+import { useWgcnaStore } from '../stores/wgcna'
 import { t } from '../utils/i18n'
 
 const props = defineProps<{ errorCtx?: string }>()
+const store = useWgcnaStore()
 
 function renderMarkdown(text: string): string {
-  return marked.parse(text) as string
+  const html = marked.parse(text) as string
+  // 引用/文献链接在新标签页打开，避免替换当前工具页面
+  return html.replace(/<a\s/g, '<a target="_blank" rel="noopener noreferrer" ')
 }
 
 // AI 还在「思考」（流式开始但还没吐出第一个 token）时显示动画。
@@ -23,6 +28,38 @@ const messages = ref<{ role: 'user' | 'assistant'; content: string }[]>([])
 const input = ref('')
 const streaming = ref(false)
 const configured = ref(false)
+const failed = ref(false)
+const happy = ref(false)
+const hovering = ref(false)
+const composer = ref<HTMLTextAreaElement>()
+const launcher = ref<HTMLButtonElement>()
+const messageList = ref<HTMLDivElement>()
+const petState = computed(() => failed.value ? 'error' : isThinking.value ? 'thinking' : streaming.value ? 'replying' : 'idle')
+const statusKey = computed(() => failed.value ? 'ai.pet.error' : isThinking.value ? 'ai.thinking' : streaming.value ? 'ai.replying' : happy.value ? 'ai.pet.happy' : 'ai.pet.ready')
+let happyTimer: ReturnType<typeof setTimeout> | undefined
+let firstBubbleTimer: ReturnType<typeof setTimeout> | undefined
+function petCat() {
+  happy.value = true
+  if (happyTimer) clearTimeout(happyTimer)
+  happyTimer = setTimeout(() => { happy.value = false }, 1800)
+}
+function prepareSkill(s: Skill) {
+  input.value = '@' + s.id + ' '
+  nextTick(() => composer.value?.focus())
+}
+function closePanel() {
+  open.value = false
+  nextTick(() => launcher.value?.focus())
+}
+watch(open, (value) => {
+  bubble.value = ''
+  if (value) nextTick(() => composer.value?.focus())
+})
+watch(() => messages.value.map(m => m.content).join(''), async () => {
+  await nextTick()
+  const el = messageList.value
+  if (el) el.scrollTop = el.scrollHeight
+})
 
 // settings
 const provider = ref('deepseek')
@@ -110,14 +147,17 @@ async function sendQuestion(q: string, errCtx: string) {
   if (!q.trim() || streaming.value) return
   messages.value.push({ role: 'user', content: q })
   streaming.value = true
+  failed.value = false
   const reply = { role: 'assistant' as const, content: '' }
   messages.value.push(reply)
+  const activeReply = messages.value[messages.value.length - 1]!
   try {
     await chatStream(q, errCtx, (d) => {
-      reply.content += d
-    })
+      activeReply.content += d
+    }, { jobId: store.jobId, module: store.selectedModule })
   } catch (e) {
-    reply.content = e instanceof Error ? e.message : String(e)
+    failed.value = true
+    activeReply.content = e instanceof Error ? e.message : String(e)
   } finally {
     streaming.value = false
   }
@@ -158,10 +198,12 @@ function popBubble() {
 
 onMounted(() => {
   bubbleTimer = setInterval(popBubble, 11000)
-  setTimeout(popBubble, 3000)
+  firstBubbleTimer = setTimeout(popBubble, 3000)
 })
 
 onBeforeUnmount(() => {
+  if (firstBubbleTimer) clearTimeout(firstBubbleTimer)
+  if (happyTimer) clearTimeout(happyTimer)
   if (bubbleTimer) clearInterval(bubbleTimer)
   if (bubbleHideTimer) clearTimeout(bubbleHideTimer)
 })
@@ -170,18 +212,28 @@ defineExpose({ analyzeError })
 </script>
 
 <template>
-  <button class="ai-tab" @click="openPanel" :title="open ? t('ai.collapse') : t('ai.title')">
-    <span class="ai-mascot" :class="open ? 'sitting' : 'lying'">🐱</span>
+  <button v-if="!open" ref="launcher" class="ai-tab" type="button" @click="openPanel"
+    @mouseenter="hovering = true" @mouseleave="hovering = false"
+    @focus="hovering = true" @blur="hovering = false"
+    :title="t('ai.title')" :aria-label="t('ai.title')" :aria-expanded="open" aria-controls="ai-chat-panel">
+    <CatMascot folded :state="petState" :happy="hovering" />
   </button>
 
-  <div v-if="!open && bubble" class="ai-bubble">{{ t(bubble) }}</div>
+  <div v-if="!open && (bubble || hovering || streaming)" class="ai-bubble" role="status">
+    {{ streaming ? t(statusKey) : hovering ? t('ai.pet.hello') : t(bubble) }}
+  </div>
 
-  <div v-if="open" class="chat">
+  <div v-if="open" id="ai-chat-panel" class="chat" role="region" :aria-label="t('ai.title')" @keydown.esc.stop="closePanel">
     <header class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom bg-white">
-      <span class="fw-semibold d-flex align-items-center gap-2"><span class="ai-mascot sitting">🐱</span>{{ t('ai.title') }}</span>
+      <div class="d-flex align-items-center gap-2">
+        <button type="button" class="pet-button" :title="t('ai.pet.touch')" :aria-label="t('ai.pet.touch')" @click="petCat">
+          <CatMascot :state="petState" :happy="happy" />
+        </button>
+        <div><div class="fw-semibold">{{ t('ai.title') }}</div><div class="pet-status" role="status">{{ t(statusKey) }}</div></div>
+      </div>
       <span class="d-flex gap-1">
-        <button class="btn btn-sm btn-outline-secondary" @click="showSettings = !showSettings"><i class="bi bi-gear"></i></button>
-        <button class="btn btn-sm btn-outline-secondary" @click="open = false"><i class="bi bi-x-lg"></i></button>
+        <button class="btn btn-sm btn-outline-secondary" :aria-label="t('ai.pet.settings')" :aria-expanded="showSettings" @click="showSettings = !showSettings"><i class="bi bi-gear"></i></button>
+        <button class="btn btn-sm btn-outline-secondary" :aria-label="t('ai.collapse')" @click="closePanel"><i class="bi bi-x-lg"></i></button>
       </span>
     </header>
 
@@ -198,8 +250,15 @@ defineExpose({ analyzeError })
       </div>
     </div>
 
-    <div class="messages d-flex flex-column flex-grow-1 overflow-auto px-3 py-2">
-      <div v-if="messages.length === 0" class="text-muted small text-center mt-4">{{ t('ai.empty') }}</div>
+    <div ref="messageList" class="messages d-flex flex-column flex-grow-1 overflow-auto px-3 py-2">
+      <div v-if="messages.length === 0" class="pet-welcome">
+        <div class="welcome-cat"><CatMascot :happy="happy" /></div>
+        <p class="fw-semibold mb-1">{{ t('ai.pet.hello') }}</p>
+        <p class="text-muted small">{{ t('ai.empty') }}</p>
+        <div class="pet-shortcuts">
+          <button v-for="s in SKILLS" :key="s.id" type="button" @click="prepareSkill(s)">{{ t('ai.skill.' + s.id) }} <span aria-hidden="true">↗</span></button>
+        </div>
+      </div>
       <div v-for="(m, i) in messages" :key="i" :class="['msg', m.role]">
         <div v-if="m.role === 'assistant'" class="md-body" v-html="renderMarkdown(m.content)"></div>
         <template v-else>{{ m.content }}</template>
@@ -218,6 +277,8 @@ defineExpose({ analyzeError })
       </div>
       <div class="d-flex gap-2 align-items-start">
         <textarea
+          ref="composer"
+          :aria-label="t('ai.placeholder')"
           class="form-control form-control-sm"
           v-model="input"
           rows="2"
@@ -251,25 +312,18 @@ defineExpose({ analyzeError })
   box-shadow: -2px 0 6px rgba(0, 0, 0, 0.08);
   overflow: hidden;
 }
-.ai-mascot {
-  font-size: 1.25rem;
-  line-height: 1;
-  display: inline-block;
-}
-.ai-mascot.lying {
-  animation: ai-lying 3.4s ease-in-out infinite;
-}
-.ai-mascot.sitting {
-  animation: ai-sitting 3.4s ease-in-out infinite;
-}
-@keyframes ai-lying {
-  0%, 100% { transform: rotate(90deg) scale(1); }
-  50% { transform: rotate(90deg) scale(1.14); }
-}
-@keyframes ai-sitting {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.08); }
-}
+.ai-tab{padding:0;overflow:visible;transition:background .2s}
+.ai-tab:hover,.ai-tab:focus-visible{background:#fff0da;outline:2px solid #3182bd;outline-offset:2px}
+.ai-tab:hover :deep(.ear){transform-box:fill-box;transform-origin:center bottom;transform:rotate(-7deg)}
+.pet-button{width:48px;height:48px;flex-shrink:0;border:0;border-radius:12px;background:transparent;padding:0;cursor:pointer}
+.pet-button:hover{background:#fff5e9}
+.pet-button:focus-visible,.pet-shortcuts button:focus-visible{outline:2px solid #3182bd;outline-offset:2px}
+.pet-status{font-size:.72rem;color:#687c8d;margin-top:2px}
+.pet-welcome{text-align:center;margin:auto 0;padding:24px 8px}
+.welcome-cat{width:88px;height:88px;margin:0 auto 16px}
+.pet-shortcuts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:20px}
+.pet-shortcuts button{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:10px 12px;font-size:.8rem;color:#315d7a;background:#f2f7fb;border:1px solid #dce9f2;border-radius:10px;cursor:pointer;text-align:left}
+.pet-shortcuts button:hover{background:#e6f1fa;border-color:#3182bd}
 .ai-bubble {
   position: fixed;
   right: 36px;
@@ -282,7 +336,8 @@ defineExpose({ analyzeError })
   font-size: 0.8rem;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
   z-index: 1042;
-  white-space: nowrap;
+  max-width: min(280px, calc(100vw - 48px));
+  overflow-wrap: anywhere;
   animation: ai-bubble-in 0.25s ease;
 }
 @keyframes ai-bubble-in {
@@ -294,7 +349,7 @@ defineExpose({ analyzeError })
   right: 0;
   top: 3.6rem;
   bottom: 0;
-  width: 400px;
+  width: min(400px, 100vw);
   border: 1px solid #dee2e6;
   border-right: none;
   border-radius: 12px 0 0 12px;
@@ -355,6 +410,7 @@ defineExpose({ analyzeError })
 .skill-item:hover {
   background: #f1f5f9;
 }
+@media(prefers-reduced-motion:reduce){.ai-bubble{animation:none}.ai-tab{transition:none}}
 /* markdown 富文本（v-html 注入，需 :deep 穿透 scoped）*/
 .md-body :deep(p) { margin: 0.25rem 0; }
 .md-body :deep(pre) { background: #f6f8fa; padding: 0.5rem; border-radius: 6px; overflow-x: auto; font-size: 0.8rem; }

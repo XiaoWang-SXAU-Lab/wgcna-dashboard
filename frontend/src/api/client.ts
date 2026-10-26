@@ -310,11 +310,12 @@ export async function chatStream(
   question: string,
   errorCtx: string,
   onDelta: (delta: string) => void,
+  ctx?: { jobId?: string; module?: string },
 ): Promise<void> {
   const res = await fetch(`${BASE}/ai/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, error: errorCtx }),
+    body: JSON.stringify({ question, error: errorCtx, job_id: ctx?.jobId ?? '', module: ctx?.module ?? '' }),
   })
   if (!res.ok) throw new Error(await res.text())
   const reader = res.body!.getReader()

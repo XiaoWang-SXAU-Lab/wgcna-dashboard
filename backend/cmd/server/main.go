@@ -30,7 +30,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("ai store: %v", err)
 	}
-	aiHandler := api.NewAI(aiStore)
+	aiHandler := api.NewAI(aiStore, jobsDir)
 
 	mux := http.NewServeMux()
 	handler.Register(mux)

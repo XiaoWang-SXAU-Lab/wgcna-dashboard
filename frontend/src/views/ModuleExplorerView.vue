@@ -121,7 +121,7 @@ async function loadAnnotation() {
 
 watch(() => store.selectedModule, (m) => {
   if (m) loadAnnotation()
-})
+}, { immediate: true })
 </script>
 
 <template>

@@ -61,8 +61,8 @@ function fillFor(n: NetNode, cmin: number, cmax: number): string {
   return mixHex(props.nodeLowColor, props.nodeHighColor, t)
 }
 
-function buildElements() {
-  const { nodes, edges } = props.network
+function computeVisuals() {
+  const { nodes } = props.network
   const values = nodes.map(metric)
   const vmin = Math.min(...values, 0)
   const vmax = Math.max(...values, 1)
@@ -74,7 +74,12 @@ function buildElements() {
   const cvals = nodes.map(colorMetric)
   const cmin = Math.min(...cvals, 0)
   const cmax = Math.max(...cvals, 1)
+  return { scale, cmin, cmax }
+}
 
+function buildElements() {
+  const { nodes, edges } = props.network
+  const { scale, cmin, cmax } = computeVisuals()
   return [
     ...nodes.map((n) => ({
       data: {
@@ -93,6 +98,22 @@ function buildElements() {
       data: { id: `${e.source}::${e.target}`, source: e.source, target: e.target, weight: e.weight },
     })),
   ]
+}
+
+// Update visual data (size/fill/label) in place, keeping node positions.
+function applyVisuals() {
+  if (!cy) return
+  const { scale, cmin, cmax } = computeVisuals()
+  const nodeMap = new Map(cy.nodes().map((n) => [n.id(), n]))
+  for (const n of props.network.nodes) {
+    const el = nodeMap.get(n.id)
+    if (!el) continue
+    el.data('label', props.geneMap[n.id] || n.id)
+    el.data('size', scale(metric(n)))
+    el.data('fill', fillFor(n, cmin, cmax))
+    el.data('isHub', n.is_hub)
+  }
+  cy.style(buildStyle())
 }
 
 function edgeRange() {
@@ -284,9 +305,16 @@ onBeforeUnmount(() => {
 })
 
 // debounce full re-render on param change (sliders)
-watch(() => [props.network, props.sizeBasis, props.nodeSizeMin, props.nodeSizeMax, props.edgeLowColor, props.edgeHighColor, props.edgeWidth, props.labelSize, props.labelMode, props.geneMap, props.colorMode, props.nodeLowColor, props.nodeHighColor, props.hubNodeColor, props.hubBorderColor, props.hubBorderWidth], () => {
+// network change: full re-render + layout (fresh positions)
+watch(() => props.network, () => {
   if (timer) clearTimeout(timer)
   timer = setTimeout(render, 250)
+})
+
+// visual-only changes: restyle in place, keep node positions (e.g. after expand)
+watch(() => [props.sizeBasis, props.nodeSizeMin, props.nodeSizeMax, props.edgeLowColor, props.edgeHighColor, props.edgeWidth, props.labelSize, props.labelMode, props.geneMap, props.colorMode, props.nodeLowColor, props.nodeHighColor, props.hubNodeColor, props.hubBorderColor, props.hubBorderWidth], () => {
+  if (timer) clearTimeout(timer)
+  timer = setTimeout(applyVisuals, 250)
 })
 
 // layout change re-runs the layout without rebuilding elements
@@ -298,6 +326,22 @@ watch(() => props.layout, () => {
 function zoomIn() { cy?.zoom(cy.zoom() * 1.3) }
 function zoomOut() { cy?.zoom(cy.zoom() / 1.3) }
 function fit() { cy?.fit(undefined, 40) }
+
+// Gephi-style radial expansion/contraction: move node positions (layout), not the view.
+function radialScale(factor: number) {
+  if (!cy) return
+  const nodes = cy.nodes()
+  if (nodes.length === 0) return
+  const bb = cy.elements().boundingBox()
+  const centerX = (bb.x1 + bb.x2) / 2
+  const centerY = (bb.y1 + bb.y2) / 2
+  nodes.forEach((n) => {
+    const p = n.position()
+    n.position({ x: centerX + (p.x - centerX) * factor, y: centerY + (p.y - centerY) * factor })
+  })
+}
+function expand() { radialScale(1.4) }
+function contract() { radialScale(1 / 1.4) }
 </script>
 
 <template>
@@ -306,7 +350,9 @@ function fit() { cy?.fit(undefined, 40) }
     <div class="position-absolute top-0 end-0 m-2 d-flex flex-column gap-1">
       <button class="btn btn-sm btn-light border shadow-sm" @click="zoomIn" title="zoom in"><i class="bi bi-plus-lg"></i></button>
       <button class="btn btn-sm btn-light border shadow-sm" @click="zoomOut" title="zoom out"><i class="bi bi-dash-lg"></i></button>
-      <button class="btn btn-sm btn-light border shadow-sm" @click="fit" title="fit / center"><i class="bi bi-arrows-angle-contract"></i></button>
+      <button class="btn btn-sm btn-light border shadow-sm" @click="fit" title="fit / center"><i class="bi bi-bounding-box"></i></button>
+      <button class="btn btn-sm btn-light border shadow-sm" @click="expand" title="expand (spread nodes)"><i class="bi bi-arrows-angle-expand"></i></button>
+      <button class="btn btn-sm btn-light border shadow-sm" @click="contract" title="contract (pull nodes)"><i class="bi bi-arrows-angle-contract"></i></button>
     </div>
     <div ref="tooltip" class="position-absolute rounded" style="display:none; pointer-events:none; z-index:10; background:rgba(17,24,39,0.92); color:#fff; padding:6px 9px; font-size:12px; line-height:1.35; max-width:260px"></div>
     <div class="position-absolute bottom-0 start-0 m-2 p-2 bg-white border rounded shadow-sm small" style="max-width:320px; opacity:0.92">

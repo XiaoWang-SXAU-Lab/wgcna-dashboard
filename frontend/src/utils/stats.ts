@@ -51,6 +51,21 @@ export function corPvalueStudent(r: number, n: number): number {
   return 2 * studentTCdf(-Math.abs(t), df)
 }
 
+// Two-sided t critical value (e.g. tCritical(0.05, df) -> t_{0.975, df} for a
+// 95% confidence interval). Bisection on the Student-t CDF.
+export function tCritical(alpha: number, df: number): number {
+  if (df < 1) return NaN
+  const p = 1 - alpha / 2
+  let lo = 0
+  let hi = 100
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2
+    if (studentTCdf(mid, df) < p) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}
+
 function studentTCdf(t: number, df: number): number {
   const x = df / (df + t * t)
   const ib = betai(df / 2, 0.5, x)

@@ -12,13 +12,43 @@ import (
 
 // Message is a chat message.
 type Message struct {
-	Role    string `json:"role"` // system | user | assistant
-	Content string `json:"content"`
+	Role       string     `json:"role"` // system | user | assistant | tool
+	Content    string     `json:"content,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"`
+}
+
+// ToolCall is a single tool invocation requested by the model.
+type ToolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"` // "function"
+	Function FunctionCall `json:"function"`
+}
+
+// FunctionCall names a tool and carries its JSON-encoded arguments.
+type FunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// Tool is a tool definition exposed to the model (OpenAI function-calling).
+type Tool struct {
+	Type     string      `json:"type"` // "function"
+	Function FunctionDef `json:"function"`
+}
+
+// FunctionDef is a JSON-Schema-described function.
+type FunctionDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
 }
 
 type chatRequest struct {
 	Model    string    `json:"model"`
 	Messages []Message `json:"messages"`
+	Tools    []Tool    `json:"tools,omitempty"`
 	Stream   bool      `json:"stream"`
 }
 
@@ -72,6 +102,42 @@ func (c *Client) Chat(messages []Message) (string, error) {
 		return "", fmt.Errorf("llm returned no choices")
 	}
 	return out.Choices[0].Message.Content, nil
+}
+
+// ChatFull sends a non-streaming completion with tools and returns the full
+// assistant message (content + tool_calls), used by the agent loop.
+func (c *Client) ChatFull(messages []Message, tools []Tool) (Message, error) {
+	req := chatRequest{Model: c.Model, Messages: messages, Tools: tools, Stream: false}
+	body, _ := json.Marshal(req)
+	httpReq, err := http.NewRequest(http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return Message{}, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.APIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	resp, err := c.http().Do(httpReq)
+	if err != nil {
+		return Message{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return Message{}, fmt.Errorf("llm %s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
+	var out struct {
+		Choices []struct {
+			Message Message `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return Message{}, err
+	}
+	if len(out.Choices) == 0 {
+		return Message{}, fmt.Errorf("llm returned no choices")
+	}
+	return out.Choices[0].Message, nil
 }
 
 // ChatStream streams a completion, invoking onDelta for each content chunk.

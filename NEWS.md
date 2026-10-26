@@ -3,6 +3,29 @@
 All notable changes to the wgcna-dashboard are documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] — 2026-10-26
+
+### Added
+
+- **Agentic AI navigator**: tool-calling agent loop that reads the params and
+  results of every pipeline step (9 tools: params / filter / SFT / network /
+  module-trait / module detail / hub / enrichment / literature).
+- **Multi-source literature search** (Europe PMC + PubMed + Semantic Scholar,
+  with optional Google Scholar), merged + de-duplicated by PMID/DOI.
+- Source attribution + anti-hallucination: answers must cite sources, and
+  literature must come from the search tool (no fabricated PMID/DOI).
+- Citation formatting: in-text "Author et al. (year)" + a References section.
+- Chat skills (`@`/`/`), Enter=newline / Cmd+Enter=send, animated cat mascot,
+  and citation links open in a new tab.
+
+### Changed
+
+- Enrichment split into GO/KEGG panels with an ALL/MF/BP/CC ontology selector
+  and chart↔table linkage.
+- Module explorer has five sub-panels; the annotation panel now loads on entry.
+- Network graph gains Gephi-style expand/contract (radial scale).
+- GS/MM scatter: proper 95% CI band (closed polygon) + t-distribution.
+
 ## [0.4.0] — 2026-10-26
 
 ### Added

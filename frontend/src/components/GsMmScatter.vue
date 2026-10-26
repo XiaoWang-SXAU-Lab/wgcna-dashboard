@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { EChartsOption } from 'echarts'
 import type { DetailResult } from '../api/client'
-import { pearson, linearRegression, corPvalueStudent } from '../utils/stats'
+import { pearson, linearRegression, corPvalueStudent, tCritical } from '../utils/stats'
 import { moduleColor } from '../utils/colors'
 import ResizableChart from './ResizableChart.vue'
 import { t } from '../utils/i18n'
@@ -24,17 +24,25 @@ const option = computed<EChartsOption>(() => {
   const xmax = Math.max(...xs)
   const line = [[xmin, slope * xmin + intercept], [xmax, slope * xmax + intercept]]
 
-  // 95% confidence interval band (gray, semi-transparent)
+  // 95% CI band (mean response), matching ggplot2 geom_smooth(method='lm')
   const n = xs.length
   const xMean = xs.reduce((a, b) => a + b, 0) / n
   const sxx = xs.reduce((s, x) => s + (x - xMean) ** 2, 0) || 1
   const s2 = xs.reduce((s, x, i) => s + (ys[i] - (slope * x + intercept)) ** 2, 0) / Math.max(n - 2, 1)
-  const tCrit = 1.96
+  const tCrit = tCritical(0.05, n - 2)
   const se = (x: number) => Math.sqrt(s2 * (1 / n + (x - xMean) ** 2 / sxx))
   const N = 50
   const ciX = Array.from({ length: N }, (_, i) => xmin + ((xmax - xmin) * i) / (N - 1))
-  const lowerData = ciX.map((x) => [x, slope * x + intercept - tCrit * se(x)])
-  const bandData = ciX.map((x) => [x, 2 * tCrit * se(x)])
+  // CI band polygon: lower bound left→right, then upper bound right→left
+  const ciBand: [number, number][] = []
+  for (let i = 0; i < N; i++) {
+    const x = ciX[i]
+    ciBand.push([x, slope * x + intercept - tCrit * se(x)])
+  }
+  for (let i = N - 1; i >= 0; i--) {
+    const x = ciX[i]
+    ciBand.push([x, slope * x + intercept + tCrit * se(x)])
+  }
 
   return {
     title: {
@@ -63,8 +71,17 @@ const option = computed<EChartsOption>(() => {
         type: 'scatter', data: points, symbolSize: 8,
         itemStyle: { color: moduleColor(props.data.module), opacity: 0.6 },
       },
-      { type: 'line', data: lowerData, stack: 'ci', lineStyle: { opacity: 0 }, areaStyle: { opacity: 0 }, symbol: 'none', silent: true, z: 1 },
-      { type: 'line', data: bandData, stack: 'ci', lineStyle: { opacity: 0 }, areaStyle: { color: 'rgba(128,128,128,0.3)' }, symbol: 'none', silent: true, z: 1 },
+      {
+        type: 'custom', z: 1, silent: true, data: [0],
+        renderItem: (params: any, api: any) => {
+          const pts = ciBand.map(([x, y]) => api.coord([x, y]))
+          return {
+            type: 'polygon',
+            shape: { points: pts },
+            style: { fill: 'rgba(128,128,128,0.28)', stroke: 'rgba(128,128,128,0.5)', lineWidth: 1 },
+          }
+        },
+      },
       { type: 'line', data: line, lineStyle: { color: '#e11d48', width: 2 }, symbol: 'none', silent: true, z: 10 },
     ],
   }
