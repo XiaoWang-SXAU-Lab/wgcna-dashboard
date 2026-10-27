@@ -104,22 +104,50 @@ func generateReportHTML(d reportData) string {
 
 	// ---- step 3: 过滤 ----
 	b.WriteString(stepHead(d, 3, nav[2], d.L("明确区分样本删除、低表达过滤和高变基因选择。", "Separate sample exclusion, low-expression filtering and variable-gene selection.")))
-	b.WriteString(`<div class="story"><p>` + d.L("表达矩阵经归一化、低表达过滤和 MAD/VAR 高变基因选择后，保留前 ", "After normalization, low-expression filtering and MAD/VAR variable-gene selection, the top ") + fmt.Sprint(d.Genes) + d.L(" 个基因进入网络分析。", " genes enter network analysis.") + `</p></div>`)
-	b.WriteString(`<figure><img src="../result/02_filter/sample_tree.png" alt="sample tree"><figcaption><span><b>` + d.L("图 1.", "Figure 1.") + `</b> ` + d.L("样本聚类树；色带为用户所选标签。", "Sample dendrogram with the selected annotation rows.") + `</span></figcaption></figure>`)
+	b.WriteString(filterStory(d))
+	_ = d.L("", "")
+	sampleTreeCap := d.L("根据这 "+fmtInt(d.Genes)+" 个基因的表达矩阵，样本聚类结果如下（色带为所选性状列）。", "Sample clustering based on the "+fmtInt(d.Genes)+"-gene matrix (annotation band = the selected trait column).")
+	b.WriteString(`<figure><img src="../result/02_filter/sample_tree.png" alt="sample tree"><figcaption><span><b>` + d.L("图 1.", "Figure 1.") + `</b> ` + sampleTreeCap + `</span></figcaption></figure>`)
 	b.WriteString(`</section>`)
 
 	// ---- step 4: 软阈值 ----
 	b.WriteString(stepHead(d, 4, nav[3], d.L("先观察候选值，再记录最终采用值。", "Inspect candidates, then record the chosen power.")))
+	{
+		netType := pstr(d.Params, "soft_threshold", "network_type", "unsigned")
+		rsq := pfloat(d.Params, "soft_threshold", "rsquared_cut", 0.85)
+		power := pfloat(d.Params, "network", "power", 6)
+		b.WriteString(`<div class="story"><p>` + d.L("本分析使用 "+netType+" 网络，在候选软阈值 β 中寻找第一个让无标度拟合 R² 达到 "+fmtNum(rsq)+" 的最小 β，最终选定 <strong>β = "+fmtNum(power)+"</strong>。软阈值会放大较强相关、减弱较弱相关。", "Using a "+netType+" network, we choose the smallest candidate power whose scale-free fit R² reaches "+fmtNum(rsq)+", yielding <strong>β = "+fmtNum(power)+"</strong>. Power strengthens the contrast between strong and weak correlations.") + `</p></div>`)
+	}
 	b.WriteString(`<figure><img src="../result/03_soft_threshold/sft.png" alt="soft threshold"><figcaption><span><b>` + d.L("图 2.", "Figure 2.") + `</b> ` + d.L("无标度拟合 R² 与平均连通性曲线。", "Scale-free fit R² and mean connectivity.") + `</span></figcaption></figure>`)
 	b.WriteString(`</section>`)
 
 	// ---- step 5: 网络与模块 ----
 	b.WriteString(stepHead(d, 5, nav[4], d.L("将表达模式相似的基因分组。", "Group genes with similar expression patterns.")))
+	{
+		minSize := pint(d.Params, "network", "min_module_size", 30)
+		mergeCut := pfloat(d.Params, "network", "merge_cut_height", 0.25)
+		deepSplit := pint(d.Params, "network", "deep_split", 2)
+		nMod := len(d.Modules)
+		zh := fmt.Sprintf("根据拓扑重叠关系（TOM）做层次聚类与动态树切割，最小模块大小设为 %d，模块合并距离阈值 %s，deepSplit=%d。最终得到 <strong>%d 个模块</strong>，另有 %d 个 grey 未分配基因（不计入模块总数）。", minSize, fmtNum(mergeCut), deepSplit, nMod, d.GreyGenes)
+		en := fmt.Sprintf("Genes are clustered by topological overlap (TOM) using hierarchical clustering and dynamic tree cutting. Minimum module size is %d; the merge distance threshold is %s; deepSplit=%d. This yields <strong>%d modules</strong> and %d unassigned grey genes (excluded from the module count).", minSize, fmtNum(mergeCut), deepSplit, nMod, d.GreyGenes)
+		b.WriteString(`<div class="story"><p>` + d.L(zh, en) + `</p></div>`)
+	}
 	b.WriteString(`<figure><img src="../result/04_network/dendrogram.png" alt="dendrogram"><figcaption><span><b>` + d.L("图 3.", "Figure 3.") + `</b> ` + d.L("基因聚类树与模块色带。", "Gene clustering and module assignments.") + `</span></figcaption></figure>`)
 	b.WriteString(`</section>`)
 
 	// ---- step 6: 模块-性状 ----
 	b.WriteString(stepHead(d, 6, nav[5], d.L("用模块特征向量概括模块表达。", "Summarize module expression using its eigengene.")))
+	{
+		traitCol := pstr(d.Params, "module_trait", "trait_column", "")
+		traitSrc := pstr(d.Params, "module_trait", "trait_source", "")
+		var story string
+		if traitCol == "" {
+			story = d.L("模块特征向量（ME）概括每个模块的主要表达模式。热图中红偏正相关、蓝偏负相关，颜色越深绝对相关越强。", "A module eigengene (ME) summarizes each module's main expression pattern. In the heatmap, red is positive and blue is negative correlation; deeper colors indicate larger absolute correlations.")
+		} else {
+			story = d.L("模块特征向量（ME）概括每个模块的主要表达模式。本次的性状来自 "+traitSrc+" 的列 <strong>"+traitCol+"</strong>。热图中红偏正相关、蓝偏负相关，颜色越深绝对相关越强。", "A module eigengene (ME) summarizes each module's main expression pattern. Traits come from the <strong>"+traitCol+"</strong> column of "+traitSrc+". In the heatmap, red is positive and blue is negative correlation; deeper colors indicate larger absolute correlations.")
+		}
+		b.WriteString(`<div class="story"><p>` + story + `</p></div>`)
+	}
 	b.WriteString(`<figure><img src="../result/05_module_trait/mtrait.png" alt="module-trait"><figcaption><span><b>` + d.L("图 4.", "Figure 4.") + `</b> ` + d.L("模块-性状相关热图。", "Module–trait correlation heatmap.") + `</span></figcaption></figure>`)
 	b.WriteString(`</section>`)
 
@@ -143,10 +171,14 @@ func generateReportHTML(d reportData) string {
 
 	// ---- step 9: Hub 基因 ----
 	b.WriteString(stepHead(d, 9, nav[8], d.L("候选筛选与网络展示。", "Candidate selection and network display.")))
-	if d.HasTrait {
-		b.WriteString(`<div class="story"><p>` + d.L("存在与模块显著强相关（p &lt; 0.05 且 |cor| &gt; 0.6）的性状，Hub 基因同时参考 |GS| 与 |kME| 阈值。", "A significantly strong trait (p < 0.05 and |cor| > 0.6) exists; hubs use both |GS| and |kME| thresholds.") + `</p></div>`)
-	} else {
-		b.WriteString(`<div class="story"><p>` + d.L("未检测到显著强相关的性状，Hub 基因仅按 |kME| 阈值筛选。", "No significantly strong trait was found; hubs use |kME| alone.") + `</p></div>`)
+	{
+		kme := pfloat(d.Params, "hub", "kme_cutoff", 0.8)
+		gs := pfloat(d.Params, "hub", "gs_cutoff", 0.5)
+		if d.HasTrait {
+			b.WriteString(`<div class="story"><p>` + d.L("存在与模块显著强相关（p &lt; 0.05 且 |cor| &gt; 0.6）的性状，Hub 基因需同时满足 <strong>|kME| &gt; "+fmtNum(kme)+"</strong> 且 <strong>|GS| &gt; "+fmtNum(gs)+"</strong>。", "A significantly strong trait (p < 0.05 and |cor| > 0.6) exists; hubs must satisfy both <strong>|kME| > "+fmtNum(kme)+"</strong> and <strong>|GS| > "+fmtNum(gs)+"</strong>.") + `</p></div>`)
+		} else {
+			b.WriteString(`<div class="story"><p>` + d.L("未检测到显著强相关的性状，Hub 基因仅按 <strong>|kME| &gt; "+fmtNum(kme)+"</strong> 筛选（不看表型数据）。", "No significantly strong trait was found; hubs are selected by <strong>|kME| > "+fmtNum(kme)+"</strong> alone (phenotype data not used).") + `</p></div>`)
+		}
 	}
 	b.WriteString(`</section>`)
 
@@ -222,4 +254,115 @@ func paramsHTML(params map[string]any, lang string) string {
 		b.WriteString(`</details>`)
 	}
 	return b.String()
+}
+
+// ---- parameter extraction helpers ----
+
+func pstr(params map[string]any, group, key, def string) string {
+	if g, ok := params[group].(map[string]any); ok {
+		if v, ok := g[key].(string); ok {
+			return v
+		}
+	}
+	return def
+}
+
+func pfloat(params map[string]any, group, key string, def float64) float64 {
+	if g, ok := params[group].(map[string]any); ok {
+		if v, ok := g[key].(float64); ok {
+			return v
+		}
+	}
+	return def
+}
+
+func pint(params map[string]any, group, key string, def int) int {
+	return int(pfloat(params, group, key, float64(def)))
+}
+
+// normText describes the normalization method in plain language.
+func normText(m, lang string) string {
+	zh := map[string]string{
+		"raw": "不做数值转换（保留原始值）", "vst": "DESeq2 方差稳定变换（VST）",
+		"log10p1": "log10(x+1) 转换", "log": "log(x) 转换", "log10": "log10(x) 转换",
+		"log2": "log2(x) 转换", "log2p1": "log2(x+1) 转换",
+	}
+	en := map[string]string{
+		"raw": "no transformation (raw values)", "vst": "DESeq2 variance-stabilizing transform (VST)",
+		"log10p1": "log10(x+1)", "log": "log(x)", "log10": "log10(x)",
+		"log2": "log2(x)", "log2p1": "log2(x+1)",
+	}
+	if lang == "en" {
+		if v, ok := en[m]; ok {
+			return v
+		}
+	} else if v, ok := zh[m]; ok {
+		return v
+	}
+	return m
+}
+
+// filterMethodText describes MAD/VAR in plain language.
+func filterMethodText(m, lang string) string {
+	if lang == "en" {
+		if m == "var" {
+			return "variance (VAR)"
+		}
+		return "median absolute deviation (MAD)"
+	}
+	if m == "var" {
+		return "方差（VAR）"
+	}
+	return "中位数绝对离差（MAD）"
+}
+
+// filterStory generates the plain-language filtering narrative from the actual
+// filter parameters.
+func filterStory(d reportData) string {
+	p := d.Params
+	norm := pstr(p, "filter", "normalize_method", "log10p1")
+	cutoff := pfloat(p, "filter", "cutoff", 10)
+	pct := pfloat(p, "filter", "sample_percentage", 0.5)
+	method := pstr(p, "filter", "filter_method", "mad")
+	nKeep := pint(p, "filter", "n_keep", 8000)
+
+	normDesc := normText(norm, d.Lang)
+	methodDesc := filterMethodText(method, d.Lang)
+
+	story1 := d.L(
+		"表达矩阵先进行归一化：本分析采用 "+normDesc+"。",
+		"The expression matrix is first normalized: this analysis uses "+normDesc+".",
+	)
+	var story2 string
+	if pct > 0 {
+		story2 = d.L(
+			"低表达过滤：如果一个基因在超过 "+fmtPercent(pct)+" 的样本中表达值低于 "+fmtNum(cutoff)+"，就被当作低表达噪音基因去除。",
+			"Low-expression filtering: a gene is removed as noise if its expression is below "+fmtNum(cutoff)+" in more than "+fmtPercent(pct)+" of samples.",
+		)
+	} else {
+		story2 = d.L(
+			"本次未启用低表达过滤（样本比例阈值设为 0）。",
+			"Low-expression filtering was not enabled (the sample-percentage threshold is 0).",
+		)
+	}
+	story3 := d.L(
+		"高变基因选择：剩余基因按 "+methodDesc+" 从大到小排序，选取前 "+fmtInt(nKeep)+" 个基因，作为后续分析的最终表达矩阵。",
+		"Variable-gene selection: the remaining genes are ranked by "+methodDesc+" and the top "+fmtInt(nKeep)+" enter downstream analysis.",
+	)
+	return `<div class="story"><p>` + story1 + `</p></div><div class="story"><p>` + story2 + `</p></div><div class="story"><p>` + story3 + `</p></div>`
+}
+
+func fmtPercent(v float64) string {
+	return fmt.Sprintf("%g%%", v*100)
+}
+
+func fmtNum(v float64) string {
+	if v == float64(int(v)) {
+		return fmt.Sprintf("%d", int(v))
+	}
+	return fmt.Sprintf("%g", v)
+}
+
+func fmtInt(v int) string {
+	return fmt.Sprintf("%d", v)
 }
