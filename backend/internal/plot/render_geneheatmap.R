@@ -25,10 +25,17 @@ legend    <- get_arg("--legend", "right")   # right | bottom | none
 width     <- as.numeric(get_arg("--width", "7"))
 height    <- as.numeric(get_arg("--height", "7"))
 dpi       <- as.numeric(get_arg("--dpi", "150"))
+cluster_rows  <- as.integer(get_arg("--cluster-rows", "1"))
+cluster_cols  <- as.integer(get_arg("--cluster-cols", "0"))
+show_rownames <- as.integer(get_arg("--show-rownames", "0"))
+show_colnames <- as.integer(get_arg("--show-colnames", "1"))
+border        <- as.integer(get_arg("--border", "0"))
+title         <- get_arg("--title", NULL)
 if (is.null(json_path) || is.null(out_path)) stop("usage: render_geneheatmap.R --json <f> --out <f>")
 
 d <- fromJSON(json_path, simplifyVector = TRUE)
 mod <- d$module
+if (is.null(title)) title <- paste0("Module ", mod, " gene expression")
 genes <- d$genes
 samples <- d$samples
 expr <- as.matrix(d$expression)   # genes x samples
@@ -58,10 +65,10 @@ ht <- Heatmap(
   z,
   name = "z-score",
   col = col_fun,
-  cluster_rows = TRUE,
-  cluster_columns = FALSE,
-  show_row_names = FALSE,   # no gene IDs
-  show_column_names = TRUE,
+  cluster_rows = cluster_rows == 1,
+  cluster_columns = cluster_cols == 1,
+  show_row_names = show_rownames == 1,
+  show_column_names = show_colnames == 1,
   column_names_rot = 45,
   top_annotation = top_ha,
   heatmap_legend_param = list(
@@ -70,8 +77,8 @@ ht <- Heatmap(
     title_position = if (legend == "bottom") "topcenter" else "lefttop-rot"
   ),
   show_heatmap_legend = show_legend,
-  border_gp = gpar(col = "grey40"),
-  column_title = paste0("Module ", mod, " gene expression"),
+  border_gp = gpar(col = if (border == 1) "grey40" else NA),
+  column_title = title,
   column_title_gp = gpar(fontsize = 15, fontface = "bold")
 )
 

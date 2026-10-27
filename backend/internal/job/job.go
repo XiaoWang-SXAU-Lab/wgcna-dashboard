@@ -207,55 +207,49 @@ func (m *Manager) RunStep(id, step string) {
 	m.mu.Unlock()
 }
 
-// RunAll runs every step in order, skipping steps that are already done.
-func (m *Manager) RunAll(id string) {
-	for _, step := range StepOrder {
-		if m.IsDone(id, step) {
-			continue
-		}
-		m.RunStep(id, step)
-		if st, _ := m.status(id); st != "done" {
-			return // stop on error / cancel
-		}
-		if step == "soft_threshold" {
-			m.syncPowerFromSft(id)
-		}
-	}
-}
-
-// syncPowerFromSft copies the SFT power estimate into params.json's network.power
-// so the one-step pipeline uses the automatically selected power.
-func (m *Manager) syncPowerFromSft(id string) {
+// RunAuxStep runs a worker step that is NOT part of the linear pipeline
+// (overview_network, cluster). It does not touch DoneSteps (no dirty cascade).
+func (m *Manager) RunAuxStep(id, step string) {
 	jobDir := filepath.Join(m.dir, id)
-	b, err := os.ReadFile(filepath.Join(jobDir, "step2_sft.json"))
-	if err != nil {
-		return
-	}
-	var sft struct {
-		PowerEstimate *float64 `json:"power_estimate"`
-	}
-	if err := json.Unmarshal(b, &sft); err != nil || sft.PowerEstimate == nil {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m.mu.Lock()
+	m.cancel[id] = cancel
+	m.updateLocked(id, func(j *Job) {
+		j.Status = "running"
+		j.CurrentStep = step
+		j.Error = ""
+	})
+	m.mu.Unlock()
+
+	defer func() {
+		m.mu.Lock()
+		delete(m.cancel, id)
+		m.mu.Unlock()
+	}()
+
+	cmd := exec.CommandContext(ctx, m.workerBin, "--job-dir", jobDir, "--step", step, "--threads", fmt.Sprint(m.threadsFor(id)))
+	subproc.HideWindow(cmd)
+	out, err := cmd.CombinedOutput()
+
+	if ctx.Err() == context.Canceled {
+		m.mu.Lock()
+		m.updateLocked(id, func(j *Job) { j.Status = "cancelled" })
+		m.mu.Unlock()
 		return
 	}
 
-	paramsPath := filepath.Join(jobDir, "params.json")
-	pb, err := os.ReadFile(paramsPath)
+	m.mu.Lock()
 	if err != nil {
-		return
+		msg := string(out)
+		if p := readProgress(jobDir); p != nil && p.Message != "" {
+			msg = p.Message
+		}
+		m.updateLocked(id, func(j *Job) { j.Status = "error"; j.Error = msg })
+	} else {
+		m.updateLocked(id, func(j *Job) { j.Status = "done"; j.Progress = nil })
 	}
-	var p map[string]any
-	if err := json.Unmarshal(pb, &p); err != nil {
-		return
-	}
-	net, ok := p["network"].(map[string]any)
-	if !ok {
-		net = map[string]any{}
-		p["network"] = net
-	}
-	net["power"] = *sft.PowerEstimate
-	if out, err := json.Marshal(p); err == nil {
-		_ = os.WriteFile(paramsPath, out, 0o644)
-	}
+	m.mu.Unlock()
 }
 
 // Cancel kills the currently-running step, if any.

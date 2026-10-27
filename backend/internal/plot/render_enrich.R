@@ -61,12 +61,16 @@ if (x_var == "Count") {
 
 d$col_val <- d[[col_var]]
 
+# Order by x (GeneRatio) ascending so the highest value is at the top,
+# matching the ECharts dotplot (clusterProfiler order).
+d <- d[order(d$x_val, decreasing = FALSE), , drop = FALSE]
+
 if (!is.na(show_cat) && show_cat > 0 && nrow(d) > show_cat) {
   d <- d[seq_len(show_cat), , drop = FALSE]
 }
 
-# Most significant at top (reversed factor levels).
-d$Description <- factor(d$Description, levels = rev(unique(d$Description)))
+# Highest x at top (factor levels ascending).
+d$Description <- factor(d$Description, levels = unique(d$Description))
 
 # clusterProfiler's theme_dose.
 theme_dose <- function(font.size = 12) {

@@ -1,0 +1,227 @@
+---
+title: "rsWGCNA 分析报告"
+subtitle: "加权基因共表达网络分析"
+format:
+  html:
+    css: styles.css
+    toc: true
+    toc-depth: 2
+    number-sections: false
+    self-contained: false
+    lang: zh
+---
+
+::: {.rs-hero}
+# rsWGCNA 分析报告
+
+<div class="rs-subtitle">拟南芥干旱胁迫应答 · 加权基因共表达网络与模块分析</div>
+
+<div class="rs-meta">
+  <span>📁 项目：<b>Arabidopsis_drought_20261027</b></span>
+  <span>🕐 生成时间：<b>2026-10-27 10:52</b></span>
+  <span>🔖 版本：<b>rsWGCNA v0.5.0</b></span>
+  <span><span class="dot"></span> 分析完成</span>
+</div>
+
+<div class="rs-stats">
+  <div class="rs-stat"><b>18</b><i>样本</i></div>
+  <div class="rs-stat"><b>8,000</b><i>保留基因</i></div>
+  <div class="rs-stat"><b>16</b><i>共表达模块</i></div>
+  <div class="rs-stat"><b>2</b><i>显著相关性状</i></div>
+  <div class="rs-stat"><b>214</b><i>Hub 基因</i></div>
+</div>
+:::
+
+::: {.rs-note}
+本报告由 rsWGCNA 自动生成。所有图表与数据文件位于工作目录的 `result/` 文件夹中，本页面仅作可视化浏览。图表编号与 `result/README.txt` 中的说明一一对应。
+:::
+
+---
+
+## 第 1 步 · 数据输入与质控 {.rs-step}
+
+::: {.rs-step-head}
+<div class="rs-badge bg-teal">1</div>
+<h2>数据输入与质控 <span class="rs-en">Data input & QC</span></h2>
+:::
+
+### 样本信息
+
+共读取 **18 个样本**，样本分组与元数据如下：
+
+::: {.rs-card}
+| 样本 ID | 分组 | 条件 | 重复 |
+|---------|------|------|------|
+| WT_ctrl_1 | Wild type | control | 1 |
+| WT_ctrl_2 | Wild type | control | 2 |
+| WT_ctrl_3 | Wild type | control | 3 |
+| WT_drought_1 | Wild type | drought | 1 |
+| … | … | … | … |
+
+*表 1 · 样本信息（sample_info）。完整表见 `result/01_input/sample_info.tsv`。*
+:::
+
+### 注释与背景文件
+
+<div class="rs-chips">
+  <span class="rs-chip">注释文件：TAIR10 全基因组 27,416 基因</span>
+  <span class="rs-chip">GO 背景：17,920 个基因有 GO 注释</span>
+  <span class="rs-chip">KEGG 背景：5,842 个基因有通路注释</span>
+</div>
+
+::: {.rs-card}
+<h3>背景文件统计</h3>
+| 类型 | 条目数 | 覆盖基因数 | 来源 |
+|------|--------|-----------|------|
+| GO (BP/MF/CC) | 12,408 | 17,920 | go.obo + gene2go |
+| KEGG pathway | 137 | 5,842 | KEGG orthology |
+
+*表 2 · 功能注释背景统计。*
+:::
+
+---
+
+## 第 2 步 · 清洗过滤 {.rs-step}
+
+::: {.rs-step-head}
+<div class="rs-badge bg-blue">2</div>
+<h2>清洗过滤 <span class="rs-en">Filtering</span></h2>
+:::
+
+### 表达矩阵概况
+
+原始表达矩阵为 **20,000 基因 × 18 样本**。
+
+### 过滤过程（说人话版）
+
+::: {.rs-say}
+<div class="rs-say-title">这次过滤做了什么</div>
+首先，我们检查了每个基因在所有样本中的表达量：**如果一个基因在 50% 以上的样本中 read count 小于 10，它就被当作「噪音」直接去掉**——因为这种基因几乎不表达，测不准，留着只会增加计算负担。
+
+去掉噪音后，剩下的基因我们按**中位数绝对离差（MAD）**从大到小排序——MAD 越大说明这个基因在样本间的差异越明显、越「有戏」。**我们只保留差异最大的前 8000 个基因**进入后续分析。
+:::
+
+### 过滤结果
+
+::: {.rs-card}
+- 过滤前：**20,000 基因 × 18 样本**
+- 过滤后：**8,000 基因 × 18 样本**（移除 12,000 个低表达/低方差基因）
+- 删除样本：**0 个**
+
+<a class="rs-chip" href="result/01_input/expression_filtered.tsv" download>⬇ 下载过滤后表达矩阵</a>
+:::
+
+::: {.rs-note}
+若有样本被删除，会在此列出删除的样本 ID 与原因（例如「Ctrl_3 因 RNA 完整性低被剔除」）。
+:::
+
+---
+
+## 第 3 步 · 软阈值选择 {.rs-step}
+
+::: {.rs-step-head}
+<div class="rs-badge bg-coral">3</div>
+<h2>软阈值选择 <span class="rs-en">Soft threshold</span></h2>
+:::
+
+::: {.rs-say}
+<div class="rs-say-title">这次选了什么</div>
+我们在一系列候选的「软阈值 β」中寻找那个能让网络最接近**无标度拓扑（scale-free）**的值：即让 R² 达到 **0.85** 的最小 β。最终选定 **β = 12**，此时无标度拟合 R² = 0.88，平均连通性仍保持在合理水平。
+:::
+
+::: {.rs-fig}
+<img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='800' height='300'><rect width='800' height='300' fill='%23f1f5f9'/><text x='400' y='150' text-anchor='middle' font-size='18' fill='%2394a3b8'>sft_r2.png · 无标度拟合 R² 曲线</text></svg>" alt="软阈值图" />
+<div class="rs-fig-cap">图 1 · 无标度拟合指数 R² 随软阈值 β 的变化（虚线为 R²=0.85）。</div>
+:::
+
+---
+
+## 第 4 步 · 网络构建与模块检测 {.rs-step}
+
+::: {.rs-step-head}
+<div class="rs-badge bg-gold">4</div>
+<h2>网络构建与模块检测 <span class="rs-en">Network & modules</span></h2>
+:::
+
+::: {.rs-say}
+<div class="rs-say-title">这次做了什么</div>
+我们用 β=12 计算基因间的**拓扑重叠矩阵（TOM）**，再用层次聚类把表达模式相近的基因聚成「模块」。每个模块用 WGCNA 的惯例色命名（如 turquoise、blue）。高度相似的模块会进一步合并，最终得到 **16 个模块**。
+:::
+
+::: {.rs-fig}
+<img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='800' height='260'><rect width='800' height='260' fill='%23f1f5f9'/><text x='400' y='130' text-anchor='middle' font-size='18' fill='%2394a3b8'>dendrogram.png · 模块聚类树 + 模块色带</text></svg>" alt="模块树状图" />
+<div class="rs-fig-cap">图 2 · 基因聚类树与模块分配（下方色块为模块颜色，与 APP 中所选一致）。</div>
+:::
+
+---
+
+## 第 5 步 · 模块-性状关联 {.rs-step}
+
+::: {.rs-step-head}
+<div class="rs-badge bg-purple">5</div>
+<h2>模块-性状关联 <span class="rs-en">Module-trait</span></h2>
+:::
+
+::: {.rs-say}
+<div class="rs-say-title">这次说明了什么</div>
+我们把每个模块的「代表基因」（模块特征基因 ME）与性状做相关分析。上方的数字是相关系数、括号里是 p 值。**颜色越红表示模块与性状正相关、越蓝表示负相关**，颜色越深关系越强。
+:::
+
+::: {.rs-fig}
+<img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='800' height='300'><rect width='800' height='300' fill='%23f1f5f9'/><text x='400' y='150' text-anchor='middle' font-size='18' fill='%2394a3b8'>mtrait_heatmap.png · 模块-性状相关热图</text></svg>" alt="模块性状热图" />
+<div class="rs-fig-cap">图 3 · 模块-性状相关热图（色块标签与 APP 中所选一致）。</div>
+:::
+
+::: {.rs-card}
+<h3>关键发现</h3>
+**turquoise 模块**与「drought」性状显著正相关（r = 0.62, p = 0.006），**brown 模块**显著负相关（r = -0.55, p = 0.017）。
+:::
+
+---
+
+## 第 6 步 · 模块深入与富集 {.rs-step}
+
+::: {.rs-step-head}
+<div class="rs-badge bg-green">6</div>
+<h2>模块深入与富集 <span class="rs-en">Module detail & enrichment</span></h2>
+:::
+
+::: {.rs-fig}
+<img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='800' height='280'><rect width='800' height='280' fill='%23f1f5f9'/><text x='400' y='140' text-anchor='middle' font-size='18' fill='%2394a3b8'>gsmm_turquoise.png · GS × MM 散点</text></svg>" alt="GS MM 散点" />
+<div class="rs-fig-cap">图 4 · turquoise 模块的基因显著性（GS）× 模块身份（MM）散点。</div>
+:::
+
+::: {.rs-card}
+<h3>GO / KEGG 富集</h3>
+**turquoise 模块**显著富集于「response to water deprivation」「abscisic acid-activated signaling pathway」等通路（p.adjust < 0.05）。
+:::
+
+---
+
+## 第 7 步 · Hub 基因 {.rs-step}
+
+::: {.rs-step-head}
+<div class="rs-badge bg-teal">7</div>
+<h2>Hub 基因 <span class="rs-en">Hub genes</span></h2>
+:::
+
+::: {.rs-say}
+<div class="rs-say-title">怎么定义的</div>
+在目标模块中，同时满足「与模块身份高度相关（|kME| > 0.8）」和「与性状高度相关（|GS| > 0.5）」的基因，就是该模块的**核心基因（Hub）**。
+:::
+
+::: {.rs-card}
+| 基因 | kME | GS | 描述 |
+|------|-----|----|----|
+| RD29A | 0.93 | 0.81 | drought-responsive |
+| DREB2A | 0.91 | 0.79 | transcription factor |
+| … | … | … | … |
+
+*表 3 · turquoise 模块 Hub 基因（完整列表见 `result/06_hub/hub_genes.tsv`）。*
+:::
+
+---
+
+::: {.rs-footer}
+由 rsWGCNA v0.5.0 自动生成 · 报告内容与 `result/` 目录下的图表和数据一致
+:::

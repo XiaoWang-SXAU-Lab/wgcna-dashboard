@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.19">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>rsWGCNA Analysis report</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+</style>
+
+
+<script src="report_files/libs/clipboard/clipboard.min.js"></script>
+<script src="report_files/libs/quarto-html/tabby.min.js"></script>
+<script src="report_files/libs/quarto-html/popper.min.js"></script>
+<script src="report_files/libs/quarto-html/tippy.umd.min.js"></script>
+<link href="report_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="report_files/libs/quarto-html/light-border.css" rel="stylesheet">
+<link href="report_files/libs/quarto-html/quarto-html-640605f58ae58ee79329c070719e555b.min.css" rel="stylesheet" append-hash="true" data-mode="light">
+<link href="report_files/libs/quarto-html/quarto-syntax-highlighting-bf27225e3a48a9273f3daa8f8e829971.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+
+<link rel="stylesheet" href="../../assets/design.css">
+</head>
+
+<body>
+
+
+<header id="title-block-header">
+<h1 class="title">rsWGCNA Analysis report · Design preview</h1>
+
+</header>
+
+
+<aside class="rail"><a class="brand" href="../../index.html">rs<em>WGCNA</em><span style="font-size:10px;letter-spacing:0;margin-left:8px">REPORT</span></a><div class="eyebrow">Analysis record / 2026</div><nav><a href="#step-1" class="active"><span>01</span>Inputs &amp; backgrounds</a><a href="#step-2" class=""><span>02</span>Final parameters</a><a href="#step-3" class=""><span>03</span>Filtering &amp; sample QC</a><a href="#step-4" class=""><span>04</span>Soft threshold</a><a href="#step-5" class=""><span>05</span>Network &amp; modules</a><a href="#step-6" class=""><span>06</span>Module–trait</a><a href="#step-7" class=""><span>07</span>Detail &amp; enrichment</a><a href="#step-8" class=""><span>08</span>Hub genes</a><a href="#step-9" class=""><span>09</span>Files &amp; reproducibility</a></nav><div class="rail-bottom">Design preview · synthetic data<a href="https://github.com/XiaoWang-SXAU-Lab/xiaowang-sxau-lab.github.io" target="_blank" rel="noopener">Xiao Wang Lab ↗</a><a href="../../DIRECTORY-STRUCTURE.md">Output directory specification</a></div></aside><main class="report"><div class="topline"><div class="eyebrow">Weighted gene co-expression network analysis</div><div class="actions"><a href="../../zh/report/index.html">中文</a><button data-print="">Print / Save PDF</button></div></div><header class="hero"><div class="eyebrow">Arabidopsis · drought response · example project</div><h1>From expression<br>to connection.</h1><p>A traceable analysis record. Follow the inputs, filtering decisions and module analysis, with a practical guide to reading every figure.</p><div class="project-line">Arabidopsis_drought · 2026-10-27 14:30 +08:00 · rsWGCNA v0.5.0</div><div class="metrics"><div class="metric"><strong>18 → 17</strong><small>Input / retained samples</small></div><div class="metric"><strong>8,000</strong><small>Genes entering network</small></div><div class="metric"><strong>4</strong><small>Modules, excluding grey</small></div><div class="metric"><strong>30</strong><small>Displayed hub candidates</small></div></div></header><div class="notice">Style review sample: all numbers, figures, filenames and results are synthetic examples, not an analysis of existing data. The downloadable matrix contains only 8 rows to demonstrate the download experience. Production reports will use actual job results.</div><section class="step" id="step-1"><div class="step-head"><span class="step-no">01</span><h2>Inputs &amp; backgrounds</h2></div><p class="step-intro">Start with the source data. All sample metadata are shown, along with the scope of annotation and background statistics.</p><div class="table-wrap">
+<table class="caption-top">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">Input</th>
+<th data-quarto-table-cell-role="th">Filename (example)</th>
+<th data-quarto-table-cell-role="th">Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Expression matrix</td>
+<td>counts.tsv</td>
+<td>18 samples × 24,000 genes; raw read counts</td>
+</tr>
+<tr class="even">
+<td>Sample metadata</td>
+<td>sample_info.tsv</td>
+<td>18 rows; sample ID, genotype, condition, replicate</td>
+</tr>
+<tr class="odd">
+<td>Trait source</td>
+<td>sample_info.tsv → condition</td>
+<td>Selected trait column</td>
+</tr>
+<tr class="even">
+<td>Gene annotation</td>
+<td>annotation.tsv</td>
+<td>24,000 unique genes; 21,300 with descriptions</td>
+</tr>
+<tr class="odd">
+<td>GO</td>
+<td>gene2go.tsv</td>
+<td>17,920 unique genes; 4,260 unique GO terms; 52,100 distinct mappings</td>
+</tr>
+<tr class="even">
+<td>KEGG</td>
+<td>gene2kegg.tsv</td>
+<td>5,842 unique genes; 137 pathways; 12,640 distinct mappings</td>
+</tr>
+</tbody>
+</table>
+</div><h3>Complete sample metadata <span class="tag">18 rows</span></h3><input class="search" data-search="" aria-label="Search samples" placeholder="Search by sample ID, condition or genotype…"><div class="table-wrap">
+<table class="caption-top">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">Sample ID</th>
+<th data-quarto-table-cell-role="th">Genotype</th>
+<th data-quarto-table-cell-role="th">Condition</th>
+<th data-quarto-table-cell-role="th">Replicate</th>
+<th data-quarto-table-cell-role="th">Analysis status</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd" data-sample="">
+<td>WT_Control_r1</td>
+<td>WT</td>
+<td>Control</td>
+<td>1</td>
+<td>Retained</td>
+</tr>
+<tr class="even" data-sample="">
+<td>WT_Control_r2</td>
+<td>WT</td>
+<td>Control</td>
+<td>2</td>
+<td>Retained</td>
+</tr>
+<tr class="odd" data-sample="">
+<td>WT_Control_r3</td>
+<td>WT</td>
+<td>Control</td>
+<td>3</td>
+<td>Retained</td>
+</tr>
+<tr class="even" data-sample="">
+<td>Mut_Control_r1</td>
+<td>Mut</td>
+<td>Control</td>
+<td>1</td>
+<td>Retained</td>
+</tr>
+<tr class="odd" data-sample="">
+<td>Mut_Control_r2</td>
+<td>Mut</td>
+<td>Control</td>
+<td>2</td>
+<td>Retained</td>
+</tr>
+<tr class="even" data-sample="">
+<td>Mut_Control_r3</td>
+<td>Mut</td>
+<td>Control</td>
+<td>3</td>
+<td>Retained</td>
+</tr>
+<tr class="odd" data-sample="">
+<td>WT_Drought_r1</td>
+<td>WT</td>
+<td>Drought</td>
+<td>1</td>
+<td>Retained</td>
+</tr>
+<tr class="even" data-sample="">
+<td>WT_Drought_r2</td>
+<td>WT</td>
+<td>Drought</td>
+<td>2</td>
+<td>Retained</td>
+</tr>
+<tr class="odd" data-sample="">
+<td>WT_Drought_r3</td>
+<td>WT</td>
+<td>Drought</td>
+<td>3</td>
+<td>Retained</td>
+</tr>
+<tr class="even" data-sample="">
+<td>Mut_Drought_r1</td>
+<td>Mut</td>
+<td>Drought</td>
+<td>1</td>
+<td>Retained</td>
+</tr>
+<tr class="odd" data-sample="">
+<td>Mut_Drought_r2</td>
+<td>Mut</td>
+<td>Drought</td>
+<td>2</td>
+<td>Retained</td>
+</tr>
+<tr class="removed even" data-sample="">
+<td>Mut_Drought_r3</td>
+<td>Mut</td>
+<td>Drought</td>
+<td>3</td>
+<td>Excluded</td>
+</tr>
+<tr class="odd" data-sample="">
+<td>WT_Recovery_r1</td>
+<td>WT</td>
+<td>Recovery</td>
+<td>1</td>
+<td>Retained</td>
+</tr>
+<tr class="even" data-sample="">
+<td>WT_Recovery_r2</td>
+<td>WT</td>
+<td>Recovery</td>
+<td>2</td>
+<td>Retained</td>
+</tr>
+<tr class="odd" data-sample="">
+<td>WT_Recovery_r3</td>
+<td>WT</td>
+<td>Recovery</td>
+<td>3</td>
+<td>Retained</td>
+</tr>
+<tr class="even" data-sample="">
+<td>Mut_Recovery_r1</td>
+<td>Mut</td>
+<td>Recovery</td>
+<td>1</td>
+<td>Retained</td>
+</tr>
+<tr class="odd" data-sample="">
+<td>Mut_Recovery_r2</td>
+<td>Mut</td>
+<td>Recovery</td>
+<td>2</td>
+<td>Retained</td>
+</tr>
+<tr class="even" data-sample="">
+<td>Mut_Recovery_r3</td>
+<td>Mut</td>
+<td>Recovery</td>
+<td>3</td>
+<td>Retained</td>
+</tr>
+</tbody>
+</table>
+</div><div class="caption">Table 1 · All 18 input rows are present. The highlighted row indicates a sample manually excluded later. IDs are preserved as uploaded. <a href="../result/01_input/sample_info.tsv" download="">Download metadata</a></div><div class="reading">Count unique genes, unique terms and mapping rows separately. File coverage is different from the effective enrichment universe: production reports must also list the intersection with the analyzed gene set, unmatched IDs and duplicate mappings.</div></section><section class="step" id="step-2"><div class="step-head"><span class="step-no">02</span><h2>Final parameters</h2></div><p class="step-intro">Record the final parameters used by successful runs. The narrative explains decisions; the complete parameter tables support reproducibility.</p><details class="parameter" open=""><summary>Filtering</summary><div class="table-wrap">
+<table class="caption-top">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">Parameter</th>
+<th data-quarto-table-cell-role="th">Final value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>normalize_method</td>
+<td>"raw"</td>
+</tr>
+<tr class="even">
+<td>sample_percentage</td>
+<td>0.5</td>
+</tr>
+<tr class="odd">
+<td>cutoff</td>
+<td>10</td>
+</tr>
+<tr class="even">
+<td>filter_method</td>
+<td>"mad"</td>
+</tr>
+<tr class="odd">
+<td>n_keep</td>
+<td>8000</td>
+</tr>
+<tr class="removed even">
+<td>exclude_samples</td>
+<td>["Mut_Drought_r3"]</td>
+</tr>
+</tbody>
+</table>
+</div></details><details class="parameter" open=""><summary>Soft-threshold search</summary><div class="table-wrap">
+<table class="caption-top">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">Parameter</th>
+<th data-quarto-table-cell-role="th">Final value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>network_type</td>
+<td>"signed"</td>
+</tr>
+<tr class="even">
+<td>rsquared_cut</td>
+<td>0.85</td>
+</tr>
+</tbody>
+</table>
+</div></details><details class="parameter" open=""><summary>Network construction</summary><div class="table-wrap">
+<table class="caption-top">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">Parameter</th>
+<th data-quarto-table-cell-role="th">Final value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>power</td>
+<td>8</td>
+</tr>
+<tr class="even">
+<td>network_type</td>
+<td>"signed"</td>
+</tr>
+<tr class="odd">
+<td>tom_type</td>
+<td>"signed"</td>
+</tr>
+<tr class="even">
+<td>tom_denom</td>
+<td>"min"</td>
+</tr>
+<tr class="odd">
+<td>min_module_size</td>
+<td>30</td>
+</tr>
+<tr class="even">
+<td>merge_cut_height</td>
+<td>0.25</td>
+</tr>
+<tr class="odd">
+<td>deep_split</td>
+<td>2</td>
+</tr>
+<tr class="even">
+<td>detect_cut_height</td>
+<td>0.995</td>
+</tr>
+</tbody>
+</table>
+</div></details><details class="parameter" open=""><summary>Module–trait</summary><div class="table-wrap">
+<table class="caption-top">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">Parameter</th>
+<th data-quarto-table-cell-role="th">Final value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>trait_source</td>
+<td>"sample_info"</td>
+</tr>
+<tr class="even">
+<td>trait_column</td>
+<td>"condition"</td>
+</tr>
+</tbody>
+</table>
+</div></details><details class="parameter" open=""><summary>Module detail</summary><div class="table-wrap">
+<table class="caption-top">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">Parameter</th>
+<th data-quarto-table-cell-role="th">Final value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>select_module</td>
+<td>"turquoise"</td>
+</tr>
+<tr class="even">
+<td>select_trait</td>
+<td>"Drought"</td>
+</tr>
+</tbody>
+</table>
+</div></details><details class="parameter" open=""><summary>Hub selection &amp; network</summary><div class="table-wrap">
+<table class="caption-top">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">Parameter</th>
+<th data-quarto-table-cell-role="th">Final value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>select_module</td>
+<td>"turquoise"</td>
+</tr>
+<tr class="even">
+<td>select_trait</td>
+<td>"Drought"</td>
+</tr>
+<tr class="odd">
+<td>kme_cutoff</td>
+<td>0.8</td>
+</tr>
+<tr class="even">
+<td>gs_cutoff</td>
+<td>0.5</td>
+</tr>
+<tr class="odd">
+<td>weight_threshold</td>
+<td>0.02</td>
+</tr>
+<tr class="even">
+<td>power</td>
+<td>8</td>
+</tr>
+<tr class="odd">
+<td>top_n_neighbors</td>
+<td>20</td>
+</tr>
+<tr class="even">
+<td>max_hubs</td>
+<td>30</td>
+</tr>
+</tbody>
+</table>
+</div></details><div class="download-row"><a class="button" href="../result/00_provenance/parameters.final.json" download="">Download all parameters</a><span class="muted">Example parameters; production export reads parameters used by each run, rather than unexecuted edits in the UI.</span></div></section><section class="step" id="step-3"><div class="step-head"><span class="step-no">03</span><h2>Filtering &amp; sample QC</h2></div><p class="step-intro">Separate sample exclusion, low-expression filtering and variable-gene selection. These are distinct decisions.</p><div class="story"><p>The example starts with <strong>18 samples × 24,000 genes</strong>. The user manually excluded <strong>Mut_Drought_r3</strong>, leaving 17 samples. Raw read counts are used without transformation.</p></div><div class="story"><p>A gene is removed for low expression if its read count is below 10 in <strong>more than 50% of retained samples</strong>. With 17 samples, this means <strong>at least 9 samples</strong> below 10. This step removes 7,600 genes and leaves 16,400.</p></div><div class="story"><p>Next, 400 genes with no variation across samples are removed. The remaining genes are ranked by <strong>median absolute deviation (MAD)</strong>, which describes how much expression varies between samples. The top <strong>8,000 genes</strong> enter network analysis; another 8,000 are not selected. Genes outside the top set may still be biologically meaningful.</p></div><div class="flow"><div><small>Input</small><b>24,000</b><small>18 samples</small></div><span>→</span><div><small>After low-expression filter</small><b>16,400</b><small>17 samples</small></div><span>→</span><div><small>After constant-gene filter</small><b>16,000</b><small>MAD &gt; 0</small></div><span>→</span><div><small>Network input</small><b>8,000</b><small>Top 8,000 by MAD</small></div></div><div class="table-wrap">
+<table class="caption-top">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">Excluded sample</th>
+<th data-quarto-table-cell-role="th">Action</th>
+<th data-quarto-table-cell-role="th">Reason</th>
+</tr>
+</thead>
+<tbody>
+<tr class="removed odd">
+<td>Mut_Drought_r3</td>
+<td>Manually excluded</td>
+<td>Not provided; no inferred quality issue</td>
+</tr>
+</tbody>
+</table>
+</div><div class="download-row"><a class="button primary" href="../result/02_filter/expression_filtered.preview.tsv" download="">Download matrix sample · 8 rows</a><a href="../result/02_filter/removed_samples.tsv" download="">Download exclusion log</a></div><p class="caption">Production export: result/02_filter/expression_filtered.tsv, containing the complete 8,000-gene × 17-sample matrix. The 8-row preview demonstrates the link only.</p><figure><img src="../result/02_filter/sample-tree.svg" alt="Sample dendrogram before exclusion; annotation rows: condition, genotype."><figcaption><span><b>Figure 1.</b> Sample dendrogram before exclusion; annotation rows: condition, genotype.</span><a href="../result/02_filter/sample-tree.svg" download="">Download SVG ↗</a></figcaption><div class="reading">How to read: nearby branches indicate more similar expression profiles. Annotation rows follow the selected order: condition, genotype, using the app default category palette. The red label marks a manual exclusion. This layout illustration cannot identify actual outliers. Production reports retain both before-exclusion and final trees, reusing the app leaf order, annotation rows, labels and colors.</div></figure></section><section class="step" id="step-4"><div class="step-head"><span class="step-no">04</span><h2>Soft threshold</h2></div><p class="step-intro">Inspect candidate values, then record the chosen power and the reason for choosing it.</p><div class="story"><p>This example uses a signed network with <strong>β = 8</strong>, the first illustrative candidate to reach R² ≥ 0.85. Power strengthens the contrast between stronger and weaker correlations. The production report also includes mean connectivity and scale-free diagnostic plots, and states whether power was recommended or manually chosen.</p></div><figure><img src="../result/03_soft_threshold/soft-threshold.svg" alt="Candidate powers and fit index (synthetic curve)."><figcaption><span><b>Figure 2.</b> Candidate powers and fit index (synthetic curve).</span><a href="../result/03_soft_threshold/soft-threshold.svg" download="">Download SVG ↗</a></figcaption><div class="reading">How to read: candidate power is on the x-axis, fit index on the y-axis. The dashed line is the target; the brown point is the chosen power. Reaching the target alone does not establish network reliability.</div></figure></section><section class="step" id="step-5"><div class="step-head"><span class="step-no">05</span><h2>Network &amp; modules</h2></div><p class="step-intro">Group genes with similar expression patterns and record unassigned genes.</p><div class="story"><p>Genes are clustered using topological overlap in a signed network. Minimum module size is 30; the module-merging distance threshold is 0.25. The example contains <strong>4 modules</strong> and <strong>200 unassigned grey genes</strong>; grey is excluded from the module count.</p></div><figure><img src="../result/04_network/modules.svg" alt="Gene clustering and module assignments (illustration)."><figcaption><span><b>Figure 3.</b> Gene clustering and module assignments (illustration).</span><a href="../result/04_network/modules.svg" download="">Download SVG ↗</a></figcaption><div class="reading">How to read: genes with the same assignment color belong to one module. Colors act as module names. Production export preserves the app pre/post-merge rows and their labels.</div></figure><div class="table-wrap">
+<table class="caption-top">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">Module</th>
+<th data-quarto-table-cell-role="th">Gene count</th>
+<th data-quarto-table-cell-role="th">Share of network input</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><span style="color:#368f9b">●</span> turquoise</td>
+<td>2,700</td>
+<td>33.75%</td>
+</tr>
+<tr class="even">
+<td><span style="color:#5373ae">●</span> blue</td>
+<td>2,200</td>
+<td>27.50%</td>
+</tr>
+<tr class="odd">
+<td><span style="color:#ae7865">●</span> brown</td>
+<td>1,800</td>
+<td>22.50%</td>
+</tr>
+<tr class="even">
+<td><span style="color:#8b9366">●</span> green</td>
+<td>1,100</td>
+<td>13.75%</td>
+</tr>
+<tr class="odd">
+<td><span style="color:#a1a6a3">●</span> grey</td>
+<td>200</td>
+<td>2.50%</td>
+</tr>
+</tbody>
+</table>
+</div></section><section class="step" id="step-6"><div class="step-head"><span class="step-no">06</span><h2>Module–trait</h2></div><p class="step-intro">Summarize module expression using its eigengene, then compare it with selected traits.</p><div class="story"><p>A module eigengene (ME) summarizes the main pattern of module expression; it is not a single representative gene. The heatmap shows ME–trait correlation. Actual results must also display p-values, the statistical test and whether multiple comparisons were adjusted.</p></div><figure><img src="../result/05_module_trait/module-trait.svg" alt="Module–trait heatmap; illustrative layout and color scale."><figcaption><span><b>Figure 4.</b> Module–trait heatmap; illustrative layout and color scale.</span><a href="../result/05_module_trait/module-trait.svg" download="">Download SVG ↗</a></figcaption><div class="reading">How to read: red indicates positive correlation and blue negative correlation; deeper colors indicate larger absolute correlations. Correlation does not imply causation. This illustration has no actual p-values and makes no significance claims.</div></figure></section><section class="step" id="step-7"><div class="step-head"><span class="step-no">07</span><h2>Detail &amp; enrichment</h2></div><p class="step-intro">Inspect gene-level patterns and functional context for the selected module and trait.</p><div class="download-row"><span class="pill">Selected module: turquoise</span><span class="pill">Selected trait: Drought</span></div><figure><img src="../result/06_module_detail/turquoise/gs-mm.svg" alt="GS versus module membership (synthetic points)."><figcaption><span><b>Figure 5.</b> GS versus module membership (synthetic points).</span><a href="../result/06_module_detail/turquoise/gs-mm.svg" download="">Download SVG ↗</a></figcaption><div class="reading">How to read: each point is a gene. Larger |kME| indicates stronger alignment with the module; larger |GS| indicates stronger association with the trait. Dashed lines illustrate selection boundaries. Actual figures follow the app correlation direction, thresholds and axes.</div></figure><figure><img src="../result/06_module_detail/turquoise/enrichment.svg" alt="GO enrichment dot plot (synthetic terms and values)."><figcaption><span><b>Figure 6.</b> GO enrichment dot plot (synthetic terms and values).</span><a href="../result/06_module_detail/turquoise/enrichment.svg" download="">Download SVG ↗</a></figcaption><div class="reading">How to read: each row is a functional term; horizontal position indicates the selected-gene ratio. Actual dot size, color scale, adjusted p-values and GO/KEGG backgrounds follow app settings. This illustration makes no enrichment claims. Missing backgrounds, unrun analyses and no significant terms must be reported as distinct states.</div></figure></section><section class="step" id="step-8"><div class="step-head"><span class="step-no">08</span><h2>Hub genes</h2></div><p class="step-intro">Distinguish candidate selection from the displayed network size.</p><div class="story"><p>For turquoise and Drought, this example selects candidates using <strong>|kME| ≥ 0.8 and |GS| ≥ 0.5</strong>, yielding 42 illustrative candidates. The network displays at most 30 hubs, up to 20 neighbors per hub and edges with weight at least 0.02. Production reports must reflect the engine comparison operators, ranking and limits, and export all candidates as well as displayed nodes and edges.</p></div><figure><img src="../result/07_hub/turquoise/Drought/network.svg" alt="Network layout illustration; not actual module connections."><figcaption><span><b>Figure 7.</b> Network layout illustration; not actual module connections.</span><a href="../result/07_hub/turquoise/Drought/network.svg" download="">Download SVG ↗</a></figcaption><div class="reading">How to read: nodes represent genes; edges represent co-expression links passing the threshold. This figure demonstrates visual style only. Production export uses the current app nodes, edges, positions, labels, sizes and colors to prevent random rearrangement.</div></figure></section><section class="step" id="step-9"><div class="step-head"><span class="step-no">09</span><h2>Files &amp; reproducibility</h2></div><p class="step-intro">Keep figures, data and analysis settings within reach.</p><div class="table-wrap">
+<table class="caption-top">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">Contents</th>
+<th data-quarto-table-cell-role="th">Path</th>
+<th data-quarto-table-cell-role="th">Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>HTML</td>
+<td>report/index.html</td>
+<td>Report entry in the chosen language</td>
+</tr>
+<tr class="even">
+<td>Quarto</td>
+<td>report/report.qmd</td>
+<td>Editable, re-renderable report source</td>
+</tr>
+<tr class="odd">
+<td>Figures &amp; tables</td>
+<td>result/01_input/ … 07_hub/</td>
+<td>Organized by report step</td>
+</tr>
+<tr class="even">
+<td>Reading guide</td>
+<td>result/README.txt</td>
+<td>File index, columns and interpretation</td>
+</tr>
+<tr class="odd">
+<td>Analysis provenance</td>
+<td>result/00_provenance/</td>
+<td>Final parameters, view state, environment and checksums</td>
+</tr>
+</tbody>
+</table>
+</div><div class="download-row"><a class="button" href="../result/README.txt" download="">Download reading guide</a><a href="../result/00_provenance/view-state.json" download="">Example view snapshot</a><a href="report.qmd" download="">Download Quarto source</a></div><div class="reading">This preview uses local SVG, CSS and JavaScript, with no external fonts or chart CDN. Copy the complete project folder to open report/index.html offline. Production export follows the current app language, generating separate Chinese or English reports.</div></section><footer class="footer"><span>© 2026 Xiao Wang Lab · rsWGCNA</span><span><a href="https://github.com/XiaoWang-SXAU-Lab/xiaowang-sxau-lab.github.io" target="_blank" rel="noopener">Lab homepage (GitHub) ↗</a> · Design preview v2</span></footer></main>
+
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const tabsets =  window.document.querySelectorAll(".panel-tabset-tabby")
+    tabsets.forEach(function(tabset) {
+      const tabby = new Tabby('#' + tabset.id);
+    });
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'light-border',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<script src="../../assets/design.js"></script>
+
+
+
+
+</body></html>

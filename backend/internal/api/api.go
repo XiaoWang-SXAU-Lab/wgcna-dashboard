@@ -44,7 +44,6 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/meta/go-version", h.goVersion)
 	mux.HandleFunc("POST /api/meta/go-update", h.goUpdate)
 	mux.HandleFunc("POST /api/jobs/{id}/steps/{step}/run", h.runStep)
-	mux.HandleFunc("POST /api/jobs/{id}/run-all", h.runAll)
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", h.cancel)
 	mux.HandleFunc("GET /api/jobs/{id}/results/{step}", h.getResult)
 	mux.HandleFunc("GET /api/jobs/{id}/plots/dendrogram", h.plotDendrogram)
@@ -57,6 +56,16 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/jobs/{id}/plots/enrich", h.plotEnrich)
 	mux.HandleFunc("GET /api/jobs/{id}/plots/sample-tree", h.plotSampleTree)
 	mux.HandleFunc("GET /api/jobs/{id}/plots/enrich-heatmap", h.plotEnrichHeatmap)
+	mux.HandleFunc("GET /api/jobs/{id}/overview", h.overview)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/overview", h.plotOverview)
+	mux.HandleFunc("POST /api/jobs/{id}/overview/cluster", h.runCluster)
+	mux.HandleFunc("GET /api/jobs/{id}/overview/cluster", h.getCluster)
+	mux.HandleFunc("POST /api/jobs/{id}/overview/network", h.runOverviewNetwork)
+	mux.HandleFunc("GET /api/jobs/{id}/overview/network", h.getOverviewNetwork)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/overview-network", h.plotOverviewNetwork)
+	mux.HandleFunc("GET /api/jobs/{id}/overview/export.xlsx", h.exportOverviewXlsx)
+	mux.HandleFunc("POST /api/jobs/{id}/report/export", h.exportReport)
+	mux.HandleFunc("GET /api/jobs/{id}/report/status", h.reportStatusHandler)
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
@@ -275,6 +284,17 @@ func (h *Handler) plotEnrich(w http.ResponseWriter, r *http.Request) {
 	var results []enrich.Result
 	if kind == "go" {
 		results, err = enrich.GOEnrich(jobDir, genes, fdr, top)
+		// Apply the same ontology filter (MF/CC/BP) used on-screen so the
+		// exported plot matches the ECharts display.
+		if ont := r.URL.Query().Get("ontology"); ont != "" && ont != "ALL" {
+			kept := results[:0]
+			for _, res := range results {
+				if res.Ontology == ont {
+					kept = append(kept, res)
+				}
+			}
+			results = kept
+		}
 	} else {
 		results, err = enrich.KEGGEnrich(jobDir, genes, fdr, top)
 	}
@@ -468,10 +488,20 @@ func (h *Handler) plotEnrichHeatmap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	params := plot.PlotParams{
-		Width:    qfloat(r, "width"),
-		Height:   qfloat(r, "height"),
-		Dpi:      qfloat(r, "dpi"),
-		BaseSize: qfloat(r, "base_size"),
+		Width:        qfloat(r, "width"),
+		Height:       qfloat(r, "height"),
+		Dpi:          qfloat(r, "dpi"),
+		BaseSize:     qfloat(r, "base_size"),
+		Low:          r.URL.Query().Get("low"),
+		Mid:          r.URL.Query().Get("mid"),
+		High:         r.URL.Query().Get("high"),
+		Legend:       r.URL.Query().Get("legend"),
+		ClusterRows:  r.URL.Query().Get("cluster_rows"),
+		ClusterCols:  r.URL.Query().Get("cluster_cols"),
+		ShowRowNames: r.URL.Query().Get("show_rownames"),
+		ShowColNames: r.URL.Query().Get("show_colnames"),
+		Border:       r.URL.Query().Get("border"),
+		CellFontSize: qfloat(r, "cell_fontsize"),
 	}
 	out, ctype, err := plot.RenderEnrichHeatmap(data, mode, params)
 	if err != nil {
@@ -581,13 +611,7 @@ func (h *Handler) runStep(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started", "step": step})
 }
 
-// runAll runs the whole pipeline (one-step mode) asynchronously.
-func (h *Handler) runAll(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	go h.jobs.RunAll(id)
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
-}
-
+// cancel cancels the currently-running step, if any.
 func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 	h.jobs.Cancel(r.PathValue("id"))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelling"})
@@ -718,13 +742,19 @@ func (h *Handler) plotMtrait(w http.ResponseWriter, r *http.Request) {
 		mode = "png"
 	}
 	params := plot.PlotParams{
-		Low:    r.URL.Query().Get("low"),
-		Mid:    r.URL.Query().Get("mid"),
-		High:   r.URL.Query().Get("high"),
-		Legend: r.URL.Query().Get("legend"),
-		Width:  qfloat(r, "width"),
-		Height: qfloat(r, "height"),
-		Dpi:    qfloat(r, "dpi"),
+		Low:          r.URL.Query().Get("low"),
+		Mid:          r.URL.Query().Get("mid"),
+		High:         r.URL.Query().Get("high"),
+		Legend:       r.URL.Query().Get("legend"),
+		Width:        qfloat(r, "width"),
+		Height:       qfloat(r, "height"),
+		Dpi:          qfloat(r, "dpi"),
+		ClusterRows:  r.URL.Query().Get("cluster_rows"),
+		ClusterCols:  r.URL.Query().Get("cluster_cols"),
+		ShowRowNames: r.URL.Query().Get("show_rownames"),
+		ShowColNames: r.URL.Query().Get("show_colnames"),
+		Border:       r.URL.Query().Get("border"),
+		CellFontSize: qfloat(r, "cell_fontsize"),
 	}
 	jsonPath := filepath.Join(h.jobs.Dir(), id, "step4_mtrait.json")
 	if _, err := os.Stat(jsonPath); err != nil {
@@ -782,13 +812,19 @@ func (h *Handler) plotGeneHeatmap(w http.ResponseWriter, r *http.Request) {
 		mode = "png"
 	}
 	params := plot.PlotParams{
-		Low:    r.URL.Query().Get("low"),
-		Mid:    r.URL.Query().Get("mid"),
-		High:   r.URL.Query().Get("high"),
-		Legend: r.URL.Query().Get("legend"),
-		Width:  qfloat(r, "width"),
-		Height: qfloat(r, "height"),
-		Dpi:    qfloat(r, "dpi"),
+		Low:          r.URL.Query().Get("low"),
+		Mid:          r.URL.Query().Get("mid"),
+		High:         r.URL.Query().Get("high"),
+		Legend:       r.URL.Query().Get("legend"),
+		Width:        qfloat(r, "width"),
+		Height:       qfloat(r, "height"),
+		Dpi:          qfloat(r, "dpi"),
+		ClusterRows:  r.URL.Query().Get("cluster_rows"),
+		ClusterCols:  r.URL.Query().Get("cluster_cols"),
+		ShowRowNames: r.URL.Query().Get("show_rownames"),
+		ShowColNames: r.URL.Query().Get("show_colnames"),
+		Border:       r.URL.Query().Get("border"),
+		CellFontSize: qfloat(r, "cell_fontsize"),
 	}
 	jsonPath := filepath.Join(h.jobs.Dir(), id, "step5_detail.json")
 	if _, err := os.Stat(jsonPath); err != nil {
@@ -814,13 +850,19 @@ func (h *Handler) plotEigengene(w http.ResponseWriter, r *http.Request) {
 		mode = "png"
 	}
 	params := plot.PlotParams{
-		Low:    r.URL.Query().Get("low"),
-		Mid:    r.URL.Query().Get("mid"),
-		High:   r.URL.Query().Get("high"),
-		Legend: r.URL.Query().Get("legend"),
-		Width:  qfloat(r, "width"),
-		Height: qfloat(r, "height"),
-		Dpi:    qfloat(r, "dpi"),
+		Low:          r.URL.Query().Get("low"),
+		Mid:          r.URL.Query().Get("mid"),
+		High:         r.URL.Query().Get("high"),
+		Legend:       r.URL.Query().Get("legend"),
+		Width:        qfloat(r, "width"),
+		Height:       qfloat(r, "height"),
+		Dpi:          qfloat(r, "dpi"),
+		ClusterRows:  r.URL.Query().Get("cluster_rows"),
+		ClusterCols:  r.URL.Query().Get("cluster_cols"),
+		ShowRowNames: r.URL.Query().Get("show_rownames"),
+		ShowColNames: r.URL.Query().Get("show_colnames"),
+		Border:       r.URL.Query().Get("border"),
+		CellFontSize: qfloat(r, "cell_fontsize"),
 	}
 	jsonPath := filepath.Join(h.jobs.Dir(), id, "step4_mtrait.json")
 	if _, err := os.Stat(jsonPath); err != nil {

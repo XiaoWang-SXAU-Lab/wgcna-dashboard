@@ -65,13 +65,13 @@ watch(() => messages.value.map(m => m.content).join(''), async () => {
 const provider = ref('deepseek')
 const apiKey = ref('')
 
-const PROVIDERS = [
+const PROVIDERS = computed(() => [
   { id: 'deepseek', name: 'DeepSeek' },
   { id: 'openai', name: 'OpenAI' },
   { id: 'anthropic', name: 'Anthropic' },
-  { id: 'ollama', name: 'Ollama (本地)' },
-  { id: 'custom', name: '自定义' },
-]
+  { id: 'ollama', name: t('ai.providerOllama') },
+  { id: 'custom', name: t('ai.providerCustom') },
+])
 
 // --- 技能（skill）：在输入框输入 @ 或 / 触发下拉选择 ---
 interface Skill { id: string; prompt: string }

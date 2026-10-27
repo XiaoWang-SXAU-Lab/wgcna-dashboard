@@ -1,0 +1,44 @@
+{
+  "filter": {
+    "normalize_method": "raw",
+    "sample_percentage": 0.5,
+    "cutoff": 10,
+    "filter_method": "mad",
+    "n_keep": 8000,
+    "exclude_samples": [
+      "Mut_Drought_r3"
+    ]
+  },
+  "soft_threshold": {
+    "network_type": "signed",
+    "rsquared_cut": 0.85
+  },
+  "network": {
+    "power": 8,
+    "network_type": "signed",
+    "tom_type": "signed",
+    "tom_denom": "min",
+    "min_module_size": 30,
+    "merge_cut_height": 0.25,
+    "deep_split": 2,
+    "detect_cut_height": 0.995
+  },
+  "module_trait": {
+    "trait_source": "sample_info",
+    "trait_column": "condition"
+  },
+  "module_detail": {
+    "select_module": "turquoise",
+    "select_trait": "Drought"
+  },
+  "hub": {
+    "select_module": "turquoise",
+    "select_trait": "Drought",
+    "kme_cutoff": 0.8,
+    "gs_cutoff": 0.5,
+    "weight_threshold": 0.02,
+    "power": 8,
+    "top_n_neighbors": 20,
+    "max_hubs": 30
+  }
+}

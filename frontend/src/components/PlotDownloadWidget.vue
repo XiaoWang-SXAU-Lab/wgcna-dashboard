@@ -4,7 +4,7 @@ import { useWgcnaStore } from '../stores/wgcna'
 import { plotUrl } from '../api/client'
 import { t } from '../utils/i18n'
 
-const props = defineProps<{ kind: string; rsqCut?: number; show: boolean; attrs?: string; type?: string; module?: string; fdr?: number; top?: number }>()
+const props = defineProps<{ kind: string; rsqCut?: number; show: boolean; attrs?: string; type?: string; module?: string; fdr?: number; top?: number; ontology?: string }>()
 const emit = defineEmits<{ close: [] }>()
 const store = useWgcnaStore()
 
@@ -23,6 +23,13 @@ const lowColor = ref('#2166ac')
 const midColor = ref('#ffffff')
 const highColor = ref('#b2182b')
 const legend = ref<'right' | 'bottom' | 'none'>('right')
+const clusterRows = ref(true)
+const clusterCols = ref(false)
+const showRowNames = ref(true)
+const showColNames = ref(true)
+const cellFontSize = ref(12)
+const border = ref(false)
+const heatTitle = ref('')
 const width = ref(10)
 const height = ref(8)
 const dpi = ref(150)
@@ -75,6 +82,13 @@ function baseParams(mode: string): Record<string, string | number> {
     p.mid = preview.value.midColor
     p.high = preview.value.highColor
     p.legend = preview.value.legend
+    p.cluster_rows = clusterRows.value ? '1' : '0'
+    p.cluster_cols = clusterCols.value ? '1' : '0'
+    p.show_rownames = showRowNames.value ? '1' : '0'
+    p.show_colnames = showColNames.value ? '1' : '0'
+    p.cell_fontsize = cellFontSize.value
+    p.border = border.value ? '1' : '0'
+    if (heatTitle.value) p.title = heatTitle.value
   } else if (isSampleTree.value) {
     p.base_size = preview.value.baseSize
     p.line_color = preview.value.lineColor
@@ -93,6 +107,7 @@ function baseParams(mode: string): Record<string, string | number> {
     p.high = preview.value.enrichHigh
     p.base_size = preview.value.baseSize
     p.wrap = preview.value.wrap
+    if (props.ontology) p.ontology = props.ontology
     if (preview.value.enrichTitle) p.title = preview.value.enrichTitle
   } else if (!isSimple.value) {
     p.size = preview.value.size
@@ -150,6 +165,33 @@ function download() {
                   <option value="bottom">bottom</option>
                   <option value="none">none</option>
                 </select>
+              </div>
+              <div class="d-flex flex-wrap gap-3 small">
+                <label class="form-check form-check-inline mb-0">
+                  <input class="form-check-input" type="checkbox" v-model="clusterRows" />{{ t('plot.clusterRows') }}
+                </label>
+                <label class="form-check form-check-inline mb-0">
+                  <input class="form-check-input" type="checkbox" v-model="clusterCols" />{{ t('plot.clusterCols') }}
+                </label>
+                <label class="form-check form-check-inline mb-0">
+                  <input class="form-check-input" type="checkbox" v-model="showRowNames" />{{ t('plot.showRowNames') }}
+                </label>
+                <label class="form-check form-check-inline mb-0">
+                  <input class="form-check-input" type="checkbox" v-model="showColNames" />{{ t('plot.showColNames') }}
+                </label>
+                <label class="form-check form-check-inline mb-0">
+                  <input class="form-check-input" type="checkbox" v-model="border" />{{ t('plot.border') }}
+                </label>
+              </div>
+              <div class="row g-2">
+                <div class="col-6">
+                  <label class="form-label small mb-1">{{ t('plot.cellFontSize') }}</label>
+                  <input type="number" class="form-control form-control-sm" min="6" max="20" step="1" v-model.number="cellFontSize" />
+                </div>
+                <div class="col-6">
+                  <label class="form-label small mb-1">{{ t('plot.heatTitle') }}</label>
+                  <input type="text" class="form-control form-control-sm" v-model="heatTitle" />
+                </div>
               </div>
             </template>
             <template v-if="isSampleTree">

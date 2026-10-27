@@ -25,6 +25,13 @@ legend    <- get_arg("--legend", "right")   # right | bottom | none
 width     <- as.numeric(get_arg("--width", "7"))
 height    <- as.numeric(get_arg("--height", "6"))
 dpi       <- as.numeric(get_arg("--dpi", "150"))
+cluster_rows  <- as.integer(get_arg("--cluster-rows", "0"))
+cluster_cols  <- as.integer(get_arg("--cluster-cols", "0"))
+show_rownames <- as.integer(get_arg("--show-rownames", "1"))
+show_colnames <- as.integer(get_arg("--show-colnames", "1"))
+border        <- as.integer(get_arg("--border", "1"))
+cell_fontsize <- as.numeric(get_arg("--cell-fontsize", "12"))
+title         <- get_arg("--title", "Module-trait relationships")
 if (is.null(json_path) || is.null(out_path)) stop("usage: render_mtrait.R --json <f> --out <f>")
 
 d <- fromJSON(json_path, simplifyVector = TRUE)
@@ -61,11 +68,13 @@ ht <- Heatmap(
   cor,
   name = "correlation",
   col = col_fun,
-  cluster_rows = FALSE,
-  cluster_columns = FALSE,
+  cluster_rows = cluster_rows == 1,
+  cluster_columns = cluster_cols == 1,
+  show_row_names = show_rownames == 1,
+  show_column_names = show_colnames == 1,
   left_annotation = left_anno,
   cell_fun = function(j, i, x, y, width, height, fill) {
-    grid.text(text_mat[i, j], x, y, gp = gpar(fontsize = 12))
+    grid.text(text_mat[i, j], x, y, gp = gpar(fontsize = cell_fontsize))
   },
   row_names_side = "left",
   column_names_rot = 90,
@@ -77,8 +86,8 @@ ht <- Heatmap(
     title_position = if (legend == "bottom") "topcenter" else "lefttop-rot"
   ),
   show_heatmap_legend = show_legend,
-  rect_gp = gpar(col = "black", lwd = 1.2),
-  column_title = "Module-trait relationships",
+  rect_gp = gpar(col = if (border == 1) "black" else NA, lwd = 1.2),
+  column_title = title,
   column_title_gp = gpar(fontsize = 15, fontface = "bold")
 )
 

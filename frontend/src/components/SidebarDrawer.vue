@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { t } from '../utils/i18n'
 
 // 默认展开；sidebar 与结果页同处一个 flex 行，折叠/展开时结果页自适应伸缩。
 const collapsed = ref(false)
@@ -17,7 +18,7 @@ const collapsed = ref(false)
     </aside>
 
     <div class="sd-main flex-grow-1 position-relative" style="min-width: 0">
-      <button class="sd-tab" @click="collapsed = !collapsed" :title="collapsed ? '展开参数' : '折叠参数'">
+      <button class="sd-tab" @click="collapsed = !collapsed" :title="collapsed ? t('comp.expandParams') : t('comp.collapseParams')">
         <i :class="['bi', collapsed ? 'bi-chevron-right' : 'bi-chevron-left']"></i>
       </button>
       <div class="sd-inner">

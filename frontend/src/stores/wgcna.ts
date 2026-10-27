@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   createJob, getJob, getResult, getSampleInfo, loadDemoApi, runStep as runStepApi, uploadMeta, uploadTrait,
   type DetailResult, type FilterResult, type HubResult, type JobStatus, type ModulesResult, type MtaitResult, type SampleInfo, type SftResult,
@@ -21,6 +21,7 @@ export const useWgcnaStore = defineStore('wgcna', () => {
   const filterMethod = ref('mad')
   const samplePercentage = ref(0)
   const cutoff = ref(1)
+  const excludedSamples = ref<string[]>([])
   const rsquaredCut = ref(0.85)
   const sftNetworkType = ref('unsigned')
   const power = ref(6)
@@ -54,6 +55,19 @@ const maxHubs = ref(30)
 
   const created = computed(() => !!jobId.value)
 
+  // 当 trait/module 集合变化（如重跑 module_trait 换了 trait source）时，
+  // 若已选值不在新集合里，重置为第一个合法值，避免 module_detail/hub 用旧值。
+  watch([mtait, modules], () => {
+    const traits = mtait.value?.traits ?? []
+    if (selectedTrait.value && !traits.includes(selectedTrait.value)) {
+      selectedTrait.value = traits[0] ?? ''
+    }
+    const mods = Object.keys(modules.value?.module_sizes ?? {})
+    if (selectedModule.value && !mods.includes(selectedModule.value)) {
+      selectedModule.value = mods[0] ?? ''
+    }
+  })
+
   const sampleColumns = computed(() => Object.keys(sampleInfo.value?.[0]?.attrs ?? {}))
 
   async function loadSampleInfo() {
@@ -67,7 +81,7 @@ const maxHubs = ref(30)
 
   function params() {
     return {
-      filter: { normalize_method: normalizeMethod.value, n_keep: nKeep.value, filter_method: filterMethod.value, sample_percentage: samplePercentage.value, cutoff: cutoff.value },
+      filter: { normalize_method: normalizeMethod.value, n_keep: nKeep.value, filter_method: filterMethod.value, sample_percentage: samplePercentage.value, cutoff: cutoff.value, exclude_samples: excludedSamples.value },
       soft_threshold: { network_type: sftNetworkType.value, rsquared_cut: rsquaredCut.value },
       network: { power: power.value, network_type: netNetworkType.value, tom_type: tomType.value, tom_denom: tomDenom.value, min_module_size: minModuleSize.value, merge_cut_height: mergeCutHeight.value, deep_split: deepSplit.value, detect_cut_height: detectCutHeight.value },
       module_trait: { trait_source: traitSource.value, trait_column: traitColumn.value },
@@ -212,17 +226,9 @@ const maxHubs = ref(30)
     stepRunning.value = 'filter'
     error.value = ''
     clearDownstream('filter')
+    excludedSamples.value = samples
     try {
-      await runStepApi(jobId.value, 'filter', {
-        filter: {
-          normalize_method: normalizeMethod.value,
-          n_keep: nKeep.value,
-          filter_method: filterMethod.value,
-          sample_percentage: samplePercentage.value,
-          cutoff: cutoff.value,
-          exclude_samples: samples,
-        },
-      }, threads.value)
+      await runStepApi(jobId.value, 'filter', params(), threads.value)
       await waitForDone()
       await loadStep('filter')
     } catch (e) {

@@ -5,7 +5,7 @@ import SftView from './views/SftView.vue'
 import NetworkView from './views/NetworkView.vue'
 import ModuleTraitView from './views/ModuleTraitView.vue'
 import ModuleExplorerView from './views/ModuleExplorerView.vue'
-import OneStepView from './views/OneStepView.vue'
+import ModuleOverviewView from './views/ModuleOverviewView.vue'
 
 export default createRouter({
   history: createWebHistory(),
@@ -16,8 +16,8 @@ export default createRouter({
     { path: '/network', name: 'network', component: NetworkView },
     { path: '/module-trait', name: 'module-trait', component: ModuleTraitView },
     { path: '/module-explorer', name: 'module-explorer', component: ModuleExplorerView },
+    { path: '/module-overview', name: 'module-overview', component: ModuleOverviewView },
     { path: '/interested-mod', redirect: '/module-explorer' },
     { path: '/hub-gene', redirect: '/module-explorer' },
-    { path: '/one-step', name: 'one-step', component: OneStepView },
   ],
 })

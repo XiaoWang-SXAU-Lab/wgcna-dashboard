@@ -1,0 +1,154 @@
+/* ============================================================
+   rsWGCNA report theme — clean scientific-report style
+   ============================================================ */
+:root {
+  --brand-teal:    #0f766e;
+  --brand-teal-2:  #14b8a6;
+  --brand-coral:   #e85d5d;
+  --brand-blue:    #3b82f6;
+  --brand-gold:    #d99a2b;
+  --ink:           #1e293b;
+  --ink-soft:      #475569;
+  --paper:         #ffffff;
+  --bg:            #f6f8fb;
+  --line:          #e5e9f0;
+  --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: "Inter", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.65;
+}
+
+/* ---- hero banner ---- */
+.rs-hero {
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  padding: 2.6rem 2rem 2.2rem;
+  border-radius: 14px;
+  background:
+    radial-gradient(1200px 400px at 10% -10%, rgba(255,255,255,.16), transparent 60%),
+    linear-gradient(135deg, #0f766e 0%, #0d9488 45%, #0ea5a4 100%);
+  box-shadow: 0 12px 30px -14px rgba(15,118,110,.55);
+}
+.rs-hero h1 { color: #fff; font-weight: 700; letter-spacing: -.5px; margin: .1rem 0 .35rem; }
+.rs-hero .rs-subtitle { opacity: .9; font-size: 1.02rem; }
+.rs-hero .rs-meta { display: flex; flex-wrap: wrap; gap: 1.4rem; margin-top: 1.2rem; font-size: .92rem; }
+.rs-hero .rs-meta span { display: inline-flex; align-items: center; gap: .4rem; opacity: .95; }
+.rs-hero .rs-meta .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand-gold); box-shadow: 0 0 0 3px rgba(255,255,255,.25); }
+
+/* hero stat pills */
+.rs-stats { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: 1.5rem; }
+.rs-stat {
+  background: rgba(255,255,255,.14);
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 12px;
+  padding: .55rem 1rem;
+  backdrop-filter: blur(4px);
+}
+.rs-stat b { display: block; font-size: 1.25rem; font-weight: 700; }
+.rs-stat i { font-style: normal; font-size: .8rem; opacity: .85; }
+
+/* ---- step section ---- */
+.rs-step { margin: 2.2rem 0; }
+.rs-step-head { display: flex; align-items: center; gap: .8rem; margin-bottom: 1rem; }
+.rs-badge {
+  flex: 0 0 auto;
+  width: 2.1rem; height: 2.1rem;
+  display: grid; place-items: center;
+  border-radius: 10px;
+  color: #fff; font-weight: 700; font-size: 1rem;
+  box-shadow: 0 6px 14px -6px rgba(0,0,0,.35);
+}
+.rs-step-head h2 { margin: 0; font-size: 1.35rem; font-weight: 700; color: var(--ink); }
+.rs-step-head .rs-en { font-size: .85rem; color: var(--ink-soft); }
+
+/* color variants per step */
+.bg-teal  { background: linear-gradient(135deg,#0f766e,#14b8a6); }
+.bg-blue  { background: linear-gradient(135deg,#2563eb,#60a5fa); }
+.bg-coral { background: linear-gradient(135deg,#e11d48,#fb7185); }
+.bg-gold  { background: linear-gradient(135deg,#d97706,#fbbf24); }
+.bg-purple{ background: linear-gradient(135deg,#7c3aed,#a78bfa); }
+.bg-green { background: linear-gradient(135deg,#059669,#34d399); }
+
+/* ---- card ---- */
+.rs-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1.4rem 1.5rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 2px rgba(15,23,42,.04);
+}
+.rs-card h3 { font-size: 1.05rem; font-weight: 700; margin: 0 0 .6rem; }
+
+/* ---- plain-language summary box ---- */
+.rs-say {
+  background: linear-gradient(180deg,#f0fdfa,#fff);
+  border: 1px solid #bae6fd;
+  border-left: 4px solid var(--brand-teal-2);
+  border-radius: 10px;
+  padding: 1rem 1.2rem;
+  color: #0f3b38;
+  font-size: .97rem;
+}
+.rs-say .rs-say-title {
+  font-weight: 700; font-size: .8rem; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--brand-teal);
+  margin-bottom: .35rem;
+}
+
+/* ---- figure frame ---- */
+.rs-fig {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: .6rem;
+  background: #fff;
+  margin: .8rem 0;
+}
+.rs-fig img { width: 100%; border-radius: 6px; }
+.rs-fig .rs-fig-cap { text-align: center; font-size: .85rem; color: var(--ink-soft); padding-top: .45rem; }
+
+/* ---- data table ---- */
+.rs-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.rs-table th, .rs-table td { border: 1px solid var(--line); padding: .5rem .7rem; text-align: left; }
+.rs-table th { background: #f1f5f9; font-weight: 600; color: var(--ink); }
+.rs-table tr:nth-child(even) td { background: #fafbfd; }
+
+/* ---- chips ---- */
+.rs-chips { display: flex; flex-wrap: wrap; gap: .45rem; }
+.rs-chip {
+  background: #eef2ff; color: #3730a3;
+  border-radius: 999px; padding: .25rem .75rem; font-size: .82rem;
+  font-family: var(--mono);
+}
+
+/* ---- callout / note ---- */
+.rs-note {
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
+  padding: .8rem 1rem; font-size: .9rem; color: #78350f;
+}
+.rs-warn {
+  background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px;
+  padding: .8rem 1rem; font-size: .9rem; color: #7f1d1d;
+}
+
+/* ---- footer ---- */
+.rs-footer {
+  margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line);
+  font-size: .82rem; color: var(--ink-soft); text-align: center;
+}
+
+/* ---- TOC refinement (Quarto sidebar) ---- */
+#quarto-sidebar .sidebar-title { font-weight: 700; color: var(--brand-teal); }
+#quarto-sidebar .nav-link.active { color: var(--brand-teal); font-weight: 600; }
+
+@media print {
+  .rs-hero { box-shadow: none; }
+  .rs-card { box-shadow: none; }
+}

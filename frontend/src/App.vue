@@ -18,7 +18,7 @@ const nav = [
   { to: '/network', key: 'nav.network', icon: 'bi-diagram-3' },
   { to: '/module-trait', key: 'nav.moduleTrait', icon: 'bi-table' },
   { to: '/module-explorer', key: 'nav.moduleExplorer', icon: 'bi-search' },
-  { to: '/one-step', key: 'nav.oneStep', icon: 'bi-lightning-charge' },
+  { to: '/module-overview', key: 'nav.moduleOverview', icon: 'bi-grid-1x2' },
 ]
 </script>
 

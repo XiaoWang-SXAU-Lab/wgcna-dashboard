@@ -88,13 +88,13 @@ const option = computed<EChartsOption>(() => {
     <div class="d-flex align-items-center gap-3 mb-2 flex-wrap">
       <span class="text-muted small">{{ t('comp.color') }}</span>
       <label class="d-flex align-items-center gap-1 small mb-0">
-        {{ t('comp.low') }} <input type="color" v-model="lowColor" class="form-control form-control-color" title="低值颜色" />
+        {{ t('comp.low') }} <input type="color" v-model="lowColor" class="form-control form-control-color" :title="t('comp.lowColor')" />
       </label>
       <label class="d-flex align-items-center gap-1 small mb-0">
-        {{ t('comp.mid') }} <input type="color" v-model="midColor" class="form-control form-control-color" title="中值颜色" />
+        {{ t('comp.mid') }} <input type="color" v-model="midColor" class="form-control form-control-color" :title="t('comp.midColor')" />
       </label>
       <label class="d-flex align-items-center gap-1 small mb-0">
-        {{ t('comp.high') }} <input type="color" v-model="highColor" class="form-control form-control-color" title="高值颜色" />
+        {{ t('comp.high') }} <input type="color" v-model="highColor" class="form-control form-control-color" :title="t('comp.highColor')" />
       </label>
     </div>
     <div class="border rounded bg-white p-1" style="resize: both; overflow: auto; height: 460px; min-height: 300px; min-width: 320px; max-width: 100%">

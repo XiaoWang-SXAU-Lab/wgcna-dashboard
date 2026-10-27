@@ -395,6 +395,6 @@ onMounted(() => { if (store.selectedModule) load(); checkGO(); loadSampleInfo() 
       </div>
       <ResizableChart :option="heatOption" />
     </div>
-    <PlotDownloadWidget kind="enrich" :type="exportType" :module="store.selectedModule" :fdr="fdr" :top="top" :show="showExport" @close="showExport = false" />
+    <PlotDownloadWidget kind="enrich" :type="exportType" :module="store.selectedModule" :fdr="fdr" :top="top" :ontology="goOntology" :show="showExport" @close="showExport = false" />
   </div>
 </template>

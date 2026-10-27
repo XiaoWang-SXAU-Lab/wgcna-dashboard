@@ -17,6 +17,16 @@ width     <- as.numeric(get_arg("--width", "10"))
 height    <- as.numeric(get_arg("--height", "8"))
 dpi       <- as.numeric(get_arg("--dpi", "150"))
 font_size <- as.numeric(get_arg("--base-size", "9"))
+low         <- get_arg("--low", "#2166ac")
+mid         <- get_arg("--mid", "#ffffff")
+high        <- get_arg("--high", "#b2182b")
+legend      <- get_arg("--legend", "right")   # right | bottom | none
+cluster_rows  <- as.integer(get_arg("--cluster-rows", "1"))
+cluster_cols  <- as.integer(get_arg("--cluster-cols", "0"))
+show_rownames <- as.integer(get_arg("--show-rownames", "1"))
+show_colnames <- as.integer(get_arg("--show-colnames", "1"))
+border        <- as.integer(get_arg("--border", "0"))
+title         <- get_arg("--title", "")
 
 if (is.null(json_path) || is.null(out_path)) stop("usage: render_enrich_heatmap.R --json <f> --out <f>")
 
@@ -38,19 +48,25 @@ ha <- HeatmapAnnotation(
 )
 
 mx <- max(abs(m), na.rm = TRUE)
-col_fun <- colorRamp2(c(-mx, 0, mx), c("#2166ac", "#ffffff", "#b2182b"))
+col_fun <- colorRamp2(c(-mx, 0, mx), c(low, mid, high))
+
+show_legend <- legend != "none"
 
 ht <- Heatmap(
   m,
   name = "z-score",
   top_annotation = ha,
-  cluster_rows = TRUE,
-  cluster_columns = FALSE,
-  show_column_names = TRUE,
+  cluster_rows = cluster_rows == 1,
+  cluster_columns = cluster_cols == 1,
+  show_row_names = show_rownames == 1,
+  show_column_names = show_colnames == 1,
   column_names_rot = 45,
   row_names_gp = gpar(fontsize = font_size),
   column_names_gp = gpar(fontsize = font_size),
-  col = col_fun
+  col = col_fun,
+  show_heatmap_legend = show_legend,
+  border_gp = gpar(col = if (border == 1) "grey40" else NA),
+  column_title = title
 )
 
 if (mode == "pdf") {
@@ -60,6 +76,10 @@ if (mode == "pdf") {
 } else {
   png(out_path, width = width, height = height, units = "in", res = dpi, bg = "white")
 }
-draw(ht)
+if (legend == "bottom") {
+  draw(ht, heatmap_legend_side = "bottom")
+} else {
+  draw(ht, heatmap_legend_side = "right")
+}
 dev.off()
 cat("done:", out_path, "\n")

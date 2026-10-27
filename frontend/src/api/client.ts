@@ -57,11 +57,6 @@ export async function getJob(id: string): Promise<JobStatus> {
   return res.json()
 }
 
-export async function runAll(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/jobs/${id}/run-all`, { method: 'POST' })
-  if (!res.ok) throw new Error(await res.text())
-}
-
 export async function runStep(id: string, step: string, params?: unknown, threads?: number): Promise<void> {
   const fd = new FormData()
   if (params !== undefined) fd.append('params', JSON.stringify(params))
@@ -342,4 +337,93 @@ export function plotUrl(id: string, kind: string, params: Record<string, string 
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) q.set(k, String(v))
   return `${BASE}/jobs/${id}/plots/${kind}?${q}`
+}
+
+// ---- module overview ----
+
+export interface OverviewData {
+  genes: string[]
+  samples: string[]
+  z: number[][]
+  modules: string[]
+  module_order: string[]
+  eigengenes: Record<string, number[]>
+  kme: Record<string, number>
+  enrich: Record<string, { term: string; padj: number }[]>
+  module_sizes: Record<string, number>
+  enrich_type: string
+  enrich_ok: boolean
+}
+
+export interface OverviewNetwork {
+  nodes: { id: string; color: string; degree: number }[]
+  edges: { source: string; target: string; weight: number }[]
+}
+
+export interface ClusterResult {
+  genes: string[]
+  samples: string[]
+  clusters: string[]
+  cluster_order: string[]
+  centers: Record<string, number[]>
+  score: number[]
+  method: string
+  k: number
+  degenerate?: boolean
+  metrics?: { ks: number[]; wss: number[]; xb: number[]; pc: number[] }
+}
+
+export async function getOverview(id: string, type: 'go' | 'kegg' = 'go', fdr = 0.05, top = 5): Promise<OverviewData> {
+  const res = await fetch(`${BASE}/jobs/${id}/overview?type=${type}&fdr=${fdr}&top=${top}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getOverviewNetwork(id: string, perModule = 300): Promise<OverviewNetwork> {
+  const res = await fetch(`${BASE}/jobs/${id}/overview/network?per_module=${perModule}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function runOverviewNetwork(id: string, percentile = 10): Promise<void> {
+  const res = await fetch(`${BASE}/jobs/${id}/overview/network?percentile=${percentile}`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+}
+
+export async function runCluster(id: string, method: 'kmeans' | 'cmeans', k = 0, seed = 42, kmax = 12): Promise<void> {
+  const res = await fetch(`${BASE}/jobs/${id}/overview/cluster?method=${method}&k=${k}&seed=${seed}&kmax=${kmax}`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+}
+
+export async function getCluster(id: string): Promise<ClusterResult> {
+  const res = await fetch(`${BASE}/jobs/${id}/overview/cluster`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export function overviewExportUrl(id: string, mode: 'modules' | 'clusters'): string {
+  return `${BASE}/jobs/${id}/overview/export.xlsx?mode=${mode}`
+}
+
+export interface ReportStatus {
+  state: 'running' | 'done' | 'error'
+  message: string
+  dir: string
+  done: string[]
+}
+
+export async function exportReport(id: string, dir: string, name: string, type: 'go' | 'kegg' = 'go'): Promise<{ dir: string }> {
+  const fd = new FormData()
+  fd.append('dir', dir)
+  if (name) fd.append('name', name)
+  fd.append('type', type)
+  const res = await fetch(`${BASE}/jobs/${id}/report/export`, { method: 'POST', body: fd })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getReportStatus(id: string): Promise<ReportStatus> {
+  const res = await fetch(`${BASE}/jobs/${id}/report/status`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
 }

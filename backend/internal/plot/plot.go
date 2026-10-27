@@ -73,6 +73,12 @@ var sampleTreeScript []byte
 //go:embed render_enrich_heatmap.R
 var enrichHeatmapScript []byte
 
+//go:embed render_module_overview.R
+var moduleOverviewScript []byte
+
+//go:embed render_gene_network.R
+var geneNetworkScript []byte
+
 // PlotParams are optional styling parameters forwarded to the R script.
 // Zero values are omitted, so the R script falls back to its defaults.
 type PlotParams struct {
@@ -96,6 +102,13 @@ type PlotParams struct {
 	SizeMax      float64
 	Title        string  // enrichment plot title
 	Wrap         int     // enrichment label wrap width (chars; 0 = off)
+	// ComplexHeatmap controls ("" = use R default, "0"/"1" for toggles)
+	ClusterRows  string  // cluster rows: "" | "0" | "1"
+	ClusterCols  string  // cluster columns: "" | "0" | "1"
+	ShowRowNames string  // show row names: "" | "0" | "1"
+	ShowColNames string  // show column names: "" | "0" | "1"
+	Border       string  // cell border: "" | "0" | "1"
+	CellFontSize float64 // heatmap cell text size (pt)
 }
 
 // rArgs renders non-zero params as R script arguments.
@@ -160,6 +173,24 @@ func (p PlotParams) rArgs() []string {
 	}
 	if p.Wrap > 0 {
 		args = append(args, "--wrap", strconv.Itoa(p.Wrap))
+	}
+	if p.ClusterRows != "" {
+		args = append(args, "--cluster-rows", p.ClusterRows)
+	}
+	if p.ClusterCols != "" {
+		args = append(args, "--cluster-cols", p.ClusterCols)
+	}
+	if p.ShowRowNames != "" {
+		args = append(args, "--show-rownames", p.ShowRowNames)
+	}
+	if p.ShowColNames != "" {
+		args = append(args, "--show-colnames", p.ShowColNames)
+	}
+	if p.Border != "" {
+		args = append(args, "--border", p.Border)
+	}
+	if p.CellFontSize != 0 {
+		args = append(args, "--cell-fontsize", fmt.Sprintf("%g", p.CellFontSize))
 	}
 	return args
 }
@@ -370,6 +401,56 @@ func RenderEnrichHeatmap(data []byte, mode string, params PlotParams) (string, s
 	rs := findRscript()
 	out := filepath.Join(dir, "enrich_heatmap."+mode)
 	args := []string{filepath.Join(dir, "render.R"), "--json", filepath.Join(dir, "data.json"), "--mode", mode, "--out", out}
+	args = append(args, params.rArgs()...)
+	cmd := exec.Command(rs, args...)
+	subproc.HideWindow(cmd)
+	cmd.Env = plotEnv(rs)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		cleanup()
+		return "", "", fmt.Errorf("R plot failed: %v: %s", err, string(b))
+	}
+
+	ctype := "image/png"
+	if mode == "pdf" {
+		ctype = "application/pdf"
+	} else if mode == "svg" {
+		ctype = "image/svg+xml"
+	}
+	return out, ctype, nil
+}
+
+// RenderModuleOverview renders the three-part module overview figure
+// (eigengene sparkline + z-score heatmap + enrichment terms) from a JSON blob.
+func RenderModuleOverview(data []byte, mode string, params PlotParams) (string, string, error) {
+	return renderRWithData(moduleOverviewScript, data, "overview.json", "overview", mode, params)
+}
+
+// RenderGeneNetwork renders the gene-level overview network (igraph DrL layout).
+func RenderGeneNetwork(data []byte, mode string, params PlotParams) (string, string, error) {
+	return renderRWithData(geneNetworkScript, data, "network.json", "network", mode, params)
+}
+
+// renderRWithData writes an embedded R script + a data JSON to a temp dir and
+// runs Rscript with `--json <data> --mode <mode> ... --out <out>`.
+func renderRWithData(script, data []byte, dataName, outBase, mode string, params PlotParams) (string, string, error) {
+	dir, err := os.MkdirTemp("", "wgcna-plot-*")
+	if err != nil {
+		return "", "", err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+
+	if err := os.WriteFile(filepath.Join(dir, "render.R"), script, 0o644); err != nil {
+		cleanup()
+		return "", "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, dataName), data, 0o644); err != nil {
+		cleanup()
+		return "", "", err
+	}
+
+	rs := findRscript()
+	out := filepath.Join(dir, outBase+"."+mode)
+	args := []string{filepath.Join(dir, "render.R"), "--json", filepath.Join(dir, dataName), "--mode", mode, "--out", out}
 	args = append(args, params.rArgs()...)
 	cmd := exec.Command(rs, args...)
 	subproc.HideWindow(cmd)
