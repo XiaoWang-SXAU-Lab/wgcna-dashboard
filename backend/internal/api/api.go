@@ -66,6 +66,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/jobs/{id}/overview/export.xlsx", h.exportOverviewXlsx)
 	mux.HandleFunc("POST /api/jobs/{id}/report/export", h.exportReport)
 	mux.HandleFunc("GET /api/jobs/{id}/report/status", h.reportStatusHandler)
+	mux.HandleFunc("GET /api/folder-picker", h.pickFolder)
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {

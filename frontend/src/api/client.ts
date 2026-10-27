@@ -428,3 +428,10 @@ export async function getReportStatus(id: string): Promise<ReportStatus> {
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
+
+export async function pickFolder(): Promise<string> {
+  const res = await fetch(`${BASE}/folder-picker`)
+  if (!res.ok) throw new Error(await res.text())
+  const d = await res.json()
+  return d.dir
+}

@@ -5,7 +5,7 @@ import SidebarDrawer from '../components/SidebarDrawer.vue'
 import { t, locale } from '../utils/i18n'
 import {
   getOverview, getOverviewNetwork, runCluster, getCluster, runOverviewNetwork, overviewExportUrl, plotUrl,
-  exportReport, getReportStatus,
+  exportReport, getReportStatus, pickFolder,
   type OverviewData, type OverviewNetwork, type ClusterResult, type ReportStatus,
 } from '../api/client'
 import * as echarts from 'echarts'
@@ -19,8 +19,30 @@ const reportName = ref('')
 const reportState = ref<ReportStatus | null>(null)
 const reportRunning = ref(false)
 const showReportForm = ref(false)
+
+const defaultReportName = computed(() => {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `rsWGCNA-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+})
+const reportNameInvalid = computed(() => {
+  const name = reportName.value.trim()
+  if (name === '') return false // empty = default
+  return /[<>:"/\\|?*\u0000-\u001f]/.test(name) || /[. ]$/.test(name) || /^\.{1,2}$/.test(name) || /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/i.test(name)
+})
+const resolvedReportPath = computed(() => {
+  const base = reportDir.value.replace(/[\\/]+$/, '') || ''
+  const name = reportName.value.trim() || defaultReportName.value
+  return base ? `${base}/${name}/` : ''
+})
+async function pickFolderDir() {
+  try {
+    const dir = await pickFolder()
+    reportDir.value = dir
+  } catch { /* cancelled */ }
+}
 async function doExportReport() {
-  if (!store.jobId || !reportDir.value || reportRunning.value) return
+  if (!store.jobId || !reportDir.value || reportRunning.value || reportNameInvalid.value) return
   reportRunning.value = true
   reportState.value = null
   try {
@@ -226,15 +248,22 @@ onMounted(() => {
         <div class="row g-2 align-items-end">
           <div class="col-5">
             <label class="form-label small mb-1">{{ t('mo.reportDir') }}</label>
-            <input type="text" v-model="reportDir" class="form-control form-control-sm" placeholder="/path/to/output" />
+            <div class="input-group input-group-sm">
+              <input type="text" v-model="reportDir" class="form-control" :placeholder="t('mo.reportDirPlaceholder')" />
+              <button class="btn btn-outline-secondary" type="button" @click="pickFolderDir"><i class="bi bi-folder2-open me-1"></i>{{ t('mo.browse') }}</button>
+            </div>
           </div>
           <div class="col-4">
             <label class="form-label small mb-1">{{ t('mo.reportName') }}（{{ t('mo.optional') }}）</label>
-            <input type="text" v-model="reportName" class="form-control form-control-sm" placeholder="rsWGCNA-日期时间" />
+            <input type="text" v-model="reportName" class="form-control form-control-sm" :class="{ 'is-invalid': reportNameInvalid }" :placeholder="defaultReportName" />
+            <div v-if="reportNameInvalid" class="invalid-feedback">{{ t('mo.nameInvalid') }}</div>
           </div>
           <div class="col-3">
-            <button class="btn btn-sm btn-primary w-100" :disabled="reportRunning || !reportDir" @click="doExportReport">{{ t('mo.startExport') }}</button>
+            <button class="btn btn-sm btn-primary w-100" :disabled="reportRunning || !reportDir || reportNameInvalid" @click="doExportReport">{{ t('mo.startExport') }}</button>
           </div>
+        </div>
+        <div v-if="resolvedReportPath" class="small text-muted mt-2">
+          <i class="bi bi-folder me-1"></i>{{ t('mo.resolvedPath') }}：<code>{{ resolvedReportPath }}</code>
         </div>
         <div v-if="reportState" class="small mt-2">
           <span v-if="reportState.state === 'running'" class="text-muted">{{ t('mo.exporting') }} ({{ reportState.done.length }} {{ t('mo.modules') }})…</span>

@@ -58,6 +58,10 @@ const messages: Record<Locale, Record<string, string>> = {
     'mo.startExport': 'Export',
     'mo.exporting': 'Exporting',
     'mo.exportDone': 'Export complete:',
+    'mo.reportDirPlaceholder': 'Choose a folder…',
+    'mo.browse': 'Browse',
+    'mo.nameInvalid': 'Invalid folder name (illegal characters or reserved name)',
+    'mo.resolvedPath': 'Output path',
     'nav.oneStep': 'One-step',
 
     'home.kicker': 'rsWGCNA · Weighted Gene Co-expression Network Analysis',
@@ -387,6 +391,10 @@ const messages: Record<Locale, Record<string, string>> = {
     'mo.startExport': '开始导出',
     'mo.exporting': '导出中',
     'mo.exportDone': '导出完成：',
+    'mo.reportDirPlaceholder': '点击「浏览」选择目录…',
+    'mo.browse': '浏览',
+    'mo.nameInvalid': '名称含非法字符或 Windows 保留名',
+    'mo.resolvedPath': '输出路径',
     'nav.oneStep': '一键分析',
 
     'home.kicker': 'rsWGCNA · 加权基因共表达网络分析',
