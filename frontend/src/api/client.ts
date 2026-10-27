@@ -412,11 +412,12 @@ export interface ReportStatus {
   done: string[]
 }
 
-export async function exportReport(id: string, dir: string, name: string, type: 'go' | 'kegg' = 'go'): Promise<{ dir: string }> {
+export async function exportReport(id: string, dir: string, name: string, type: 'go' | 'kegg' = 'go', lang = 'zh'): Promise<{ dir: string }> {
   const fd = new FormData()
   fd.append('dir', dir)
   if (name) fd.append('name', name)
   fd.append('type', type)
+  fd.append('lang', lang)
   const res = await fetch(`${BASE}/jobs/${id}/report/export`, { method: 'POST', body: fd })
   if (!res.ok) throw new Error(await res.text())
   return res.json()

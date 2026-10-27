@@ -56,13 +56,17 @@ func (h *Handler) exportReport(w http.ResponseWriter, r *http.Request) {
 	if enrichType != "kegg" {
 		enrichType = "go"
 	}
+	lang := r.FormValue("lang")
+	if lang != "en" {
+		lang = "zh"
+	}
 
 	reportMu.Lock()
 	st := &reportStatus{State: "running", Dir: base}
 	reportStates[id] = st
 	reportMu.Unlock()
 
-	go h.doReportExport(id, base, enrichType, st)
+	go h.doReportExport(id, base, enrichType, lang, st)
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started", "dir": base})
 }
@@ -80,7 +84,7 @@ func (h *Handler) reportStatusHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, st)
 }
 
-func (h *Handler) doReportExport(id, base, enrichType string, st *reportStatus) {
+func (h *Handler) doReportExport(id, base, enrichType, lang string, st *reportStatus) {
 	jobDir := filepath.Join(h.jobs.Dir(), id)
 	fail := func(msg string) {
 		reportMu.Lock()
@@ -184,10 +188,17 @@ func (h *Handler) doReportExport(id, base, enrichType string, st *reportStatus) 
 		copyFile(p, filepath.Join(resultDir, "05_module_trait", "mtrait.png"))
 		os.RemoveAll(filepath.Dir(p))
 	}
+	if stData, err := sampleTreeData(jobDir); err == nil {
+		if p, _, err := plot.RenderSampleTree(stData, "png", plot.PlotParams{}); err == nil {
+			copyFile(p, filepath.Join(resultDir, "02_filter", "sample_tree.png"))
+			os.RemoveAll(filepath.Dir(p))
+		}
+	}
 
-	// 3. README + report
+	// 3. provenance + README + report
+	writeProvenance(resultDir, jobDir)
 	writeREADME(resultDir, modules)
-	rd := buildReportData(jobDir, base, modules, enrichType)
+	rd := buildReportData(jobDir, base, modules, enrichType, lang)
 	writeReport(reportDir, rd)
 
 	reportMu.Lock()
@@ -259,11 +270,12 @@ func writeREADME(resultDir string, modules []string) {
 }
 
 // buildReportData assembles the real analysis facts for the report.
-func buildReportData(jobDir, base string, modules []string, enrichType string) reportData {
+func buildReportData(jobDir, base string, modules []string, enrichType, lang string) reportData {
 	d := reportData{
 		ProjectName: filepath.Base(base),
 		Timestamp:   time.Now().Format("2006-01-02 15:04 -07:00"),
 		Version:     "v0.5.0",
+		Lang:        lang,
 		Modules:     modules,
 		ModuleSizes: map[string]int{},
 	}
@@ -361,4 +373,63 @@ func absFloat(v float64) float64 {
 		return -v
 	}
 	return v
+}
+
+// sampleTreeData builds the sample-tree render payload from step1_filter.json
+// and sample_info.tsv, using the trait column as the annotation band.
+func sampleTreeData(jobDir string) ([]byte, error) {
+	var filter struct {
+		Samples []string `json:"samples"`
+		Tree    struct {
+			Merge  [][]int   `json:"merge"`
+			Height []float64 `json:"height"`
+			Order  []int     `json:"order"`
+		} `json:"sample_tree"`
+	}
+	b, err := os.ReadFile(filepath.Join(jobDir, "step1_filter.json"))
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(b, &filter); err != nil {
+		return nil, err
+	}
+
+	var bands []map[string]any
+	// trait column from params.json
+	if pb, err := os.ReadFile(filepath.Join(jobDir, "params.json")); err == nil {
+		var p map[string]any
+		if json.Unmarshal(pb, &p) == nil {
+			if mt, ok := p["module_trait"].(map[string]any); ok {
+				if tc, ok := mt["trait_column"].(string); ok && tc != "" {
+					bands = append(bands, map[string]any{"name": tc, "values": map[string]string{}})
+				}
+			}
+		}
+	}
+	if len(bands) > 0 {
+		if raw, err := os.ReadFile(filepath.Join(jobDir, "sample_info.tsv")); err == nil {
+			if infos, err := enrich.ParseSampleInfo(raw); err == nil {
+				attr := bands[0]["name"].(string)
+				values := map[string]string{}
+				for _, s := range infos {
+					values[s.SampleID] = s.Attrs[attr]
+				}
+				bands[0]["values"] = values
+			}
+		}
+	}
+
+	return json.Marshal(map[string]any{"samples": filter.Samples, "tree": filter.Tree, "bands": bands})
+}
+
+// writeProvenance writes a minimal provenance folder (final params + environment).
+func writeProvenance(resultDir, jobDir string) {
+	prov := filepath.Join(resultDir, "00_provenance")
+	_ = os.MkdirAll(prov, 0o755)
+	if b, err := os.ReadFile(filepath.Join(jobDir, "params.json")); err == nil {
+		_ = os.WriteFile(filepath.Join(prov, "parameters.final.json"), b, 0o644)
+	}
+	env := fmt.Sprintf("rsWGCNA v0.5.0\nGenerated: %s\n", time.Now().Format(time.RFC3339))
+	_ = os.WriteFile(filepath.Join(prov, "environment.txt"), []byte(env), 0o644)
+	_ = os.WriteFile(filepath.Join(prov, "README.txt"), []byte("最终参数见 parameters.final.json；环境信息见 environment.txt。"), 0o644)
 }

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
-import { t } from '../utils/i18n'
+import { t, locale } from '../utils/i18n'
 import {
   getOverview, getOverviewNetwork, runCluster, getCluster, runOverviewNetwork, overviewExportUrl, plotUrl,
   exportReport, getReportStatus,
@@ -24,7 +24,7 @@ async function doExportReport() {
   reportRunning.value = true
   reportState.value = null
   try {
-    await exportReport(store.jobId, reportDir.value, reportName.value, enrichType.value)
+    await exportReport(store.jobId, reportDir.value, reportName.value, enrichType.value, locale.value)
     for (let i = 0; i < 300; i++) {
       await new Promise((r) => setTimeout(r, 2000))
       const st = await getReportStatus(store.jobId)
