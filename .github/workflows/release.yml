@@ -79,8 +79,11 @@ jobs:
 
       - name: Create DMG
         run: |
+          mkdir -p build/macos/stage
+          cp -R build/macos/rsWGCNA.app build/macos/stage/
+          ln -s /Applications build/macos/stage/Applications
           hdiutil create -volname rsWGCNA \
-            -srcfolder build/macos/rsWGCNA.app \
+            -srcfolder build/macos/stage \
             -ov -format UDZO build/macos/rsWGCNA-0.5.0.dmg
 
       - uses: actions/upload-artifact@v4
