@@ -170,13 +170,19 @@ function render() {
     }
     for (const [mod, c] of centers) {
       if (c.n === 0) continue
-      const px = chart.value!.convertToPixel({ seriesIndex: 0 }, [c.x / c.n, c.y / c.n])
-      graphic.push({
-        type: 'text',
-        left: px[0] - 20,
-        top: px[1] - 8,
-        style: { text: mod, fill: '#333', fontSize: 11, fontWeight: 'bold' },
-      })
+      try {
+        const px = chart.value!.convertToPixel({ seriesIndex: 0 }, [c.x / c.n, c.y / c.n])
+        if (px && px.length >= 2 && Number.isFinite(px[0]) && Number.isFinite(px[1])) {
+          graphic.push({
+            type: 'text',
+            left: px[0] - 20,
+            top: px[1] - 8,
+            style: { text: mod, fill: '#333', fontSize: 11, fontWeight: 'bold' },
+          })
+        }
+      } catch {
+        /* convertToPixel may fail for graphGL before setOption; skip labels */
+      }
     }
   }
 
