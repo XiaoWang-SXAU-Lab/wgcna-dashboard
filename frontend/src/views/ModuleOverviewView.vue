@@ -33,6 +33,7 @@ const edgesPerGene = ref(8)
 const hideGrey = ref(true)
 const hideIsolated = ref(true)
 const hubPerModule = ref(10)
+const spread = ref(1.0)
 const showLabels = ref(false)
 const showModuleLabels = ref(true)
 const nodeScale = ref(1)
@@ -204,6 +205,7 @@ function resetNetworkSettings() {
   hideGrey.value = true
   hideIsolated.value = true
   hubPerModule.value = 10
+  spread.value = 1.0
   showLabels.value = false
   showModuleLabels.value = true
   nodeScale.value = 1
@@ -271,6 +273,7 @@ onMounted(() => {
         v-model:low-color="lowColor" v-model:mid-color="midColor" v-model:high-color="highColor"
         v-model:percentile="percentile" v-model:max-nodes="maxNodes" v-model:edges-per-gene="edgesPerGene"
         v-model:hide-grey="hideGrey" v-model:hide-isolated="hideIsolated" v-model:hub-per-module="hubPerModule"
+        v-model:spread="spread"
         v-model:show-labels="showLabels" v-model:show-module-labels="showModuleLabels"
         v-model:node-scale="nodeScale" v-model:edge-opacity="edgeOpacity" v-model:network-dirty="networkDirty"
         v-model:cluster-method="clusterMethod" v-model:cluster-k="clusterK" v-model:cluster-seed="clusterSeed"
@@ -310,7 +313,7 @@ onMounted(() => {
         <!-- network -->
         <div v-else-if="tab === 'network'" class="h-100">
           <OverviewNetworkPanel
-            :network="network" :loading="networkLoading" :hub-per-module="hubPerModule"
+            :network="network" :loading="networkLoading" :hub-per-module="hubPerModule" :spread="spread"
             :hide-isolated="hideIsolated" :show-labels="showLabels" :show-module-labels="showModuleLabels"
             :node-scale="nodeScale" :edge-opacity="edgeOpacity"
             @build="buildNetwork" @export="() => {}"

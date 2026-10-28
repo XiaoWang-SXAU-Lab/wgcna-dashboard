@@ -127,11 +127,75 @@ function layoutOneModule(
   return out
 }
 
+// packModules places module centers with FR-style repulsion (scaled by module
+// radius) plus a soft pull toward the origin, so independent modules settle
+// into a compact, roughly circular arrangement without flying apart.
+function packModules(
+  modNames: string[],
+  localRadius: Map<string, number>,
+  spread: number,
+): Map<string, { x: number; y: number }> {
+  const n = modNames.length
+  const centers = new Map<string, { x: number; y: number }>()
+  const rr = new Map<string, number>()
+  for (const m of modNames) rr.set(m, Math.sqrt(localRadius.get(m)!) * spread)
+
+  // deterministic initial placement on a small circle
+  modNames.forEach((m, i) => {
+    const ang = (i / Math.max(1, n)) * Math.PI * 2
+    centers.set(m, { x: Math.cos(ang) * 2, y: Math.sin(ang) * 2 })
+  })
+
+  for (let iter = 0; iter < 160; iter++) {
+    const disp = new Map<string, { x: number; y: number }>()
+    for (const m of modNames) disp.set(m, { x: 0, y: 0 })
+
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const a = modNames[i]
+        const b = modNames[j]
+        const pa = centers.get(a)!
+        const pb = centers.get(b)!
+        const dx = pa.x - pb.x
+        const dy = pa.y - pb.y
+        const d = Math.sqrt(dx * dx + dy * dy) || 0.01
+        const ideal = (rr.get(a)! + rr.get(b)!) * 1.05
+        const f = (ideal * ideal) / d
+        const ux = dx / d
+        const uy = dy / d
+        disp.get(a)!.x += ux * f
+        disp.get(a)!.y += uy * f
+        disp.get(b)!.x -= ux * f
+        disp.get(b)!.y -= uy * f
+      }
+    }
+
+    // soft gravity toward origin keeps the whole layout compact + circular
+    for (const m of modNames) {
+      const p = centers.get(m)!
+      disp.get(m)!.x -= p.x * 0.04
+      disp.get(m)!.y -= p.y * 0.04
+    }
+
+    const temp = Math.max(0.05, 1 - iter / 160)
+    for (const m of modNames) {
+      const dd = disp.get(m)!
+      const p = centers.get(m)!
+      const len = Math.sqrt(dd.x * dd.x + dd.y * dd.y) || 1
+      const s = Math.min(len, 0.5 * temp) / len
+      p.x += dd.x * s
+      p.y += dd.y * s
+    }
+  }
+  return centers
+}
+
 export function moduleAwareLayout(
   nodes: NetNode[],
   edges: NetEdge[],
   iterations = 70,
   hubPerModule = 10,
+  spread = 1.0,
 ): LayoutResult {
   const byMod = new Map<string, NetNode[]>()
   for (const n of nodes) {
@@ -161,15 +225,10 @@ export function moduleAwareLayout(
     localRadius.set(mod, Math.sqrt(list.length))
   }
 
-  // module packing: place module centers on a circle (deterministic order)
-  const centers = new Map<string, { x: number; y: number }>()
-  const totalSpread = Math.sqrt(nodes.length) * 1.6
-  const nMods = modNames.length
-  modNames.forEach((mod, i) => {
-    const ang = (i / Math.max(1, nMods)) * Math.PI * 2
-    const r = totalSpread * 0.9
-    centers.set(mod, { x: Math.cos(ang) * r, y: Math.sin(ang) * r })
-  })
+  // module packing: FR-style (repulsion between modules + center gravity) so
+  // independent modules settle into a compact roughly-circular arrangement
+  // instead of being spread out on a large fixed circle.
+  const centers = packModules(modNames, localRadius, spread)
 
   // scale + translate each module's local layout into global coords
   const positions = new Map<string, { x: number; y: number }>()
@@ -177,7 +236,7 @@ export function moduleAwareLayout(
     const c = centers.get(mod)!
     const list = byMod.get(mod)!
     const radius = localRadius.get(mod)!
-    const scale = Math.max(radius * 0.55, 6)
+    const scale = Math.max(radius * 0.5 * spread, 5)
     for (const node of list) {
       const p = local.get(node.id)!
       positions.set(node.id, { x: c.x + p.x * scale, y: c.y + p.y * scale })

@@ -21,6 +21,7 @@ const edgesPerGene = defineModel<number>('edgesPerGene', { required: true })
 const hideGrey = defineModel<boolean>('hideGrey', { required: true })
 const hideIsolated = defineModel<boolean>('hideIsolated', { required: true })
 const hubPerModule = defineModel<number>('hubPerModule', { required: true })
+const spread = defineModel<number>('spread', { required: true })
 const showLabels = defineModel<boolean>('showLabels', { required: true })
 const showModuleLabels = defineModel<boolean>('showModuleLabels', { required: true })
 const nodeScale = defineModel<number>('nodeScale', { required: true })
@@ -135,6 +136,10 @@ const emit = defineEmits<{
         <div class="mb-2">
           <label class="form-label small mb-1">{{ t('mo.hubPerModule') }}</label>
           <input type="number" v-model.number="hubPerModule" class="form-control form-control-sm" min="1" max="50" />
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">{{ t('mo.spread') }}: <b>{{ spread.toFixed(1) }}</b></label>
+          <input type="range" v-model.number="spread" class="form-range" min="0.5" max="2.5" step="0.1" />
         </div>
 
         <div class="mb-2 fw-semibold small text-muted text-uppercase">{{ t('mo.visual') }}</div>

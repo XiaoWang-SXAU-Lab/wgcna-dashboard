@@ -10,6 +10,7 @@ const props = defineProps<{
   network: OverviewNetwork | null
   loading: boolean
   hubPerModule: number
+  spread: number
   hideIsolated: boolean
   showLabels: boolean
   showModuleLabels: boolean
@@ -48,7 +49,7 @@ const visibleEdges = computed(() => {
 
 function computeLayout() {
   if (!props.network) return
-  layout.value = moduleAwareLayout(visibleNodes.value, visibleEdges.value, 70, props.hubPerModule)
+  layout.value = moduleAwareLayout(visibleNodes.value, visibleEdges.value, 70, props.hubPerModule, props.spread)
 }
 
 function render() {
@@ -111,7 +112,7 @@ function render() {
 watch(() => [props.showLabels, props.nodeScale, props.edgeOpacity], render)
 // watch layout/filtering changes: recompute layout + render
 watch(
-  () => [props.network, props.hubPerModule, props.hideIsolated],
+  () => [props.network, props.hubPerModule, props.hideIsolated, props.spread],
   async () => {
     computeLayout()
     await nextTick()
