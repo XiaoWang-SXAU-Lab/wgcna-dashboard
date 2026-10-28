@@ -357,8 +357,10 @@ export interface OverviewData {
 }
 
 export interface OverviewNetwork {
-  nodes: { id: string; color: string; degree: number; kme: number }[]
-  edges: { source: string; target: string; weight: number }[]
+  nodes: { id: string; color: string; degree: number; kme: number; k_within: number; k_cross: number; cross_degree: number }[]
+  edges: { source: string; target: string; weight: number; type: 'intra' | 'inter' }[]
+  mode: string
+  weight_type: string
 }
 
 export interface ClusterResult {
@@ -380,8 +382,17 @@ export async function getOverview(id: string, type: 'go' | 'kegg' = 'go', onto =
   return res.json()
 }
 
-export async function getOverviewNetwork(id: string, maxNodes = 2000, minPerModule = 20, edgesPerGene = 8, hideGrey = true): Promise<OverviewNetwork> {
-  const res = await fetch(`${BASE}/jobs/${id}/overview/network?max_nodes=${maxNodes}&min_per_module=${minPerModule}&edges_per_gene=${edgesPerGene}&hide_grey=${hideGrey}`)
+export async function getOverviewNetwork(
+  id: string,
+  mode: 'intra' | 'inter' | 'combined' = 'intra',
+  maxNodes = 2000,
+  minPerModule = 20,
+  intraPerGene = 8,
+  interPerPair = 20,
+  interBudget = 300,
+  hideGrey = true,
+): Promise<OverviewNetwork> {
+  const res = await fetch(`${BASE}/jobs/${id}/overview/network?mode=${mode}&max_nodes=${maxNodes}&min_per_module=${minPerModule}&intra_per_gene=${intraPerGene}&inter_per_pair=${interPerPair}&inter_budget=${interBudget}&hide_grey=${hideGrey}`)
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/enrich"
 	"github.com/xuri/excelize/v2"
@@ -790,6 +792,10 @@ func (h *Handler) runOverviewNetwork(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) getOverviewNetwork(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	jobDir := filepath.Join(h.jobs.Dir(), id)
+	mode := r.URL.Query().Get("mode")
+	if mode != "inter" && mode != "combined" {
+		mode = "intra"
+	}
 	maxNodes := int(qfloat(r, "max_nodes"))
 	if maxNodes <= 0 {
 		maxNodes = 2000
@@ -798,32 +804,54 @@ func (h *Handler) getOverviewNetwork(w http.ResponseWriter, r *http.Request) {
 	if minPerModule <= 0 {
 		minPerModule = 20
 	}
-	edgesPerGene := int(qfloat(r, "edges_per_gene"))
-	if edgesPerGene <= 0 {
-		edgesPerGene = 8
+	intraPerGene := int(qfloat(r, "intra_per_gene"))
+	if intraPerGene <= 0 {
+		intraPerGene = 8
+	}
+	interPerPair := int(qfloat(r, "inter_per_pair"))
+	if interPerPair <= 0 {
+		interPerPair = 20
+	}
+	interBudget := int(qfloat(r, "inter_budget"))
+	if interBudget <= 0 {
+		interBudget = 300
 	}
 	hideGrey := true
 	if q := r.URL.Query().Get("hide_grey"); q == "0" || q == "false" {
 		hideGrey = false
 	}
-	nodes, edges, err := readNetworkSampled(jobDir, maxNodes, minPerModule, edgesPerGene, hideGrey)
+	idx, err := getNetworkIndex(jobDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"nodes": nodes, "edges": edges})
+	nodes, edges, err := sampleNetwork(idx, mode, maxNodes, minPerModule, intraPerGene, interPerPair, interBudget, hideGrey)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"nodes":       nodes,
+		"edges":       edges,
+		"mode":        mode,
+		"weight_type": idx.weightType,
+	})
 }
 
 type netNode struct {
-	ID     string  `json:"id"`
-	Color  string  `json:"color"`
-	Degree int     `json:"degree"`
-	Kme    float64 `json:"kme"` // |kME| to own module (hub metric)
+	ID          string  `json:"id"`
+	Color       string  `json:"color"`
+	Degree      int     `json:"degree"`
+	Kme         float64 `json:"kme"`          // |kME| to own module (intramodular hub metric)
+	KWithin     float64 `json:"k_within"`     // intramodular weighted connectivity (eligible edges)
+	KCross      float64 `json:"k_cross"`      // cross-module weighted connectivity (eligible edges)
+	CrossDegree int     `json:"cross_degree"` // number of eligible cross-module edges
 }
 type netEdge struct {
 	Source string  `json:"source"`
 	Target string  `json:"target"`
 	Weight float64 `json:"weight"`
+	Type   string  `json:"type"` // "intra" | "inter"
 }
 
 // readKmeByGene returns |kME| to each gene's own module from step4_mtrait.json.
@@ -858,25 +886,128 @@ func readKmeByGene(jobDir string, geneMod map[string]string) map[string]float64 
 	return out
 }
 
-// readNetworkSampled returns a module-aware, hub-prioritized sample of the
-// network: all modules are preserved, each keeps a minimum number of genes plus
-// a sublinear (sqrt) share of the remaining budget, ordered by |kME| so hub
-// genes are kept. Edges are intra-module only, top edgesPerGene per gene,
-// deduplicated undirected.
-func readNetworkSampled(jobDir string, maxNodes, minPerModule, edgesPerGene int, hideGrey bool) ([]netNode, []netEdge, error) {
+// networkIndex caches the parsed network for a job (nodes + metrics + grouped
+// edges), so visualization filter changes do not re-read the ~4M edge file.
+type networkIndex struct {
+	nodes       []netNode
+	geneMod     map[string]string
+	geneIdx     map[string]int
+	intraByGene map[string][]netEdge
+	interByPair map[string][]netEdge
+	weightType  string
+}
+
+var (
+	netCacheMu sync.Mutex
+	netCache   = map[string]*networkIndex{}
+	netCacheFp = map[string]string{}
+)
+
+// getNetworkIndex returns the cached per-job network index, rebuilding it when
+// the edge file changes (fingerprint = modtime + size).
+func getNetworkIndex(jobDir string) (*networkIndex, error) {
+	st, err := os.Stat(filepath.Join(jobDir, "network_edges.tsv"))
+	if err != nil {
+		return nil, err
+	}
+	fp := fmt.Sprintf("%d-%d", st.ModTime().UnixNano(), st.Size())
+	netCacheMu.Lock()
+	defer netCacheMu.Unlock()
+	if c, ok := netCache[jobDir]; ok && netCacheFp[jobDir] == fp {
+		return c, nil
+	}
+	idx, err := buildNetworkIndex(jobDir)
+	if err != nil {
+		return nil, err
+	}
+	netCache[jobDir] = idx
+	netCacheFp[jobDir] = fp
+	return idx, nil
+}
+
+// buildNetworkIndex reads the node + edge files once, classifies edges into
+// intra/inter, and computes per-gene connectivity metrics (kWithin, kCross,
+// crossDegree) from the eligible weighted network (not the filtered view).
+func buildNetworkIndex(jobDir string) (*networkIndex, error) {
 	nodes, geneMod, err := readNetworkNodes(filepath.Join(jobDir, "network_nodes.tsv"))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	kme := readKmeByGene(jobDir, geneMod)
+	idx := &networkIndex{
+		nodes:       nodes,
+		geneMod:     geneMod,
+		geneIdx:     map[string]int{},
+		intraByGene: map[string][]netEdge{},
+		interByPair: map[string][]netEdge{},
+		weightType:  "TOM",
+	}
+	for i := range nodes {
+		nodes[i].Kme = kme[nodes[i].ID]
+		idx.geneIdx[nodes[i].ID] = i
+	}
 
-	// group + order each module by |kME| descending (hub genes first)
+	f, err := os.Open(filepath.Join(jobDir, "network_edges.tsv"))
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	r := csv.NewReader(f)
+	r.Comma = '\t'
+	r.FieldsPerRecord = -1
+	if _, err := r.Read(); err != nil { // header
+		return nil, err
+	}
+	pairKey := func(a, b string) string {
+		if a > b {
+			a, b = b, a
+		}
+		return a + "\x00" + b
+	}
+	for {
+		rec, err := r.Read()
+		if err != nil {
+			break
+		}
+		if len(rec) < 3 {
+			continue
+		}
+		a, b := rec[0], rec[1]
+		ia, oka := idx.geneIdx[a]
+		ib, okb := idx.geneIdx[b]
+		if !oka || !okb {
+			continue
+		}
+		w, _ := strconv.ParseFloat(rec[2], 64)
+		ma, mb := geneMod[a], geneMod[b]
+		if ma == mb {
+			e := netEdge{a, b, w, "intra"}
+			idx.intraByGene[a] = append(idx.intraByGene[a], e)
+			idx.intraByGene[b] = append(idx.intraByGene[b], e)
+			idx.nodes[ia].KWithin += w
+			idx.nodes[ib].KWithin += w
+		} else {
+			e := netEdge{a, b, w, "inter"}
+			idx.interByPair[pairKey(ma, mb)] = append(idx.interByPair[pairKey(ma, mb)], e)
+			idx.nodes[ia].KCross += w
+			idx.nodes[ib].KCross += w
+			idx.nodes[ia].CrossDegree++
+			idx.nodes[ib].CrossDegree++
+		}
+	}
+	return idx, nil
+}
+
+// sampleNetwork selects visible nodes (module-aware, hub-first) and edges for
+// the requested mode. Intra edges use top-K per gene; inter edges use top-K per
+// module pair plus a fair per-pair floor, then fill the remaining budget by
+// weight. Edges are deduplicated undirected.
+func sampleNetwork(idx *networkIndex, mode string, maxNodes, minPerModule, intraPerGene, interPerPair, interBudget int, hideGrey bool) ([]netNode, []netEdge, error) {
 	byMod := map[string][]netNode{}
-	for _, n := range nodes {
+	for _, n := range idx.nodes {
 		if hideGrey && n.Color == "grey" {
 			continue
 		}
-		n.Kme = kme[n.ID]
 		byMod[n.Color] = append(byMod[n.Color], n)
 	}
 	for _, list := range byMod {
@@ -893,7 +1024,6 @@ func readNetworkSampled(jobDir string, maxNodes, minPerModule, edgesPerGene int,
 	}
 	sort.Strings(mods)
 
-	// sublinear allocation: sqrt(size) share, with a per-module floor
 	sqrtSum := 0.0
 	for _, m := range mods {
 		sqrtSum += math.Sqrt(float64(len(byMod[m])))
@@ -918,63 +1048,96 @@ func readNetworkSampled(jobDir string, maxNodes, minPerModule, edgesPerGene int,
 		}
 	}
 
-	// edges: intra-module + visible endpoints, top-N per gene, dedup
-	type ew struct {
-		b string
-		w float64
-	}
-	adj := map[string][]ew{}
-	f, err := os.Open(filepath.Join(jobDir, "network_edges.tsv"))
-	if err != nil {
-		return nil, nil, err
-	}
-	defer f.Close()
-	r := csv.NewReader(f)
-	r.Comma = '\t'
-	r.FieldsPerRecord = -1
-	if _, err := r.Read(); err != nil { // header
-		return nil, nil, err
-	}
-	for {
-		rec, err := r.Read()
-		if err != nil {
-			break
-		}
-		if len(rec) < 3 {
-			continue
-		}
-		a, b := rec[0], rec[1]
-		if !visible[a] || !visible[b] || geneMod[a] != geneMod[b] {
-			continue
-		}
-		w, _ := strconv.ParseFloat(rec[2], 64)
-		adj[a] = append(adj[a], ew{b, w})
-		adj[b] = append(adj[b], ew{a, w})
-	}
-
 	seen := map[string]bool{}
-	var out []netEdge
-	key := func(a, b string) string {
+	ekey := func(a, b string) string {
 		if a > b {
 			a, b = b, a
 		}
 		return a + "\x00" + b
 	}
-	for g, list := range adj {
-		sort.Slice(list, func(i, j int) bool { return list[i].w > list[j].w })
-		for i, e := range list {
-			if i >= edgesPerGene {
-				break
+	var edges []netEdge
+
+	if mode == "intra" || mode == "combined" {
+		for g := range visible {
+			list := idx.intraByGene[g]
+			sort.Slice(list, func(i, j int) bool { return list[i].Weight > list[j].Weight })
+			for i, e := range list {
+				if i >= intraPerGene {
+					break
+				}
+				if !visible[e.Source] || !visible[e.Target] {
+					continue
+				}
+				k := ekey(e.Source, e.Target)
+				if seen[k] {
+					continue
+				}
+				seen[k] = true
+				edges = append(edges, e)
 			}
-			k := key(g, e.b)
+		}
+	}
+
+	if mode == "inter" || mode == "combined" {
+		type pairT struct {
+			key  string
+			list []netEdge
+		}
+		var pairs []pairT
+		for key, list := range idx.interByPair {
+			var vis []netEdge
+			for _, e := range list {
+				if visible[e.Source] && visible[e.Target] {
+					vis = append(vis, e)
+				}
+			}
+			if len(vis) == 0 {
+				continue
+			}
+			sort.Slice(vis, func(i, j int) bool { return vis[i].Weight > vis[j].Weight })
+			if len(vis) > interPerPair {
+				vis = vis[:interPerPair]
+			}
+			pairs = append(pairs, pairT{key, vis})
+		}
+		sort.Slice(pairs, func(i, j int) bool { return pairs[i].key < pairs[j].key })
+
+		nPairs := len(pairs)
+		base := 1
+		if nPairs > 0 {
+			base = interBudget / nPairs
+		}
+		if base < 1 {
+			base = 1
+		}
+		var selected []netEdge
+		var rest []netEdge
+		for _, p := range pairs {
+			take := base
+			if take > len(p.list) {
+				take = len(p.list)
+			}
+			selected = append(selected, p.list[:take]...)
+			rest = append(rest, p.list[take:]...)
+		}
+		sort.Slice(rest, func(i, j int) bool { return rest[i].Weight > rest[j].Weight })
+		rem := interBudget - len(selected)
+		if rem > 0 && len(rest) > 0 {
+			if len(rest) > rem {
+				rest = rest[:rem]
+			}
+			selected = append(selected, rest...)
+		}
+		for _, e := range selected {
+			k := ekey(e.Source, e.Target)
 			if seen[k] {
 				continue
 			}
 			seen[k] = true
-			out = append(out, netEdge{g, e.b, e.w})
+			edges = append(edges, e)
 		}
 	}
-	return sampled, out, nil
+	return sampled, edges, nil
 }
 
 // readNetworkLimited reads network_nodes.tsv + network_edges.tsv and keeps the
@@ -1033,11 +1196,11 @@ func readNetworkLimited(jobDir string, perModule int) ([]netNode, []netEdge, err
 	var out []netEdge
 	for _, list := range byModule {
 		for _, e := range keep(list, perModule) {
-			out = append(out, netEdge{e.a, e.b, e.w})
+			out = append(out, netEdge{Source: e.a, Target: e.b, Weight: e.w, Type: "intra"})
 		}
 	}
 	for _, e := range keep(cross, perModule) {
-		out = append(out, netEdge{e.a, e.b, e.w})
+		out = append(out, netEdge{Source: e.a, Target: e.b, Weight: e.w, Type: "inter"})
 	}
 	return nodes, out, nil
 }

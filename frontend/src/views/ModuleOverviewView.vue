@@ -26,10 +26,13 @@ const midColor = ref('#ffffff')
 const highColor = ref('#a50f15')
 
 // ---- network settings ----
+const networkMode = ref<'intra' | 'inter' | 'combined'>('intra')
 const percentile = ref(10)
 const maxNodes = ref(2000)
 const minPerModule = ref(20)
-const edgesPerGene = ref(8)
+const intraPerGene = ref(8)
+const interPerPair = ref(20)
+const interBudget = ref(300)
 const hideGrey = ref(true)
 const hideIsolated = ref(true)
 const hubPerModule = ref(10)
@@ -94,11 +97,17 @@ async function loadOverview() {
   }
 }
 
+// fetch combined (both edge types) for inter/combined so the layout is shared
+// across modes; intra mode fetches intra-only (light, no cross-edge processing).
+function fetchMode(): 'intra' | 'combined' {
+  return networkMode.value === 'intra' ? 'intra' : 'combined'
+}
+
 async function fetchNetwork() {
   if (!store.jobId || networkLoading.value) return
   networkLoading.value = true
   try {
-    network.value = await getOverviewNetwork(store.jobId, maxNodes.value, minPerModule.value, edgesPerGene.value, hideGrey.value)
+    network.value = await getOverviewNetwork(store.jobId, fetchMode(), maxNodes.value, minPerModule.value, intraPerGene.value, interPerPair.value, interBudget.value, hideGrey.value)
   } finally {
     networkLoading.value = false
   }
@@ -112,7 +121,7 @@ async function buildNetwork() {
     for (let i = 0; i < 240; i++) {
       await new Promise((r) => setTimeout(r, 1000))
       try {
-        network.value = await getOverviewNetwork(store.jobId, maxNodes.value, minPerModule.value, edgesPerGene.value, hideGrey.value)
+        network.value = await getOverviewNetwork(store.jobId, fetchMode(), maxNodes.value, minPerModule.value, intraPerGene.value, interPerPair.value, interBudget.value, hideGrey.value)
         break
       } catch {
         /* still computing */
@@ -199,10 +208,13 @@ function renderElbow() {
 }
 
 function resetNetworkSettings() {
+  networkMode.value = 'intra'
   percentile.value = 10
   maxNodes.value = 2000
   minPerModule.value = 20
-  edgesPerGene.value = 8
+  intraPerGene.value = 8
+  interPerPair.value = 20
+  interBudget.value = 300
   hideGrey.value = true
   hideIsolated.value = true
   hubPerModule.value = 10
@@ -254,9 +266,9 @@ watch([clusterEnrichType, clusterOnto, topN, maxCountOn, lowColor, midColor, hig
 watch(percentile, () => {
   if (network.value) networkDirty.value = true
 })
-// filtering setting change → re-fetch (re-sample) from existing files, debounced
+// filtering/sampling setting change → re-fetch (re-sample) from existing files, debounced
 let reSampleTimer: ReturnType<typeof setTimeout> | undefined
-watch([maxNodes, edgesPerGene, hideGrey], () => {
+watch([networkMode, maxNodes, intraPerGene, interPerPair, interBudget, hideGrey], () => {
   if (!network.value) return
   clearTimeout(reSampleTimer)
   reSampleTimer = setTimeout(() => fetchNetwork(), 400)
@@ -274,7 +286,8 @@ onMounted(() => {
         v-model:tab="tab"
         v-model:enrich-type="enrichType" v-model:onto="onto" v-model:top-n="topN" v-model:max-count-on="maxCountOn"
         v-model:low-color="lowColor" v-model:mid-color="midColor" v-model:high-color="highColor"
-        v-model:percentile="percentile" v-model:max-nodes="maxNodes" v-model:edges-per-gene="edgesPerGene"
+        v-model:percentile="percentile" v-model:max-nodes="maxNodes" v-model:network-mode="networkMode"
+        v-model:intra-per-gene="intraPerGene" v-model:inter-per-pair="interPerPair" v-model:inter-budget="interBudget"
         v-model:hide-grey="hideGrey" v-model:hide-isolated="hideIsolated" v-model:hub-per-module="hubPerModule"
         v-model:spread="spread"
         v-model:show-labels="showLabels" v-model:show-module-labels="showModuleLabels"
@@ -322,7 +335,8 @@ onMounted(() => {
         <!-- network -->
         <div v-else-if="tab === 'network'" class="h-100">
           <OverviewNetworkPanel
-            :network="network" :loading="networkLoading" :hub-per-module="hubPerModule" :spread="spread"
+            :network="network" :loading="networkLoading" :network-mode="networkMode"
+            :hub-per-module="hubPerModule" :spread="spread"
             :hide-isolated="hideIsolated" :show-labels="showLabels" :show-module-labels="showModuleLabels"
             :node-scale="nodeScale" :edge-opacity="edgeOpacity"
             @build="buildNetwork" @export="() => {}"

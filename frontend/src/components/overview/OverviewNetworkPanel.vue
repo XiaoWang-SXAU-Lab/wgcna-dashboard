@@ -9,6 +9,7 @@ import type { OverviewNetwork } from '../../api/client'
 const props = defineProps<{
   network: OverviewNetwork | null
   loading: boolean
+  networkMode: 'intra' | 'inter' | 'combined'
   hubPerModule: number
   spread: number
   hideIsolated: boolean
@@ -28,38 +29,53 @@ const chart = ref<echarts.ECharts | null>(null)
 const layout = ref<LayoutResult | null>(null)
 const fullscreen = ref(false)
 
-// ---- visible graph (hide isolated = drop degree-zero nodes from selected edges) ----
-const visibleNodes = computed(() => {
+// display edges: filter the fetched (intra or combined) edges by the mode
+const displayEdges = computed(() => {
   if (!props.network) return []
-  if (!props.hideIsolated) return props.network.nodes
+  const all = props.network.edges
+  if (props.networkMode === 'intra') return all.filter((e) => e.type === 'intra')
+  if (props.networkMode === 'inter') return all.filter((e) => e.type === 'inter')
+  return all
+})
+
+// display nodes: hide isolated (degree-zero in the displayed edges)
+const displayNodes = computed(() => {
+  if (!props.network) return []
+  const all = props.network.nodes
+  if (!props.hideIsolated) return all
   const deg = new Map<string, number>()
-  for (const e of props.network.edges) {
+  for (const e of displayEdges.value) {
     deg.set(e.source, (deg.get(e.source) ?? 0) + 1)
     deg.set(e.target, (deg.get(e.target) ?? 0) + 1)
   }
-  return props.network.nodes.filter((n) => (deg.get(n.id) ?? 0) > 0)
+  return all.filter((n) => (deg.get(n.id) ?? 0) > 0)
 })
 
-const visibleEdges = computed(() => {
-  if (!props.network) return []
-  if (!props.hideIsolated) return props.network.edges
-  const ids = new Set(visibleNodes.value.map((n) => n.id))
-  return props.network.edges.filter((e) => ids.has(e.source) && ids.has(e.target))
+const intraCount = computed(() => displayEdges.value.filter((e) => e.type === 'intra').length)
+const interCount = computed(() => displayEdges.value.filter((e) => e.type === 'inter').length)
+
+// bridge genes: top k_cross (only relevant for inter/combined)
+const bridgeIds = computed(() => {
+  if (!props.network || props.networkMode === 'intra') return new Set<string>()
+  const sorted = [...props.network.nodes].filter((n) => n.cross_degree > 0).sort((a, b) => b.k_cross - a.k_cross)
+  return new Set(sorted.slice(0, 20).map((n) => n.id))
 })
 
+// layout from the FULL fetched network (shared across modes; inter/combined
+// share one combined layout so nodes don't jump when toggling)
 function computeLayout() {
   if (!props.network) return
-  layout.value = moduleAwareLayout(visibleNodes.value, visibleEdges.value, 70, props.hubPerModule, props.spread)
+  layout.value = moduleAwareLayout(props.network.nodes, props.network.edges, 70, props.hubPerModule, props.spread)
 }
 
 function render() {
   if (!el.value || !props.network || !layout.value) return
   if (!chart.value) chart.value = echarts.init(el.value)
-  const nodeById = new Map(visibleNodes.value.map((n) => [n.id, n]))
 
-  const nodes = visibleNodes.value.map((n) => {
+  const nodes = displayNodes.value.map((n) => {
     const p = layout.value!.positions.get(n.id) ?? { x: 0, y: 0 }
     const isHub = layout.value!.hubs.has(n.id)
+    const isBridge = bridgeIds.value.has(n.id)
     const size = (isHub ? 6 + n.kme * 12 : 3 + Math.min(n.kme, 0.6) * 10) * props.nodeScale
     return {
       id: n.id,
@@ -69,19 +85,26 @@ function render() {
       symbolSize: Math.max(2, size),
       itemStyle: {
         color: n.color,
-        borderColor: isHub ? '#111' : n.color,
-        borderWidth: isHub ? 2 : 0.4,
+        borderColor: isBridge ? '#d97706' : isHub ? '#111' : n.color,
+        borderWidth: isBridge || isHub ? 2 : 0.4,
         opacity: 0.95,
       },
       module: n.color,
       kme: n.kme,
+      kCross: n.k_cross,
+      crossDegree: n.cross_degree,
+      isBridge,
       label: { show: props.showLabels, fontSize: 8, color: '#334' },
     }
   })
-  const edges = visibleEdges.value.map((e) => ({
+  const edges = displayEdges.value.map((e) => ({
     source: e.source,
     target: e.target,
-    lineStyle: { opacity: props.edgeOpacity, width: 0.5 },
+    lineStyle: {
+      opacity: props.edgeOpacity,
+      width: 0.5,
+      color: e.type === 'inter' ? '#b45309' : '#9aa5b1',
+    },
   }))
 
   chart.value.setOption({
@@ -90,8 +113,7 @@ function render() {
       formatter: (p: any) => {
         const d = p.data as any
         if (!d || d.source != null) return ''
-        const n = nodeById.get(d.id)
-        return `<b>${d.id}</b><br/>module: ${d.module}<br/>|kME|: ${d.kme?.toFixed(3) ?? '—'}`
+        return `<b>${d.id}</b><br/>module: ${d.module}<br/>|kME|: ${d.kme?.toFixed(3) ?? '—'}<br/>kCross: ${d.kCross?.toFixed(2) ?? '—'} (deg ${d.crossDegree ?? 0})`
       },
     },
     series: [{
@@ -100,7 +122,7 @@ function render() {
       roam: true,
       data: nodes,
       links: edges,
-      categories: [...new Set(visibleNodes.value.map((n) => n.color))].map((c) => ({ name: c, itemStyle: { color: c } })),
+      categories: [...new Set(displayNodes.value.map((n) => n.color))].map((c) => ({ name: c, itemStyle: { color: c } })),
       label: { show: false },
       emphasis: { focus: 'adjacency', label: { show: props.showLabels } },
       lineStyle: { color: '#9aa5b1' },
@@ -109,7 +131,7 @@ function render() {
 }
 
 // watch display/styling changes: re-render without recomputing layout
-watch(() => [props.showLabels, props.nodeScale, props.edgeOpacity], render)
+watch(() => [props.showLabels, props.nodeScale, props.edgeOpacity, props.networkMode], render)
 // watch layout/filtering changes: recompute layout + render
 watch(
   () => [props.network, props.hubPerModule, props.hideIsolated, props.spread],
@@ -160,7 +182,9 @@ onBeforeUnmount(() => {
       <button class="btn btn-sm btn-outline-secondary" :disabled="!network" @click="fullscreenToggle"><i class="bi bi-fullscreen me-1"></i>{{ t('mo.fullscreen') }}</button>
       <button class="btn btn-sm btn-outline-secondary" :disabled="!network" @click="emit('export')"><i class="bi bi-download me-1"></i>{{ t('mo.exportView') }}</button>
       <span v-if="network" class="small text-muted ms-auto">
-        {{ visibleNodes.length }} {{ t('mo.nodes') }} · {{ visibleEdges.length }} {{ t('mo.edges') }}
+        {{ displayNodes.length }} {{ t('mo.nodes') }}
+        <span v-if="networkMode !== 'inter'"> · {{ intraCount }} intra</span>
+        <span v-if="networkMode !== 'intra'"> · {{ interCount }} inter</span>
       </span>
     </div>
 

@@ -15,9 +15,12 @@ const midColor = defineModel<string>('midColor', { required: true })
 const highColor = defineModel<string>('highColor', { required: true })
 
 // network
+const networkMode = defineModel<'intra' | 'inter' | 'combined'>('networkMode', { required: true })
 const percentile = defineModel<number>('percentile', { required: true })
 const maxNodes = defineModel<number>('maxNodes', { required: true })
-const edgesPerGene = defineModel<number>('edgesPerGene', { required: true })
+const intraPerGene = defineModel<number>('intraPerGene', { required: true })
+const interPerPair = defineModel<number>('interPerPair', { required: true })
+const interBudget = defineModel<number>('interBudget', { required: true })
 const hideGrey = defineModel<boolean>('hideGrey', { required: true })
 const hideIsolated = defineModel<boolean>('hideIsolated', { required: true })
 const hubPerModule = defineModel<number>('hubPerModule', { required: true })
@@ -107,6 +110,15 @@ const emit = defineEmits<{
       <template v-else-if="tab === 'network'">
         <div class="mb-2 fw-semibold small text-muted text-uppercase">{{ t('mo.networkConstruction') }}</div>
         <div class="mb-2">
+          <label class="form-label small mb-1">{{ t('mo.networkMode') }}</label>
+          <select v-model="networkMode" class="form-select form-select-sm">
+            <option value="intra">{{ t('mo.modeIntra') }}</option>
+            <option value="inter">{{ t('mo.modeInter') }}</option>
+            <option value="combined">{{ t('mo.modeCombined') }}</option>
+          </select>
+        </div>
+        <div v-if="networkMode !== 'intra'" class="alert alert-warning py-1 px-2 small mb-2">{{ t('mo.interModeHint') }}</div>
+        <div class="mb-2">
           <label class="form-label small mb-1">{{ t('mo.percentile') }} (%)</label>
           <input type="number" v-model.number="percentile" class="form-control form-control-sm" min="1" max="100" />
         </div>
@@ -119,9 +131,17 @@ const emit = defineEmits<{
           <label class="form-label small mb-1">{{ t('mo.maxNodes') }}</label>
           <input type="number" v-model.number="maxNodes" class="form-control form-control-sm" min="100" max="8000" />
         </div>
-        <div class="mb-2">
-          <label class="form-label small mb-1">{{ t('mo.edgesPerGene') }}</label>
-          <input type="number" v-model.number="edgesPerGene" class="form-control form-control-sm" min="1" max="50" />
+        <div v-if="networkMode === 'intra' || networkMode === 'combined'" class="mb-2">
+          <label class="form-label small mb-1">{{ t('mo.intraPerGene') }}</label>
+          <input type="number" v-model.number="intraPerGene" class="form-control form-control-sm" min="1" max="50" />
+        </div>
+        <div v-if="networkMode === 'inter' || networkMode === 'combined'" class="mb-2">
+          <label class="form-label small mb-1">{{ t('mo.interPerPair') }}</label>
+          <input type="number" v-model.number="interPerPair" class="form-control form-control-sm" min="1" max="100" />
+        </div>
+        <div v-if="networkMode === 'inter' || networkMode === 'combined'" class="mb-2">
+          <label class="form-label small mb-1">{{ t('mo.interBudget') }}</label>
+          <input type="number" v-model.number="interBudget" class="form-control form-control-sm" min="10" max="5000" />
         </div>
         <div class="form-check mb-1">
           <input type="checkbox" v-model="hideGrey" class="form-check-input" id="netGrey" />
