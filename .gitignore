@@ -8,6 +8,8 @@
 /frontend/tsconfig.tsbuildinfo
 /wgcna-dashboard
 /wgcna-dashboard.exe
+/wgcna-dashboard-preview.exe
+/rsWGCNA-windows-restored.exe
 /dist-windows
 /build
 Rplots.pdf

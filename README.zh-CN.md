@@ -98,22 +98,18 @@ wgcna-dashboard/
 
 ## 构建
 
-需要 Node ≥ 22、pnpm、Go ≥ 1.24、Rust（用于 worker）。
+Windows 与 macOS 使用各自的本机构建目录，避免同步依赖和引擎时相互覆盖。
+完整环境及输出位置见 [BUILDING.md](BUILDING.md)。需要 Node、pnpm、Go（版本以 `backend/go.mod` 为准）和 Rust。
 
 ```bash
-# 单二进制——内嵌前端 + Rust worker
-make build            # -> ./wgcna-dashboard
-
-# 或分步
-cd frontend && pnpm install && pnpm build          # 前端
-cd ../rs_WGCNA && cargo build --release --bin rs-wgcna-worker   # worker
-cd backend && go build -tags release ./cmd/server  # 后端
+# macOS：在同步盘外构建，内嵌前端 + Rust worker
+bash scripts/build-macos.sh
 ```
 
-运行：
+Windows（PowerShell）：
 
-```bash
-WGCNA_JOBS_DIR=/tmp/wgcna-home ./wgcna-dashboard   # http://localhost:8080
+```powershell
+.\scripts\build-windows.ps1 -Launch
 ```
 
 ---

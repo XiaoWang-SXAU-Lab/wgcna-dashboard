@@ -105,22 +105,19 @@ wgcna-dashboard/
 
 ## Build
 
-Requires Node ≥ 22, pnpm, Go ≥ 1.24, and Rust (for the worker).
+Windows and macOS builds use separate machine-local directories to avoid
+syncing incompatible dependencies and embedded workers. See [BUILDING.md](BUILDING.md).
+Requires Node, pnpm, Go (see `backend/go.mod`), and Rust.
 
 ```bash
-# Single binary — embeds the frontend and the Rust worker
-make build            # -> ./wgcna-dashboard
-
-# Or step by step
-cd frontend && pnpm install && pnpm build          # frontend
-cd ../rs_WGCNA && cargo build --release --bin rs-wgcna-worker   # worker
-cd backend && go build -tags release ./cmd/server  # backend
+# macOS: build outside the synchronized source tree
+bash scripts/build-macos.sh
 ```
 
-Run:
+Windows (PowerShell):
 
-```bash
-WGCNA_JOBS_DIR=/tmp/wgcna-home ./wgcna-dashboard   # http://localhost:8080
+```powershell
+.\scripts\build-windows.ps1 -Launch
 ```
 
 ---
