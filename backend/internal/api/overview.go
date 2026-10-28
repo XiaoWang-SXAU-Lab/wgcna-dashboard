@@ -9,15 +9,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/enrich"
 	"github.com/xuri/excelize/v2"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/plot"
 )
 
-// overviewData assembles the "module overview" payload for the three-part figure:
-// z-scored expression, per-gene module colors, per-module eigengenes, and
-// per-module enrichment top-N terms (skipped when no background file is present).
 func overviewData(jobDir, enrichType string, fdr float64, topN int) (json.RawMessage, error) {
 	if fdr <= 0 || fdr > 1 {
 		fdr = 0.05
@@ -31,6 +29,24 @@ func overviewData(jobDir, enrichType string, fdr float64, topN int) (json.RawMes
 		return nil, err
 	}
 	g, n := len(genes), len(samples)
+
+	// sample metadata + ordering (group by "group", else sort sample id) + annotations
+	meta, colOrder := readSampleMeta(jobDir)
+	groupCol := ""
+	for _, c := range colOrder {
+		if c == "group" {
+			groupCol = "group"
+			break
+		}
+	}
+	order := computeSampleOrder(samples, meta, groupCol)
+
+	// reorder samples + matrix columns
+	samples = permute(samples, order)
+	for i := range mat {
+		mat[i] = permute(mat[i], order)
+	}
+	sampleAnn := buildSampleAnnotations(samples, meta, colOrder)
 
 	// z-score each gene (row)
 	z := make([][]float64, g)
@@ -56,38 +72,49 @@ func overviewData(jobDir, enrichType string, fdr float64, topN int) (json.RawMes
 		z[i] = row
 	}
 
-	// module colors (per gene) + sizes + display order
+	// module colors (per gene)
 	colors, err := moduleColors(jobDir, g)
 	if err != nil {
 		return nil, err
+	}
+
+	// exclude grey genes
+	keepIdx := make([]int, 0, g)
+	for i, c := range colors {
+		if c != "grey" {
+			keepIdx = append(keepIdx, i)
+		}
+	}
+	genes = permute(genes, keepIdx)
+	colors = permute(colors, keepIdx)
+	zz := make([][]float64, len(keepIdx))
+	for i, ki := range keepIdx {
+		zz[i] = z[ki]
+	}
+	z = zz
+	g = len(genes)
+
+	// module sizes + display order (grey already excluded)
+	sizeMap := map[string]int{}
+	for _, c := range colors {
+		sizeMap[c]++
 	}
 	type modInfo struct {
 		color string
 		size  int
 	}
-	sizeMap := map[string]int{}
-	for _, c := range colors {
-		sizeMap[c]++
-	}
 	mods := make([]modInfo, 0, len(sizeMap))
 	for c, s := range sizeMap {
 		mods = append(mods, modInfo{c, s})
 	}
-	sort.Slice(mods, func(i, j int) bool {
-		if mods[i].color == "grey" {
-			return false
-		}
-		if mods[j].color == "grey" {
-			return true
-		}
-		return mods[i].size > mods[j].size
-	})
+	sort.Slice(mods, func(i, j int) bool { return mods[i].size > mods[j].size })
 	moduleOrder := make([]string, len(mods))
 	for i, m := range mods {
 		moduleOrder[i] = m.color
 	}
 
 	// eigengenes (transpose step4_mtrait.json samples×modules -> module->[per sample])
+	// + reorder samples per `order` + exclude grey modules.
 	eigengenes := map[string][]float64{}
 	kmeByGene := map[string]float64{}
 	modIndex := map[string]int{}
@@ -106,12 +133,14 @@ func overviewData(jobDir, enrichType string, fdr float64, topN int) (json.RawMes
 						vec[j] = mt.Eigengenes[j][mi]
 					}
 				}
-				eigengenes[m] = vec
+				eigengenes[m] = permute(vec, order)
 			}
+			// kME per kept gene (colors[i] is post-filter)
 			for i := range genes {
-				if i < len(mt.Kme) {
-					if mi, ok := modIndex[colors[i]]; ok && mi < len(mt.Kme[i]) {
-						kmeByGene[genes[i]] = mt.Kme[i][mi]
+				origIdx := keepIdx[i]
+				if origIdx < len(mt.Kme) {
+					if mi, ok := modIndex[colors[i]]; ok && mi < len(mt.Kme[origIdx]) {
+						kmeByGene[genes[i]] = mt.Kme[origIdx][mi]
 					}
 				}
 			}
@@ -132,9 +161,6 @@ func overviewData(jobDir, enrichType string, fdr float64, topN int) (json.RawMes
 	}
 	if enrichAvailable {
 		for _, m := range moduleOrder {
-			if m == "grey" {
-				continue
-			}
 			mgenes, err := enrich.ModuleGenes(jobDir, m)
 			if err != nil || len(mgenes) == 0 {
 				continue
@@ -160,19 +186,129 @@ func overviewData(jobDir, enrichType string, fdr float64, topN int) (json.RawMes
 	}
 
 	payload := map[string]any{
-		"genes":         genes,
-		"samples":       samples,
-		"z":             z,
-		"modules":       colors,
-		"module_order":  moduleOrder,
-		"eigengenes":    eigengenes,
-		"kme":           kmeByGene,
-		"enrich":        enrichMap,
-		"module_sizes":  sizeMap,
-		"enrich_type":   enrichType,
-		"enrich_ok":     enrichAvailable,
+		"genes":              genes,
+		"samples":            samples,
+		"z":                  z,
+		"modules":            colors,
+		"module_order":       moduleOrder,
+		"module_colors":      moduleColorMap(moduleOrder),
+		"eigengenes":         eigengenes,
+		"kme":                kmeByGene,
+		"enrich":             enrichMap,
+		"module_sizes":       sizeMap,
+		"enrich_type":        enrichType,
+		"enrich_ok":          enrichAvailable,
+		"sample_annotations": sampleAnn,
 	}
 	return json.Marshal(payload)
+}
+
+// permute reorders a string or float slice by the given indices.
+func permute[T any](s []T, idx []int) []T {
+	out := make([]T, len(idx))
+	for i, j := range idx {
+		out[i] = s[j]
+	}
+	return out
+}
+
+// moduleColorMap maps each module to its color. For WGCNA the module name is
+// itself a valid color name (turquoise, blue, ...); kmeans/cmeans pass "C1..Ck"
+// which need generated colors, handled by the caller.
+func moduleColorMap(moduleOrder []string) map[string]string {
+	m := make(map[string]string, len(moduleOrder))
+	for _, mod := range moduleOrder {
+		m[mod] = mod
+	}
+	return m
+}
+
+// readSampleMeta reads sample_info.tsv into map[sampleID]map[column]value + column order.
+func readSampleMeta(jobDir string) (map[string]map[string]string, []string) {
+	b, err := os.ReadFile(filepath.Join(jobDir, "sample_info.tsv"))
+	if err != nil {
+		return nil, nil
+	}
+	r := csv.NewReader(strings.NewReader(string(b)))
+	r.Comma = '\t'
+	r.FieldsPerRecord = -1
+	header, err := r.Read()
+	if err != nil {
+		return nil, nil
+	}
+	meta := map[string]map[string]string{}
+	for {
+		rec, err := r.Read()
+		if err != nil {
+			break
+		}
+		if len(rec) < 2 {
+			continue
+		}
+		row := map[string]string{}
+		for i, col := range header {
+			if i < len(rec) {
+				row[col] = rec[i]
+			}
+		}
+		meta[rec[0]] = row
+	}
+	var colOrder []string
+	for _, c := range header {
+		if c != "sample_id" && c != "sample_name" {
+			colOrder = append(colOrder, c)
+		}
+	}
+	return meta, colOrder
+}
+
+// computeSampleOrder returns indices that group samples by groupCol (stable),
+// or sort by sample id when groupCol is empty.
+func computeSampleOrder(samples []string, meta map[string]map[string]string, groupCol string) []int {
+	idx := make([]int, len(samples))
+	for i := range idx {
+		idx[i] = i
+	}
+	if groupCol != "" {
+		sort.SliceStable(idx, func(a, b int) bool {
+			ga := ""
+			gb := ""
+			if meta != nil {
+				ga = meta[samples[idx[a]]][groupCol]
+				gb = meta[samples[idx[b]]][groupCol]
+			}
+			return ga < gb
+		})
+	} else {
+		sort.SliceStable(idx, func(a, b int) bool { return samples[idx[a]] < samples[idx[b]] })
+	}
+	return idx
+}
+
+// buildSampleAnnotations returns the first up-to-3 metadata columns (excluding
+// sample id/name) as {name, values-per-sample} annotations for the x-axis.
+func buildSampleAnnotations(samples []string, meta map[string]map[string]string, colOrder []string) []map[string]any {
+	var ann []map[string]any
+	for _, col := range colOrder {
+		values := make([]string, len(samples))
+		has := false
+		for i, s := range samples {
+			if meta != nil {
+				if v, ok := meta[s][col]; ok {
+					values[i] = v
+					has = true
+				}
+			}
+		}
+		if !has {
+			continue
+		}
+		ann = append(ann, map[string]any{"name": col, "values": values})
+		if len(ann) >= 3 {
+			break
+		}
+	}
+	return ann
 }
 
 // readFilteredMatrix reads step1_filtered.tsv as genes (rows) × samples (cols).
@@ -267,13 +403,13 @@ func (h *Handler) plotOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	params := plot.PlotParams{
-		Low:       r.URL.Query().Get("low"),
-		Mid:       r.URL.Query().Get("mid"),
-		High:      r.URL.Query().Get("high"),
-		Width:     qfloat(r, "width"),
-		Height:    qfloat(r, "height"),
-		Dpi:       qfloat(r, "dpi"),
-		BaseSize:  qfloat(r, "base_size"),
+		Low:          r.URL.Query().Get("low"),
+		Mid:          r.URL.Query().Get("mid"),
+		High:         r.URL.Query().Get("high"),
+		Width:        qfloat(r, "width"),
+		Height:       qfloat(r, "height"),
+		Dpi:          qfloat(r, "dpi"),
+		BaseSize:     qfloat(r, "base_size"),
 		ShowCategory: int(qfloat(r, "top")),
 	}
 	out, ctype, err := plot.RenderModuleOverview(data, mode, params)
@@ -286,8 +422,6 @@ func (h *Handler) plotOverview(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="module_overview.`+mode+`"`)
 	http.ServeFile(w, r, out)
 }
-
-// updateParamsField merges one top-level field into the job's params.json.
 func updateParamsField(jobDir, key string, value any) error {
 	path := filepath.Join(jobDir, "params.json")
 	var p map[string]any

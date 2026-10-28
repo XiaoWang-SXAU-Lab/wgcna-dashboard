@@ -1,8 +1,9 @@
 #!/usr/bin/env Rscript
-# Module overview — three-part figure (ClusterGVis style):
-#   left  : per-module eigengene sparkline (aligned to each module block)
-#   middle: z-scored gene heatmap, row_split by module, genes clustered within module
-#   right : per-module GO/KEGG enrichment top-N terms
+# Module overview figure — plotting logic reverse-engineered from
+# ClusterGVis::visCluster (junjunlab/ClusterGVis), re-implemented with only
+# ComplexHeatmap + circlize (no dplyr/ggplot2/clusterProfiler). Clustering and
+# enrichment are performed upstream in Rust; this script only plots.
+# Reference: junjunlab/ClusterGVis <https://github.com/junjunlab/ClusterGVis>
 suppressPackageStartupMessages({
   library(jsonlite)
   library(ComplexHeatmap)
@@ -20,111 +21,142 @@ get_arg <- function(name, default = NULL) {
 json_path <- get_arg("--json")
 out_path  <- get_arg("--out")
 mode      <- get_arg("--mode", "png")
-width     <- as.numeric(get_arg("--width", "16"))
+width     <- as.numeric(get_arg("--width", "18"))
 height    <- as.numeric(get_arg("--height", "12"))
 dpi       <- as.numeric(get_arg("--dpi", "150"))
-low       <- get_arg("--low", "#2166ac")
-mid       <- get_arg("--mid", "#ffffff")
-high      <- get_arg("--high", "#b2182b")
 top_n     <- as.integer(get_arg("--top-n", "5"))
 font_size <- as.numeric(get_arg("--base-size", "8"))
+line_col  <- get_arg("--line-col", "#CC3333")
+low       <- get_arg("--low", "#08519C")
+mid       <- get_arg("--mid", "white")
+high      <- get_arg("--high", "#A50F15")
 
 if (is.null(json_path) || is.null(out_path)) stop("usage: render_module_overview.R --json <f> --out <f>")
 
 d <- fromJSON(json_path, simplifyVector = FALSE)
 
-z <- matrix(as.numeric(unlist(d$z)), nrow = length(d$genes), byrow = TRUE)
-rownames(z) <- unlist(d$genes)
-colnames(z) <- unlist(d$samples)
-modules    <- unlist(d$modules)
-mod_order  <- unlist(d$module_order)
-eigengenes <- d$eigengenes          # named list: module -> numeric vector (per sample)
-enrich     <- d$enrich              # named list: module -> list of {term, padj} (display order)
+genes        <- unlist(d$genes)
+samples      <- unlist(d$samples)
+z            <- matrix(as.numeric(unlist(d$z)), nrow = length(genes), byrow = TRUE)
+rownames(z)  <- genes
+colnames(z)  <- samples
+modules      <- unlist(d$modules)
+module_order <- unlist(d$module_order)
+enrich       <- d$enrich
+sample_ann   <- d$sample_annotations   # list of {name, values}
 
-module_factor <- factor(modules, levels = mod_order)
+# explicit color per module/cluster (WGCNA uses its own color names; kmeans/cmeans
+# pass generated colors). Fall back to the module name (valid R color for WGCNA).
+module_colors <- d$module_colors
+if (is.null(module_colors)) {
+  module_colors <- setNames(module_order, module_order)
+} else {
+  module_colors <- unlist(module_colors)
+}
+
+module_factor <- factor(modules, levels = module_order)
 col_fun <- colorRamp2(c(-2, 0, 2), c(low, mid, high))
+n_samples <- length(samples)
 
-# module color block (adjacent to heatmap body)
+# ---- sample annotations (all selected metadata columns as color blocks) ----
+sample_group <- NULL
+column_split <- NULL
+top_anno <- NULL
+if (!is.null(sample_ann) && length(sample_ann) > 0) {
+  df <- as.data.frame(lapply(sample_ann, function(a) factor(unlist(a$values))),
+                      stringsAsFactors = FALSE)
+  names(df) <- vapply(sample_ann, function(a) a$name, character(1))
+  top_anno <- HeatmapAnnotation(
+    df = df, which = "column", show_annotation_name = FALSE,
+    annotation_name_gp = gpar(fontsize = font_size), gp = gpar(col = "white")
+  )
+  sample_group <- setNames(unlist(sample_ann[[1]]$values), samples)
+  column_split <- factor(sample_group, levels = unique(sample_group))
+}
+
+# ---- left annotation: median-expression line per module (visCluster panel_fun) ----
+panel_fun <- function(index, nm) {
+  tmpmat <- z[index, , drop = FALSE]
+  rg <- range(tmpmat)
+  mdia <- apply(tmpmat, 2, median)
+  pushViewport(viewport(xscale = c(-0.1, 1.1), yscale = c(0, 1)))
+  grid.rect()
+  # rescale sample axis to c(0.1, 0.9), value to c(0,1) from rg±0.5 (visCluster)
+  pos <- (seq_len(ncol(tmpmat)) - 1) / max(ncol(tmpmat) - 1, 1) * 0.8 + 0.1
+  y <- (mdia - (rg[1] - 0.5)) / ((rg[2] + 0.5) - (rg[1] - 0.5))
+  linec <- module_colors[[nm]]
+  if (is.null(linec)) linec <- nm
+  grid.lines(x = pos, y = y, gp = gpar(lwd = 3, col = linec))
+  grid.text(paste("Gene size:", length(index)), x = 0.5, y = 0.8,
+            gp = gpar(fontsize = font_size, fontface = "italic"))
+  popViewport()
+}
+
+left_anno <- rowAnnotation(
+  line = anno_link(
+    align_to = module_factor, which = "row", panel_fun = panel_fun,
+    size = unit(2, "cm"), gap = unit(0.25, "cm"), width = unit(4, "cm"),
+    side = "left", link_gp = gpar(fill = "grey90", col = NA)
+  ),
+  show_annotation_name = FALSE
+)
+
+# module color block (WGCNA uses its own color names; kmeans/cmeans use generated colors)
 left_mod <- rowAnnotation(
   Module = anno_block(
-    gp = gpar(fill = mod_order),
-    labels = mod_order,
-    labels_gp = gpar(col = "#111", fontsize = font_size),
-    width = unit(0.9, "cm"),
+    gp = gpar(fill = unname(module_colors[module_order])),
+    labels = rep("", length(module_order)),
+    width = unit(0.4, "cm"),
     show_name = FALSE
   ),
   show_annotation_name = FALSE
 )
 
-# eigengene sparkline (leftmost); panel_fun's `nm` is the 1-based block index,
-# so map it back to the module name via a closure over mod_order.
-left_eig <- local({
-  eg <- eigengenes
-  ord <- mod_order
-  rowAnnotation(
-    Eigengene = anno_block(
-      width = unit(3.4, "cm"),
-      show_name = FALSE,
-      panel_fun = function(index, nm) {
-        mod_name <- ord[as.integer(nm)]
-        v <- as.numeric(eg[[mod_name]])
-        if (length(v) < 2) return(invisible(NULL))
-        rng <- range(v)
-        y <- if (diff(rng) == 0) rep(0.5, length(v)) else (v - rng[1]) / diff(rng)
-        x <- (seq_along(v) - 1) / max(length(v) - 1, 1)
-        grid.lines(x, y, gp = gpar(col = mod_name, lwd = 2))
-        grid.points(x, y, pch = 16, size = unit(0.6, "mm"), gp = gpar(col = mod_name))
-      }
-    ),
-    show_annotation_name = FALSE
+# ---- right annotation: enrichment terms (anno_textbox, one term per line) ----
+text_list <- lapply(module_order, function(m) {
+  terms <- enrich[[m]]
+  if (is.null(terms) || length(terms) == 0) {
+    return(data.frame(text = "\u2014", stringsAsFactors = FALSE))
+  }
+  terms <- head(terms, top_n)
+  data.frame(
+    text = vapply(terms, function(t) t$term, character(1)),
+    col = rep("#233b40", length(terms)),
+    fontsize = rep(font_size, length(terms)),
+    stringsAsFactors = FALSE
   )
 })
+names(text_list) <- module_order
+right_anno <- rowAnnotation(
+  textbox = anno_textbox(
+    module_factor, text_list, which = "row", side = "right",
+    word_wrap = TRUE, add_new_line = TRUE,
+    background_gp = gpar(fill = "grey95", col = "grey50")
+  ),
+  show_annotation_name = FALSE
+)
 
-# enrichment terms (right); map block index -> module name the same way.
-right_enrich <- local({
-  en <- enrich
-  ord <- mod_order
-  rowAnnotation(
-    Enrichment = anno_block(
-      width = unit(5.5, "cm"),
-      show_name = FALSE,
-      panel_fun = function(index, nm) {
-        mod_name <- ord[as.integer(nm)]
-        terms <- en[[mod_name]]
-        if (is.null(terms) || length(terms) == 0) {
-          grid.text("—", x = 0.02, y = 0.5, just = "left",
-                    gp = gpar(col = "#9aa0a6", fontsize = font_size))
-          return(invisible(NULL))
-        }
-        terms <- head(terms, top_n)
-        n <- length(terms)
-        for (i in seq_len(n)) {
-          yy <- 1 - (i - 0.5) / n
-          grid.text(terms[[i]]$term, x = 0.02, y = yy, just = "left",
-                    gp = gpar(col = "#233b40", fontsize = font_size, lineheight = 0.85))
-        }
-      }
-    ),
-    show_annotation_name = FALSE
-  )
-})
-
+# ---- heatmap ----
 ht <- Heatmap(
   z,
-  name = "z-score",
+  name = "Z-score",
   col = col_fun,
   row_split = module_factor,
+  row_title = NULL,
   cluster_rows = TRUE,
   cluster_row_slices = FALSE,
   cluster_columns = FALSE,
   show_row_names = FALSE,
-  show_column_names = TRUE,
+  show_column_names = n_samples <= 50,
   column_names_rot = 45,
+  column_names_side = "top",
   column_names_gp = gpar(fontsize = font_size),
-  left_annotation = c(left_eig, left_mod),
-  right_annotation = right_enrich,
-  show_heatmap_legend = TRUE,
-  border_gp = gpar(col = "grey40")
+  column_split = column_split,
+  column_title = NULL,
+  top_annotation = top_anno,
+  left_annotation = c(left_anno, left_mod),
+  right_annotation = right_anno,
+  border = TRUE
 )
 
 if (mode == "pdf") {
