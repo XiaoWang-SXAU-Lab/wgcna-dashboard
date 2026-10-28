@@ -19,6 +19,7 @@ const nav = [
   { to: '/module-trait', key: 'nav.moduleTrait', icon: 'bi-table' },
   { to: '/module-explorer', key: 'nav.moduleExplorer', icon: 'bi-search' },
   { to: '/module-overview', key: 'nav.moduleOverview', icon: 'bi-grid-1x2' },
+  { to: '/report', key: 'nav.report', icon: 'bi-file-earmark-text' },
 ]
 </script>
 

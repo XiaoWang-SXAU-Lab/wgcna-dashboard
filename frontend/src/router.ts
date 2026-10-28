@@ -6,6 +6,7 @@ import NetworkView from './views/NetworkView.vue'
 import ModuleTraitView from './views/ModuleTraitView.vue'
 import ModuleExplorerView from './views/ModuleExplorerView.vue'
 import ModuleOverviewView from './views/ModuleOverviewView.vue'
+import ReportView from './views/ReportView.vue'
 
 export default createRouter({
   history: createWebHistory(),
@@ -17,6 +18,7 @@ export default createRouter({
     { path: '/module-trait', name: 'module-trait', component: ModuleTraitView },
     { path: '/module-explorer', name: 'module-explorer', component: ModuleExplorerView },
     { path: '/module-overview', name: 'module-overview', component: ModuleOverviewView },
+    { path: '/report', name: 'report', component: ReportView },
     { path: '/interested-mod', redirect: '/module-explorer' },
     { path: '/hub-gene', redirect: '/module-explorer' },
   ],

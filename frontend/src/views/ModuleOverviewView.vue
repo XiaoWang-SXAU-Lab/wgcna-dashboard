@@ -2,61 +2,15 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
-import { t, locale } from '../utils/i18n'
+import { t } from '../utils/i18n'
 import {
   getOverview, getOverviewNetwork, runCluster, getCluster, runOverviewNetwork, overviewExportUrl, plotUrl,
-  exportReport, getReportStatus, pickFolder,
-  type OverviewData, type OverviewNetwork, type ClusterResult, type ReportStatus,
+  type OverviewData, type OverviewNetwork, type ClusterResult,
 } from '../api/client'
 import * as echarts from 'echarts'
 import 'echarts-gl'
 
 const store = useWgcnaStore()
-
-// report export
-const reportDir = ref('')
-const reportName = ref('')
-const reportState = ref<ReportStatus | null>(null)
-const reportRunning = ref(false)
-const showReportForm = ref(false)
-
-const defaultReportName = computed(() => {
-  const d = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `rsWGCNA-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
-})
-const reportNameInvalid = computed(() => {
-  const name = reportName.value.trim()
-  if (name === '') return false // empty = default
-  return /[<>:"/\\|?*\u0000-\u001f]/.test(name) || /[. ]$/.test(name) || /^\.{1,2}$/.test(name) || /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/i.test(name)
-})
-const resolvedReportPath = computed(() => {
-  const base = reportDir.value.replace(/[\\/]+$/, '') || ''
-  const name = reportName.value.trim() || defaultReportName.value
-  return base ? `${base}/${name}/` : ''
-})
-async function pickFolderDir() {
-  try {
-    const dir = await pickFolder()
-    reportDir.value = dir
-  } catch { /* cancelled */ }
-}
-async function doExportReport() {
-  if (!store.jobId || !reportDir.value || reportRunning.value || reportNameInvalid.value) return
-  reportRunning.value = true
-  reportState.value = null
-  try {
-    await exportReport(store.jobId, reportDir.value, reportName.value, enrichType.value, locale.value)
-    for (let i = 0; i < 300; i++) {
-      await new Promise((r) => setTimeout(r, 2000))
-      const st = await getReportStatus(store.jobId)
-      reportState.value = st
-      if (st.state !== 'running') break
-    }
-  } finally {
-    reportRunning.value = false
-  }
-}
 
 type Tab = 'overview' | 'network' | 'cluster' | 'table'
 const tab = ref<Tab>('overview')
@@ -236,40 +190,7 @@ onMounted(() => {
     <div class="p-3">
       <div class="d-flex align-items-center justify-content-between mb-3">
         <h4 class="mb-0 fw-semibold">{{ t('mo.title') }}</h4>
-        <div class="d-flex gap-2 align-items-center">
-          <a :href="xlsxUrl" class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>{{ t('mo.downloadXlsx') }}</a>
-          <button class="btn btn-sm btn-outline-primary" :disabled="reportRunning" @click="showReportForm = !showReportForm">
-            <span v-if="reportRunning" class="spinner-border spinner-border-sm me-1"></span>{{ t('mo.exportReport') }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="showReportForm" class="border rounded p-3 mb-3 bg-white">
-        <div class="row g-2 align-items-end">
-          <div class="col-5">
-            <label class="form-label small mb-1">{{ t('mo.reportDir') }}</label>
-            <div class="input-group input-group-sm">
-              <input type="text" v-model="reportDir" class="form-control" :placeholder="t('mo.reportDirPlaceholder')" />
-              <button class="btn btn-outline-secondary" type="button" @click="pickFolderDir"><i class="bi bi-folder2-open me-1"></i>{{ t('mo.browse') }}</button>
-            </div>
-          </div>
-          <div class="col-4">
-            <label class="form-label small mb-1">{{ t('mo.reportName') }}（{{ t('mo.optional') }}）</label>
-            <input type="text" v-model="reportName" class="form-control form-control-sm" :class="{ 'is-invalid': reportNameInvalid }" :placeholder="defaultReportName" />
-            <div v-if="reportNameInvalid" class="invalid-feedback">{{ t('mo.nameInvalid') }}</div>
-          </div>
-          <div class="col-3">
-            <button class="btn btn-sm btn-primary w-100" :disabled="reportRunning || !reportDir || reportNameInvalid" @click="doExportReport">{{ t('mo.startExport') }}</button>
-          </div>
-        </div>
-        <div v-if="resolvedReportPath" class="small text-muted mt-2">
-          <i class="bi bi-folder me-1"></i>{{ t('mo.resolvedPath') }}：<code>{{ resolvedReportPath }}</code>
-        </div>
-        <div v-if="reportState" class="small mt-2">
-          <span v-if="reportState.state === 'running'" class="text-muted">{{ t('mo.exporting') }} ({{ reportState.done.length }} {{ t('mo.modules') }})…</span>
-          <span v-else-if="reportState.state === 'done'" class="text-success">{{ t('mo.exportDone') }} {{ reportState.dir }}</span>
-          <span v-else class="text-danger">{{ reportState.message }}</span>
-        </div>
+        <a :href="xlsxUrl" class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>{{ t('mo.downloadXlsx') }}</a>
       </div>
 
       <ul class="nav nav-tabs mb-3">
