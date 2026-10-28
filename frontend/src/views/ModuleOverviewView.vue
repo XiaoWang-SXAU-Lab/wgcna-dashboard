@@ -8,13 +8,13 @@ import {
   type OverviewData, type OverviewNetwork, type ClusterResult, type ClusterElbow,
 } from '../api/client'
 import * as echarts from 'echarts'
+import SidebarDrawer from '../components/SidebarDrawer.vue'
 import OverviewSettingsSidebar, { type Tab } from '../components/overview/OverviewSettingsSidebar.vue'
 import OverviewNetworkPanel from '../components/overview/OverviewNetworkPanel.vue'
 
 const store = useWgcnaStore()
 
 const tab = ref<Tab>('overview')
-const sidebarCollapsed = ref(false)
 
 // ---- overview settings ----
 const enrichType = ref<'go' | 'kegg'>('go')
@@ -263,41 +263,32 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-3 d-flex flex-column" style="height: calc(100vh - 48px); min-height: 560px">
-    <div class="d-flex align-items-center justify-content-between mb-3">
-      <div class="d-flex align-items-center gap-2">
-        <button class="btn btn-sm btn-outline-secondary" @click="sidebarCollapsed = !sidebarCollapsed">
-          <i class="bi" :class="sidebarCollapsed ? 'bi-layout-sidebar-inset' : 'bi-layout-sidebar-inset-reverse'"></i>
-        </button>
-        <h4 class="mb-0 fw-semibold">{{ t('mo.title') }}</h4>
-      </div>
-      <a :href="xlsxUrl" class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>{{ t('mo.downloadXlsx') }}</a>
-    </div>
+  <SidebarDrawer>
+    <template #sidebar>
+      <OverviewSettingsSidebar
+        v-model:tab="tab"
+        v-model:enrich-type="enrichType" v-model:onto="onto" v-model:top-n="topN" v-model:max-count-on="maxCountOn"
+        v-model:low-color="lowColor" v-model:mid-color="midColor" v-model:high-color="highColor"
+        v-model:percentile="percentile" v-model:max-nodes="maxNodes" v-model:edges-per-gene="edgesPerGene"
+        v-model:hide-grey="hideGrey" v-model:hide-isolated="hideIsolated" v-model:hub-per-module="hubPerModule"
+        v-model:show-labels="showLabels" v-model:show-module-labels="showModuleLabels"
+        v-model:node-scale="nodeScale" v-model:edge-opacity="edgeOpacity" v-model:network-dirty="networkDirty"
+        v-model:cluster-method="clusterMethod" v-model:cluster-k="clusterK" v-model:cluster-seed="clusterSeed"
+        v-model:cluster-kmax="clusterKmax" v-model:cluster-enrich-type="clusterEnrichType" v-model:cluster-onto="clusterOnto"
+        v-model:table-mode="tableMode" v-model:selected-module="selectedModule" v-model:selected-cluster="selectedCluster"
+        v-model:gene-search="geneSearch"
+        :module-options="moduleOptions" :cluster-options="clusterOptions"
+        @build-network="buildNetwork" @compute-elbow="computeElbow" @run-clustering="runClustering" @reset-network-settings="resetNetworkSettings"
+      />
+    </template>
 
-    <div class="d-flex gap-3 flex-grow-1" style="min-height: 0">
-      <!-- settings sidebar -->
-      <div v-show="!sidebarCollapsed" class="border rounded bg-white p-3" style="width: 300px; flex-shrink: 0; overflow: hidden">
-        <OverviewSettingsSidebar
-          v-model:tab="tab"
-          v-model:enrich-type="enrichType" v-model:onto="onto" v-model:top-n="topN" v-model:max-count-on="maxCountOn"
-          v-model:low-color="lowColor" v-model:mid-color="midColor" v-model:high-color="highColor"
-          v-model:percentile="percentile" v-model:max-nodes="maxNodes" v-model:edges-per-gene="edgesPerGene"
-          v-model:hide-grey="hideGrey" v-model:hide-isolated="hideIsolated" v-model:hub-per-module="hubPerModule"
-          v-model:show-labels="showLabels" v-model:show-module-labels="showModuleLabels"
-          v-model:node-scale="nodeScale" v-model:edge-opacity="edgeOpacity" v-model:network-dirty="networkDirty"
-          v-model:cluster-method="clusterMethod" v-model:cluster-k="clusterK" v-model:cluster-seed="clusterSeed"
-          v-model:cluster-kmax="clusterKmax" v-model:cluster-enrich-type="clusterEnrichType" v-model:cluster-onto="clusterOnto"
-          v-model:table-mode="tableMode" v-model:selected-module="selectedModule" v-model:selected-cluster="selectedCluster"
-          v-model:gene-search="geneSearch"
-          :module-options="moduleOptions" :cluster-options="clusterOptions"
-          @build-network="buildNetwork" @compute-elbow="computeElbow" @run-clustering="runClustering" @reset-network-settings="resetNetworkSettings"
-        />
+    <div class="d-flex flex-column h-100">
+      <div class="d-flex justify-content-end mb-2">
+        <a :href="xlsxUrl" class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>{{ t('mo.downloadXlsx') }}</a>
       </div>
-
-      <!-- main panel -->
-      <div class="flex-grow-1 d-flex flex-column" style="min-width: 0; min-height: 0">
+      <div class="flex-grow-1" style="min-height: 0">
         <!-- overview -->
-        <div v-if="tab === 'overview'" class="flex-grow-1 overflow-auto">
+        <div v-if="tab === 'overview'" class="h-100 overflow-auto">
           <div v-if="loading" class="text-center text-muted py-5"><div class="spinner-border"></div></div>
           <div v-else-if="overview">
             <div v-if="!overview.enrich_ok" class="alert alert-warning py-2 small">{{ t('mo.enrichMissing') }}</div>
@@ -316,7 +307,7 @@ onMounted(() => {
         </div>
 
         <!-- network -->
-        <div v-else-if="tab === 'network'" class="flex-grow-1" style="min-height: 0">
+        <div v-else-if="tab === 'network'" class="h-100">
           <OverviewNetworkPanel
             :network="network" :loading="networkLoading" :hub-per-module="hubPerModule"
             :hide-isolated="hideIsolated" :show-labels="showLabels" :show-module-labels="showModuleLabels"
@@ -326,7 +317,7 @@ onMounted(() => {
         </div>
 
         <!-- cluster -->
-        <div v-else-if="tab === 'cluster'" class="flex-grow-1 overflow-auto">
+        <div v-else-if="tab === 'cluster'" class="h-100 overflow-auto">
           <div v-if="elbow" class="border rounded p-3 bg-white mb-3">
             <div class="small text-muted mb-1">
               {{ clusterMethod === 'cmeans' ? t('mo.cmeansHint') : t('mo.elbowHint') }}
@@ -364,7 +355,7 @@ onMounted(() => {
         </div>
 
         <!-- table -->
-        <div v-else class="flex-grow-1 overflow-auto">
+        <div v-else class="h-100 overflow-auto">
           <div class="table-responsive border rounded bg-white" style="max-height: 100%">
             <table class="table table-sm table-hover mb-0">
               <thead class="table-light sticky-top">
@@ -383,5 +374,5 @@ onMounted(() => {
         </div>
       </div>
     </div>
-  </div>
+  </SidebarDrawer>
 </template>
