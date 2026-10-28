@@ -62,6 +62,7 @@ const loading = ref(false)
 const networkLoading = ref(false)
 const clusterRunning = ref(false)
 const overviewImgLoading = ref(false)
+const showOverviewImg = ref(false)
 const clusterImgLoading = ref(false)
 const elbow = ref<ClusterElbow | null>(null)
 const elbowRunning = ref(false)
@@ -238,11 +239,13 @@ const clusterOptions = computed(() => cluster.value?.cluster_order ?? [])
 
 // ---- watches ----
 watch([enrichType, onto, topN, maxCountOn], () => {
-  overviewImgLoading.value = true
+  showOverviewImg.value = false
+  overviewImgLoading.value = false
   loadOverview()
 })
 watch([lowColor, midColor, highColor], () => {
-  overviewImgLoading.value = true
+  showOverviewImg.value = false
+  overviewImgLoading.value = false
 })
 watch([clusterEnrichType, clusterOnto, topN, maxCountOn, lowColor, midColor, highColor], () => {
   if (cluster.value) clusterImgLoading.value = true
@@ -296,7 +299,13 @@ onMounted(() => {
           <div v-if="loading" class="text-center text-muted py-5"><div class="spinner-border"></div></div>
           <div v-else-if="overview">
             <div v-if="!overview.enrich_ok" class="alert alert-warning py-2 small">{{ t('mo.enrichMissing') }}</div>
-            <div class="border rounded p-2 bg-white position-relative">
+            <div v-if="!showOverviewImg" class="text-center py-5">
+              <button class="btn btn-primary" @click="showOverviewImg = true; overviewImgLoading = true">
+                <i class="bi bi-play-circle me-1"></i>{{ t('mo.showFigure') }}
+              </button>
+              <div class="small text-muted mt-2">{{ t('mo.generating') }}</div>
+            </div>
+            <div v-else class="border rounded p-2 bg-white position-relative">
               <img :src="overviewUrl" class="w-100" alt="module overview" @load="overviewImgLoading = false" @error="overviewImgLoading = false" />
               <div v-if="overviewImgLoading" class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center" style="background: rgba(255,255,255,0.72); z-index: 2">
                 <div class="spinner-border text-primary"></div>

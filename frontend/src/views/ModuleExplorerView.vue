@@ -91,6 +91,16 @@ const annotationRowsDisplay = computed(() => annotationRows.value.map((r) => {
   }
 }))
 
+function onTraitChange() {
+  if (!store.selectedTrait) return
+  store.runStep('module_detail')
+}
+
+function onModuleChange() {
+  if (!store.selectedModule) return
+  store.runStep('module_detail')
+}
+
 async function loadAnnotation() {
   if (!store.jobId || !store.selectedModule) return
   annotationLoading.value = true
@@ -129,11 +139,11 @@ watch(() => store.selectedModule, (m) => {
         <hr class="my-1" />
 
         <label v-if="traitOptions.length" class="form-label small mb-0">{{ t('im.trait') }}</label>
-        <select v-if="traitOptions.length" v-model="store.selectedTrait" class="form-select form-select-sm">
+        <select v-if="traitOptions.length" v-model="store.selectedTrait" @change="onTraitChange" class="form-select form-select-sm">
           <option v-for="tr in traitOptions" :key="tr" :value="tr">{{ tr }}</option>
         </select>
         <label v-if="moduleOptions.length" class="form-label small mb-0">{{ t('im.module') }}</label>
-        <select v-if="moduleOptions.length" v-model="store.selectedModule" class="form-select form-select-sm">
+        <select v-if="moduleOptions.length" v-model="store.selectedModule" @change="onModuleChange" class="form-select form-select-sm">
           <option v-for="m in moduleOptions" :key="m" :value="m">{{ m }}</option>
         </select>
         <button class="btn btn-primary w-100" :disabled="!store.stepReady('module_detail') || store.stepRunning !== ''" @click="store.runStep('module_detail')">
