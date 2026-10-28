@@ -790,11 +790,19 @@ func (h *Handler) runOverviewNetwork(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) getOverviewNetwork(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	jobDir := filepath.Join(h.jobs.Dir(), id)
-	perModule := int(qfloat(r, "per_module"))
-	if perModule <= 0 {
-		perModule = 300
+	maxNodes := int(qfloat(r, "max_nodes"))
+	if maxNodes <= 0 {
+		maxNodes = 2000
 	}
-	nodes, edges, err := readNetworkLimited(jobDir, perModule)
+	minPerModule := int(qfloat(r, "min_per_module"))
+	if minPerModule <= 0 {
+		minPerModule = 20
+	}
+	edgesPerGene := int(qfloat(r, "edges_per_gene"))
+	if edgesPerGene <= 0 {
+		edgesPerGene = 8
+	}
+	nodes, edges, err := readNetworkSampled(jobDir, maxNodes, minPerModule, edgesPerGene)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -803,14 +811,163 @@ func (h *Handler) getOverviewNetwork(w http.ResponseWriter, r *http.Request) {
 }
 
 type netNode struct {
-	ID     string `json:"id"`
-	Color  string `json:"color"`
-	Degree int    `json:"degree"`
+	ID     string  `json:"id"`
+	Color  string  `json:"color"`
+	Degree int     `json:"degree"`
+	Kme    float64 `json:"kme"` // |kME| to own module (hub metric)
 }
 type netEdge struct {
 	Source string  `json:"source"`
 	Target string  `json:"target"`
 	Weight float64 `json:"weight"`
+}
+
+// readKmeByGene returns |kME| to each gene's own module from step4_mtrait.json.
+func readKmeByGene(jobDir string, geneMod map[string]string) map[string]float64 {
+	b, err := os.ReadFile(filepath.Join(jobDir, "step4_mtrait.json"))
+	if err != nil {
+		return nil
+	}
+	var mt struct {
+		Modules []string    `json:"modules"`
+		Genes   []string    `json:"genes"`
+		Kme     [][]float64 `json:"kme"`
+	}
+	if json.Unmarshal(b, &mt) != nil {
+		return nil
+	}
+	modIdx := map[string]int{}
+	for i, m := range mt.Modules {
+		modIdx[m] = i
+	}
+	out := map[string]float64{}
+	for i, g := range mt.Genes {
+		if i >= len(mt.Kme) {
+			break
+		}
+		mi, ok := modIdx[geneMod[g]]
+		if !ok || mi >= len(mt.Kme[i]) {
+			continue
+		}
+		out[g] = math.Abs(mt.Kme[i][mi])
+	}
+	return out
+}
+
+// readNetworkSampled returns a module-aware, hub-prioritized sample of the
+// network: all modules are preserved, each keeps a minimum number of genes plus
+// a sublinear (sqrt) share of the remaining budget, ordered by |kME| so hub
+// genes are kept. Edges are intra-module only, top edgesPerGene per gene,
+// deduplicated undirected.
+func readNetworkSampled(jobDir string, maxNodes, minPerModule, edgesPerGene int) ([]netNode, []netEdge, error) {
+	nodes, geneMod, err := readNetworkNodes(filepath.Join(jobDir, "network_nodes.tsv"))
+	if err != nil {
+		return nil, nil, err
+	}
+	kme := readKmeByGene(jobDir, geneMod)
+
+	// group + order each module by |kME| descending (hub genes first)
+	byMod := map[string][]netNode{}
+	for _, n := range nodes {
+		n.Kme = kme[n.ID]
+		byMod[n.Color] = append(byMod[n.Color], n)
+	}
+	for _, list := range byMod {
+		sort.Slice(list, func(i, j int) bool {
+			if list[i].Kme != list[j].Kme {
+				return list[i].Kme > list[j].Kme
+			}
+			return list[i].Degree > list[j].Degree
+		})
+	}
+	mods := make([]string, 0, len(byMod))
+	for m := range byMod {
+		mods = append(mods, m)
+	}
+	sort.Strings(mods)
+
+	// sublinear allocation: sqrt(size) share, with a per-module floor
+	sqrtSum := 0.0
+	for _, m := range mods {
+		sqrtSum += math.Sqrt(float64(len(byMod[m])))
+	}
+	visible := map[string]bool{}
+	var sampled []netNode
+	for _, m := range mods {
+		list := byMod[m]
+		alloc := minPerModule
+		if sqrtSum > 0 {
+			alloc = int(float64(maxNodes) * math.Sqrt(float64(len(list))) / sqrtSum)
+		}
+		if alloc < minPerModule {
+			alloc = minPerModule
+		}
+		if alloc > len(list) {
+			alloc = len(list)
+		}
+		for i := 0; i < alloc; i++ {
+			sampled = append(sampled, list[i])
+			visible[list[i].ID] = true
+		}
+	}
+
+	// edges: intra-module + visible endpoints, top-N per gene, dedup
+	type ew struct {
+		b string
+		w float64
+	}
+	adj := map[string][]ew{}
+	f, err := os.Open(filepath.Join(jobDir, "network_edges.tsv"))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer f.Close()
+	r := csv.NewReader(f)
+	r.Comma = '\t'
+	r.FieldsPerRecord = -1
+	if _, err := r.Read(); err != nil { // header
+		return nil, nil, err
+	}
+	for {
+		rec, err := r.Read()
+		if err != nil {
+			break
+		}
+		if len(rec) < 3 {
+			continue
+		}
+		a, b := rec[0], rec[1]
+		if !visible[a] || !visible[b] || geneMod[a] != geneMod[b] {
+			continue
+		}
+		w, _ := strconv.ParseFloat(rec[2], 64)
+		adj[a] = append(adj[a], ew{b, w})
+		adj[b] = append(adj[b], ew{a, w})
+	}
+
+	seen := map[string]bool{}
+	var out []netEdge
+	key := func(a, b string) string {
+		if a > b {
+			a, b = b, a
+		}
+		return a + "\x00" + b
+	}
+	for g, list := range adj {
+		sort.Slice(list, func(i, j int) bool { return list[i].w > list[j].w })
+		for i, e := range list {
+			if i >= edgesPerGene {
+				break
+			}
+			k := key(g, e.b)
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			out = append(out, netEdge{g, e.b, e.w})
+		}
+	}
+	return sampled, out, nil
 }
 
 // readNetworkLimited reads network_nodes.tsv + network_edges.tsv and keeps the
@@ -901,7 +1058,7 @@ func readNetworkNodes(path string) ([]netNode, map[string]string, error) {
 			continue
 		}
 		d, _ := strconv.Atoi(rec[2])
-		nodes = append(nodes, netNode{rec[0], rec[1], d})
+		nodes = append(nodes, netNode{ID: rec[0], Color: rec[1], Degree: d})
 		geneMod[rec[0]] = rec[1]
 	}
 	return nodes, geneMod, nil

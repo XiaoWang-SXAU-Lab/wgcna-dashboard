@@ -9,6 +9,7 @@ import {
 } from '../api/client'
 import * as echarts from 'echarts'
 import 'echarts-gl'
+import { moduleAwareLayout, type LayoutResult } from '../utils/networkLayout'
 
 const store = useWgcnaStore()
 
@@ -87,6 +88,8 @@ async function loadNetwork() {
         /* still computing */
       }
     }
+    layoutCache.value = null
+    showNetworkGraph.value = false
   } finally {
     networkLoading.value = false
   }
@@ -186,10 +189,11 @@ const tableGenes = computed(() => {
 
 const xlsxUrl = computed(() => store.jobId ? overviewExportUrl(store.jobId, tableMode.value) : '#')
 
-// ---- network ECharts (limited preview) ----
+// ---- network ECharts (module-aware hub-centered, fixed coordinates) ----
 const netChart = ref<echarts.ECharts | null>(null)
 const netEl = ref<HTMLElement | null>(null)
 const showNetworkGraph = ref(false)
+const layoutCache = ref<LayoutResult | null>(null)
 
 async function renderNetwork() {
   if (!network.value) return
@@ -197,22 +201,59 @@ async function renderNetwork() {
   await nextTick()
   if (!netEl.value) return
   if (!netChart.value) netChart.value = echarts.init(netEl.value)
-  const nodes = [...network.value.nodes].sort((a, b) => b.degree - a.degree).slice(0, 1500)
-  const ids = new Set(nodes.map((n) => n.id))
-  const edges = network.value.edges.filter((e) => ids.has(e.source) && ids.has(e.target)).slice(0, 8000)
-  const cat = [...new Set(nodes.map((n) => n.color))]
+
+  if (!layoutCache.value) {
+    layoutCache.value = moduleAwareLayout(network.value.nodes, network.value.edges)
+  }
+  const layout = layoutCache.value
+  const nodeById = new Map(network.value.nodes.map((n) => [n.id, n]))
+
+  const nodes = network.value.nodes.map((n) => {
+    const p = layout.positions.get(n.id)!
+    const isHub = layout.hubs.has(n.id)
+    const size = isHub ? 6 + n.kme * 12 : 3 + Math.min(n.kme, 0.6) * 10
+    return {
+      id: n.id,
+      name: n.id,
+      x: p.x,
+      y: p.y,
+      symbolSize: Math.max(2.5, size),
+      itemStyle: {
+        color: n.color,
+        borderColor: isHub ? '#111' : n.color,
+        borderWidth: isHub ? 2 : 0.4,
+        opacity: 0.95,
+      },
+      module: n.color,
+      kme: n.kme,
+    }
+  })
+  const edges = network.value.edges.map((e) => ({
+    source: e.source,
+    target: e.target,
+    lineStyle: { opacity: 0.12, width: 0.5 },
+  }))
+
   netChart.value.setOption({
     animation: false,
+    tooltip: {
+      formatter: (p: any) => {
+        const d = p.data as any
+        if (!d || d.source != null) return ''
+        const n = nodeById.get(d.id)
+        return `<b>${d.id}</b><br/>module: ${d.module}<br/>|kME|: ${d.kme?.toFixed(3) ?? '—'}`
+      },
+    },
     series: [{
       type: 'graphGL',
-      layout: 'force',
-      force: { repulsion: 80, edgeLength: 20, gravity: 0.1 },
+      layout: 'none',
       roam: true,
-      data: nodes.map((n) => ({ id: n.id, name: n.id, symbolSize: Math.max(2, Math.sqrt(n.degree) * 0.6), itemStyle: { color: n.color }, category: cat.indexOf(n.color) })),
-      links: edges.map((e) => ({ source: e.source, target: e.target, lineStyle: { opacity: 0.15, width: 0.4 } })),
-      categories: cat.map((c) => ({ name: c, itemStyle: { color: c } })),
+      data: nodes,
+      links: edges,
+      categories: [...new Set(network.value.nodes.map((n) => n.color))].map((c) => ({ name: c, itemStyle: { color: c } })),
       label: { show: false },
-      lineStyle: { color: '#b0bec5', curveness: 0 },
+      emphasis: { focus: 'adjacency', label: { show: false } },
+      lineStyle: { color: '#9aa5b1' },
     }],
   })
 }
