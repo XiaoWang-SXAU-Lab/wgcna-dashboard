@@ -160,7 +160,7 @@ func (h *Handler) doReportExport(id, base, enrichType, lang string, st *reportSt
 	}
 
 	// 2. overview figure + network
-	if data, err := overviewData(jobDir, enrichType, "", 0.05, 5); err == nil {
+	if data, err := overviewData(jobDir, enrichType, "", 500, 0.05, 5); err == nil {
 		if p, _, err := plot.RenderModuleOverview(data, "png", plot.PlotParams{Width: 18, Height: 13}); err == nil {
 			copyFile(p, filepath.Join(resultDir, "module_overview.png"))
 			os.RemoveAll(filepath.Dir(p))

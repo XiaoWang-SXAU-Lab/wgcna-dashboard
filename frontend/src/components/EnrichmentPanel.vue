@@ -29,6 +29,7 @@ const loading = ref(false)
 const error = ref('')
 const fdr = ref(0.05)
 const top = ref(20)
+const maxCountOn = ref(true)   // drop terms with gene count > 500 (default on)
 const goVersion = ref<GOVersionInfo | null>(null)
 const updatingGO = ref(false)
 const exportType = ref<'go' | 'kegg'>('go')
@@ -196,7 +197,7 @@ async function load() {
   selected.value = null
   expr.value = null
   try {
-    const res = await getEnrich(store.jobId, store.selectedModule, props.type, fdr.value, top.value)
+    const res = await getEnrich(store.jobId, store.selectedModule, props.type, fdr.value, top.value, maxCountOn.value ? 500 : 0)
     if (props.type === 'go') goResults.value = res
     else keggResults.value = res
   } catch (e) {
@@ -336,6 +337,9 @@ onMounted(() => { if (store.selectedModule) load(); checkGO(); loadSampleInfo() 
       </label>
       <label class="small mb-0 d-flex align-items-center gap-1">{{ t('enrich.top') }}
         <input type="number" class="form-control form-control-sm" style="width:72px" v-model.number="top" min="5" max="100" />
+      </label>
+      <label class="small mb-0 d-flex align-items-center gap-1">
+        <input type="checkbox" v-model="maxCountOn" class="form-check-input me-1" />{{ t('mo.dropBroadTerms') }}
       </label>
       <button class="btn btn-sm btn-primary" :disabled="loading || !store.selectedModule" @click="load"><i class="bi bi-arrow-repeat me-1"></i>{{ t('enrich.run') }}</button>
       <span v-if="props.type === 'go' && goVersion" class="small text-muted">

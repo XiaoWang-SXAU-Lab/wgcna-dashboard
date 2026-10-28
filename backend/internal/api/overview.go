@@ -16,7 +16,7 @@ import (
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/plot"
 )
 
-func overviewData(jobDir, enrichType, ontology string, fdr float64, topN int) (json.RawMessage, error) {
+func overviewData(jobDir, enrichType, ontology string, maxCount int, fdr float64, topN int) (json.RawMessage, error) {
 	if fdr <= 0 || fdr > 1 {
 		fdr = 0.05
 	}
@@ -174,7 +174,7 @@ func overviewData(jobDir, enrichType, ontology string, fdr float64, topN int) (j
 			if err != nil {
 				continue
 			}
-			enrichMap[m] = selectEnrichTerms(rows, enrichType, ontology, topN)
+			enrichMap[m] = selectEnrichTerms(rows, enrichType, ontology, maxCount, topN)
 		}
 	}
 
@@ -217,6 +217,15 @@ func moduleColorMap(moduleOrder []string) map[string]string {
 }
 
 // normOntology maps a GO ontology query value to the canonical short code.
+// maxCountQ returns the max-term-gene-count filter (default 500 when absent;
+// 0 disables the filter). Terms with more genes are dropped as too broad.
+func maxCountQ(r *http.Request) int {
+	if !r.URL.Query().Has("max_count") {
+		return 500
+	}
+	return int(qfloat(r, "max_count"))
+}
+
 func normOntology(q string) string {
 	switch strings.ToLower(q) {
 	case "bp":
@@ -244,12 +253,16 @@ func geneRatioFrac(s string) float64 {
 	return k / n
 }
 
-// selectEnrichTerms filters rows by GO ontology, sorts by GeneRatio descending
-// (matching the module-explorer ECharts order), and returns the top-N terms.
-func selectEnrichTerms(rows []enrich.Result, enrichType, ontology string, topN int) []map[string]any {
+// selectEnrichTerms filters rows by GO ontology and max gene count, sorts by
+// GeneRatio descending (matching the module-explorer ECharts order), and
+// returns the top-N terms.
+func selectEnrichTerms(rows []enrich.Result, enrichType, ontology string, maxCount, topN int) []map[string]any {
 	filtered := make([]enrich.Result, 0, len(rows))
 	for _, r := range rows {
 		if enrichType == "go" && ontology != "" && r.Ontology != ontology {
+			continue
+		}
+		if maxCount > 0 && r.Count > maxCount {
 			continue
 		}
 		filtered = append(filtered, r)
@@ -312,7 +325,7 @@ func zscoreRows(mat [][]float64) [][]float64 {
 
 // clusterOverviewData builds the overview figure payload for a kmeans/cmeans
 // result (overview_clusters.json), reusing the same plotting script as WGCNA.
-func clusterOverviewData(jobDir, enrichType, ontology string, fdr float64, topN int) (json.RawMessage, error) {
+func clusterOverviewData(jobDir, enrichType, ontology string, maxCount int, fdr float64, topN int) (json.RawMessage, error) {
 	if fdr <= 0 || fdr > 1 {
 		fdr = 0.05
 	}
@@ -408,7 +421,7 @@ func clusterOverviewData(jobDir, enrichType, ontology string, fdr float64, topN 
 			if err != nil {
 				continue
 			}
-			enrichMap[c] = selectEnrichTerms(rows, enrichType, ontology, topN)
+			enrichMap[c] = selectEnrichTerms(rows, enrichType, ontology, maxCount, topN)
 		}
 	}
 
@@ -582,7 +595,7 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	if enrichType != "kegg" {
 		enrichType = "go"
 	}
-	data, err := overviewData(jobDir, enrichType, normOntology(r.URL.Query().Get("onto")), qfloat(r, "fdr"), int(qfloat(r, "top")))
+	data, err := overviewData(jobDir, enrichType, normOntology(r.URL.Query().Get("onto")), maxCountQ(r), qfloat(r, "fdr"), int(qfloat(r, "top")))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -602,7 +615,7 @@ func (h *Handler) plotOverview(w http.ResponseWriter, r *http.Request) {
 	if enrichType != "kegg" {
 		enrichType = "go"
 	}
-	data, err := overviewData(jobDir, enrichType, normOntology(r.URL.Query().Get("onto")), qfloat(r, "fdr"), int(qfloat(r, "top")))
+	data, err := overviewData(jobDir, enrichType, normOntology(r.URL.Query().Get("onto")), maxCountQ(r), qfloat(r, "fdr"), int(qfloat(r, "top")))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -640,7 +653,7 @@ func (h *Handler) plotOverviewCluster(w http.ResponseWriter, r *http.Request) {
 	if enrichType != "kegg" {
 		enrichType = "go"
 	}
-	data, err := clusterOverviewData(jobDir, enrichType, normOntology(r.URL.Query().Get("onto")), qfloat(r, "fdr"), int(qfloat(r, "top")))
+	data, err := clusterOverviewData(jobDir, enrichType, normOntology(r.URL.Query().Get("onto")), maxCountQ(r), qfloat(r, "fdr"), int(qfloat(r, "top")))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -715,6 +728,41 @@ func (h *Handler) getCluster(w http.ResponseWriter, r *http.Request) {
 	b, err := os.ReadFile(filepath.Join(h.jobs.Dir(), id, "overview_clusters.json"))
 	if err != nil {
 		http.Error(w, "clustering not run yet", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, json.RawMessage(b))
+}
+
+// runClusterElbow triggers the elbow/validity metrics computation (k=2..kmax)
+// without running the final clustering; getClusterElbow reads the result.
+func (h *Handler) runClusterElbow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	method := r.URL.Query().Get("method")
+	if method != "cmeans" {
+		method = "kmeans"
+	}
+	seed := int(qfloat(r, "seed"))
+	if seed <= 0 {
+		seed = 42
+	}
+	kmax := int(qfloat(r, "kmax"))
+	if kmax <= 0 {
+		kmax = 12
+	}
+	jobDir := filepath.Join(h.jobs.Dir(), id)
+	if err := updateParamsField(jobDir, "cluster", map[string]any{"method": method, "seed": seed, "kmax": kmax}); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	go h.jobs.RunAuxStep(id, "cluster_elbow")
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started", "step": "cluster_elbow"})
+}
+
+func (h *Handler) getClusterElbow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	b, err := os.ReadFile(filepath.Join(h.jobs.Dir(), id, "overview_elbow.json"))
+	if err != nil {
+		http.Error(w, "elbow not computed yet", http.StatusNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, json.RawMessage(b))

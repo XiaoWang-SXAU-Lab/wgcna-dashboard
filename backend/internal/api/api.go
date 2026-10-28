@@ -61,6 +61,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/jobs/{id}/plots/overview-cluster", h.plotOverviewCluster)
 	mux.HandleFunc("POST /api/jobs/{id}/overview/cluster", h.runCluster)
 	mux.HandleFunc("GET /api/jobs/{id}/overview/cluster", h.getCluster)
+	mux.HandleFunc("POST /api/jobs/{id}/overview/elbow", h.runClusterElbow)
+	mux.HandleFunc("GET /api/jobs/{id}/overview/elbow", h.getClusterElbow)
 	mux.HandleFunc("POST /api/jobs/{id}/overview/network", h.runOverviewNetwork)
 	mux.HandleFunc("GET /api/jobs/{id}/overview/network", h.getOverviewNetwork)
 	mux.HandleFunc("GET /api/jobs/{id}/plots/overview-network", h.plotOverviewNetwork)
@@ -215,6 +217,20 @@ func (h *Handler) enrich(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	// drop overly-broad terms (gene count > max_count, default 500, 0 = off)
+	maxCount := int(qfloat(r, "max_count"))
+	if !r.URL.Query().Has("max_count") {
+		maxCount = 500
+	}
+	if maxCount > 0 {
+		kept := results[:0]
+		for _, rr := range results {
+			if rr.Count <= maxCount {
+				kept = append(kept, rr)
+			}
+		}
+		results = kept
 	}
 	writeJSON(w, http.StatusOK, results)
 }

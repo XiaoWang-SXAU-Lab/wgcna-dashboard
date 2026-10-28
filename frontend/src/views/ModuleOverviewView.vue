@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
 import { t } from '../utils/i18n'
 import {
   getOverview, getOverviewNetwork, runCluster, getCluster, runOverviewNetwork, overviewExportUrl, plotUrl,
-  type OverviewData, type OverviewNetwork, type ClusterResult,
+  runClusterElbow, getClusterElbow,
+  type OverviewData, type OverviewNetwork, type ClusterResult, type ClusterElbow,
 } from '../api/client'
 import * as echarts from 'echarts'
 import 'echarts-gl'
@@ -18,10 +19,15 @@ const tab = ref<Tab>('overview')
 const enrichType = ref<'go' | 'kegg'>('go')
 const onto = ref('')   // GO ontology: '' = ALL, 'bp' / 'cc' / 'mf'
 const topN = ref(5)
+const maxCountOn = ref(true)   // drop terms with gene count > 500 (default on)
+const lowColor = ref('#08519c')
+const midColor = ref('#ffffff')
+const highColor = ref('#a50f15')
 const percentile = ref(10)
 const clusterMethod = ref<'kmeans' | 'cmeans'>('kmeans')
 const clusterK = ref(0)
 const clusterSeed = ref(42)
+const clusterKmax = ref(12)
 const clusterEnrichType = ref<'go' | 'kegg'>('go')
 const clusterOnto = ref('')
 
@@ -36,15 +42,19 @@ const overviewImgLoading = ref(false)
 const clusterImgLoading = ref(false)
 const selectedModule = ref('')
 const selectedCluster = ref('')
+const elbow = ref<ClusterElbow | null>(null)
+const elbowRunning = ref(false)
+const elbowEl = ref<HTMLElement | null>(null)
+const elbowChart = ref<echarts.ECharts | null>(null)
 
 const overviewUrl = computed(() =>
-  store.jobId ? plotUrl(store.jobId, 'overview', { mode: 'png', type: enrichType.value, onto: onto.value, top: topN.value, fdr: 0.05, width: 18, height: 13 }) : '')
+  store.jobId ? plotUrl(store.jobId, 'overview', { mode: 'png', type: enrichType.value, onto: onto.value, max_count: maxCountOn.value ? 500 : 0, low: lowColor.value, mid: midColor.value, high: highColor.value, top: topN.value, fdr: 0.05, width: 18, height: 13 }) : '')
 
 const overviewExportUrlPng = computed(() =>
-  store.jobId ? plotUrl(store.jobId, 'overview', { mode: 'svg', type: enrichType.value, onto: onto.value, top: topN.value, fdr: 0.05 }) : '')
+  store.jobId ? plotUrl(store.jobId, 'overview', { mode: 'svg', type: enrichType.value, onto: onto.value, max_count: maxCountOn.value ? 500 : 0, low: lowColor.value, mid: midColor.value, high: highColor.value, top: topN.value, fdr: 0.05 }) : '')
 
 const clusterOverviewUrl = computed(() =>
-  store.jobId && cluster.value ? plotUrl(store.jobId, 'overview-cluster', { mode: 'png', type: clusterEnrichType.value, onto: clusterOnto.value, top: topN.value, fdr: 0.05, width: 18, height: 13 }) : '')
+  store.jobId && cluster.value ? plotUrl(store.jobId, 'overview-cluster', { mode: 'png', type: clusterEnrichType.value, onto: clusterOnto.value, max_count: maxCountOn.value ? 500 : 0, low: lowColor.value, mid: midColor.value, high: highColor.value, top: topN.value, fdr: 0.05, width: 18, height: 13 }) : '')
 
 const networkExportUrl = computed(() =>
   store.jobId ? plotUrl(store.jobId, 'overview-network', { mode: 'svg', per_module: 2000 }) : '')
@@ -104,6 +114,58 @@ async function runClustering() {
   }
 }
 
+async function computeElbow() {
+  if (!store.jobId || elbowRunning.value) return
+  elbowRunning.value = true
+  try {
+    await runClusterElbow(store.jobId, clusterMethod.value, clusterSeed.value, clusterKmax.value)
+    for (let i = 0; i < 120; i++) {
+      await new Promise((r) => setTimeout(r, 1000))
+      try {
+        elbow.value = await getClusterElbow(store.jobId)
+        break
+      } catch {
+        /* still computing */
+      }
+    }
+    if (elbow.value) {
+      clusterK.value = elbow.value.suggested_k
+      await nextTick()
+      renderElbow()
+    }
+  } finally {
+    elbowRunning.value = false
+  }
+}
+
+function renderElbow() {
+  if (!elbowEl.value || !elbow.value) return
+  if (!elbowChart.value) elbowChart.value = echarts.init(elbowEl.value)
+  const e = elbow.value
+  if (e.method === 'cmeans') {
+    elbowChart.value.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['Xie-Beni', 'Partition coefficient'] },
+      xAxis: { type: 'category', name: 'k', data: e.ks.map(String) },
+      yAxis: [
+        { type: 'value', name: 'Xie-Beni (min = best)' },
+        { type: 'value', name: 'PC', min: 0, max: 1 },
+      ],
+      series: [
+        { name: 'Xie-Beni', type: 'line', data: e.xb, markPoint: { data: [{ type: 'min' }] } },
+        { name: 'Partition coefficient', type: 'line', yAxisIndex: 1, data: e.pc },
+      ],
+    })
+  } else {
+    elbowChart.value.setOption({
+      tooltip: { trigger: 'axis' },
+      xAxis: { type: 'category', name: 'k', data: e.ks.map(String) },
+      yAxis: { type: 'value', name: 'WSS' },
+      series: [{ type: 'line', data: e.wss, markPoint: { data: [{ coord: [e.ks.indexOf(e.suggested_k), e.wss[e.ks.indexOf(e.suggested_k)]], value: 'elbow' }] } }],
+    })
+  }
+}
+
 // ---- table ----
 const tableMode = ref<'modules' | 'clusters'>('modules')
 const tableGenes = computed(() => {
@@ -129,8 +191,11 @@ const netChart = ref<echarts.ECharts | null>(null)
 const netEl = ref<HTMLElement | null>(null)
 const showNetworkGraph = ref(false)
 
-function renderNetwork() {
-  if (!netEl.value || !network.value) return
+async function renderNetwork() {
+  if (!network.value) return
+  showNetworkGraph.value = true
+  await nextTick()
+  if (!netEl.value) return
   if (!netChart.value) netChart.value = echarts.init(netEl.value)
   const nodes = [...network.value.nodes].sort((a, b) => b.degree - a.degree).slice(0, 1500)
   const ids = new Set(nodes.map((n) => n.id))
@@ -150,14 +215,16 @@ function renderNetwork() {
       lineStyle: { color: '#b0bec5', curveness: 0 },
     }],
   })
-  showNetworkGraph.value = true
 }
 
-watch([enrichType, onto, topN], () => {
+watch([enrichType, onto, topN, maxCountOn], () => {
   overviewImgLoading.value = true
   loadOverview()
 })
-watch([clusterEnrichType, clusterOnto, topN], () => {
+watch([lowColor, midColor, highColor], () => {
+  overviewImgLoading.value = true
+})
+watch([clusterEnrichType, clusterOnto, topN, maxCountOn, lowColor, midColor, highColor], () => {
   if (cluster.value) clusterImgLoading.value = true
 })
 onMounted(() => {
@@ -201,6 +268,23 @@ onMounted(() => {
         <div>
           <label class="form-label small mb-1">{{ t('mo.topN') }}</label>
           <input type="number" v-model.number="topN" class="form-control form-control-sm" min="1" max="30" style="width: 90px" />
+        </div>
+        <div class="form-check ms-1" style="padding-top: 1.4rem">
+          <input type="checkbox" id="maxCountToggle" v-model="maxCountOn" class="form-check-input" />
+          <label for="maxCountToggle" class="form-check-label small">{{ t('mo.dropBroadTerms') }}</label>
+        </div>
+      </div>
+      <div class="d-flex gap-2 align-items-end mb-3">
+        <div>
+          <label class="form-label small mb-1">{{ t('mo.heatmapColors') }}</label>
+          <div class="d-flex gap-2 align-items-center">
+            <span class="small text-muted">low</span>
+            <input type="color" v-model="lowColor" class="form-control form-control-color form-control-sm" title="low" />
+            <span class="small text-muted">mid</span>
+            <input type="color" v-model="midColor" class="form-control form-control-color form-control-sm" title="mid" />
+            <span class="small text-muted">high</span>
+            <input type="color" v-model="highColor" class="form-control form-control-color form-control-sm" title="high" />
+          </div>
         </div>
       </div>
 
@@ -253,17 +337,35 @@ onMounted(() => {
           </select>
         </div>
         <div>
-          <label class="form-label small mb-1">{{ t('mo.k') }} (0 = auto)</label>
-          <input type="number" v-model.number="clusterK" class="form-control form-control-sm" min="0" max="50" style="width: 90px" />
-        </div>
-        <div>
           <label class="form-label small mb-1">{{ t('mo.seed') }}</label>
           <input type="number" v-model.number="clusterSeed" class="form-control form-control-sm" min="0" style="width: 90px" />
         </div>
-        <button class="btn btn-sm btn-primary" :disabled="clusterRunning" @click="runClustering">
-          <span v-if="clusterRunning" class="spinner-border spinner-border-sm me-1"></span>{{ t('mo.runCluster') }}
+        <div>
+          <label class="form-label small mb-1">{{ t('mo.kmax') }}</label>
+          <input type="number" v-model.number="clusterKmax" class="form-control form-control-sm" min="3" max="30" style="width: 90px" />
+        </div>
+        <button class="btn btn-sm btn-outline-primary" :disabled="elbowRunning" @click="computeElbow">
+          <span v-if="elbowRunning" class="spinner-border spinner-border-sm me-1"></span>{{ t('mo.computeElbow') }}
         </button>
       </div>
+
+      <div v-if="elbow" class="border rounded p-3 bg-white mb-3">
+        <div class="small text-muted mb-1">
+          {{ clusterMethod === 'cmeans' ? t('mo.cmeansHint') : t('mo.elbowHint') }}
+          <span class="badge text-bg-primary ms-1">k = {{ elbow.suggested_k }}</span>
+        </div>
+        <div ref="elbowEl" style="height: 260px"></div>
+        <div class="d-flex gap-2 align-items-end mt-3">
+          <div>
+            <label class="form-label small mb-1">{{ t('mo.k') }}</label>
+            <input type="number" v-model.number="clusterK" class="form-control form-control-sm" min="2" :max="clusterKmax" style="width: 90px" />
+          </div>
+          <button class="btn btn-sm btn-primary" :disabled="clusterRunning || clusterK < 2" @click="runClustering">
+            <span v-if="clusterRunning" class="spinner-border spinner-border-sm me-1"></span>{{ t('mo.runCluster') }}
+          </button>
+        </div>
+      </div>
+      <div v-else-if="elbowRunning" class="text-center text-muted py-4"><div class="spinner-border"></div></div>
 
       <div v-if="clusterRunning" class="text-center text-muted py-5"><div class="spinner-border"></div></div>
       <div v-else-if="cluster" class="border rounded p-3 bg-white">

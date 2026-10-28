@@ -207,9 +207,10 @@ export async function getEnrich(
   type: 'go' | 'kegg',
   fdr = 0.05,
   top = 20,
+  maxCount = 500,
 ): Promise<EnrichResult[]> {
   const res = await fetch(
-    `${BASE}/jobs/${id}/enrich?module=${encodeURIComponent(module)}&type=${type}&fdr=${fdr}&top=${top}`,
+    `${BASE}/jobs/${id}/enrich?module=${encodeURIComponent(module)}&type=${type}&fdr=${fdr}&top=${top}&max_count=${maxCount}`,
   )
   if (!res.ok) throw new Error(await res.text())
   return res.json()
@@ -397,6 +398,26 @@ export async function runCluster(id: string, method: 'kmeans' | 'cmeans', k = 0,
 
 export async function getCluster(id: string): Promise<ClusterResult> {
   const res = await fetch(`${BASE}/jobs/${id}/overview/cluster`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export interface ClusterElbow {
+  method: string
+  ks: number[]
+  wss: number[]
+  xb: number[]
+  pc: number[]
+  suggested_k: number
+}
+
+export async function runClusterElbow(id: string, method: 'kmeans' | 'cmeans', seed = 42, kmax = 12): Promise<void> {
+  const res = await fetch(`${BASE}/jobs/${id}/overview/elbow?method=${method}&seed=${seed}&kmax=${kmax}`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+}
+
+export async function getClusterElbow(id: string): Promise<ClusterElbow> {
+  const res = await fetch(`${BASE}/jobs/${id}/overview/elbow`)
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
