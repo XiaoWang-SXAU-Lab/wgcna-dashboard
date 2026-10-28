@@ -357,7 +357,7 @@ export interface OverviewData {
 }
 
 export interface OverviewNetwork {
-  nodes: { id: string; color: string; degree: number; kme: number; k_within: number; k_cross: number; cross_degree: number }[]
+  nodes: { id: string; symbol: string; color: string; degree: number; kme: number; k_within: number; k_cross: number; cross_degree: number }[]
   edges: { source: string; target: string; weight: number; type: 'intra' | 'inter' }[]
   mode: string
   weight_type: string

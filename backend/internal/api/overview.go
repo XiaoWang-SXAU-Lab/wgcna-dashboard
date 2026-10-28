@@ -840,6 +840,7 @@ func (h *Handler) getOverviewNetwork(w http.ResponseWriter, r *http.Request) {
 
 type netNode struct {
 	ID          string  `json:"id"`
+	Symbol      string  `json:"symbol"`       // gene symbol from annotation.tsv (empty if absent)
 	Color       string  `json:"color"`
 	Degree      int     `json:"degree"`
 	Kme         float64 `json:"kme"`          // |kME| to own module (intramodular hub metric)
@@ -934,6 +935,17 @@ func buildNetworkIndex(jobDir string) (*networkIndex, error) {
 		return nil, err
 	}
 	kme := readKmeByGene(jobDir, geneMod)
+	// gene symbols from annotation.tsv (for export labels)
+	symbols := map[string]string{}
+	if b, err := os.ReadFile(filepath.Join(jobDir, "annotation.tsv")); err == nil {
+		if ann, aerr := enrich.ParseAnnotation(b); aerr == nil {
+			for g, a := range ann {
+				if a.Symbol != "" {
+					symbols[g] = a.Symbol
+				}
+			}
+		}
+	}
 	idx := &networkIndex{
 		nodes:       nodes,
 		geneMod:     geneMod,
@@ -944,6 +956,7 @@ func buildNetworkIndex(jobDir string) (*networkIndex, error) {
 	}
 	for i := range nodes {
 		nodes[i].Kme = kme[nodes[i].ID]
+		nodes[i].Symbol = symbols[nodes[i].ID]
 		idx.geneIdx[nodes[i].ID] = i
 	}
 

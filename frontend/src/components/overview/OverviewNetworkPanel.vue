@@ -30,6 +30,7 @@ const chart = ref<echarts.ECharts | null>(null)
 const layout = ref<LayoutResult | null>(null)
 const fullscreen = ref(false)
 const layoutSeed = ref(0)
+const exportFormat = ref<'cyjs' | 'gexf'>('cyjs')
 
 // display edges: filter the fetched (intra or combined) edges by the mode
 const displayEdges = computed(() => {
@@ -76,14 +77,31 @@ function relayout() {
   render()
 }
 
-// export the current view (nodes with positions + hub/bridge + edges with type)
+// WGCNA module color name → hex, for GEXF viz:color
+const WGCNA_HEX: Record<string, string> = {
+  turquoise: '#40E0D0', blue: '#0000FF', brown: '#A52A2A', yellow: '#FFD700',
+  green: '#008000', red: '#FF0000', black: '#000000', pink: '#FFC0CB',
+  magenta: '#FF00FF', purple: '#800080', greenyellow: '#ADFF2F', tan: '#D2B48C',
+  salmon: '#FA8072', cyan: '#00FFFF', midnightblue: '#191970', grey: '#808080',
+}
+function hexToRgb(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex)
+  if (!m) return '0,0,0'
+  const v = parseInt(m[1], 16)
+  return `${(v >> 16) & 255},${(v >> 8) & 255},${v & 255}`
+}
+
+// export the current view as Cytoscape JSON (.cyjs) or Gephi GEXF (.gexf).
+// Node label = gene symbol when available, else gene ID; hub/bridge/module are
+// kept as attributes so the user can re-style/colour in Cytoscape/Gephi.
 function exportView() {
   if (!props.network || !layout.value) return
   const nodeById = new Map(props.network.nodes.map((n) => [n.id, n]))
-  const nodes = displayNodes.value.map((n) => {
+  const nodeRows = displayNodes.value.map((n) => {
     const p = layout.value!.positions.get(n.id) ?? { x: 0, y: 0 }
     return {
       id: n.id,
+      label: n.symbol || n.id,
       module: n.color,
       x: +p.x.toFixed(3),
       y: +p.y.toFixed(3),
@@ -95,7 +113,7 @@ function exportView() {
       is_bridge: bridgeIds.value.has(n.id),
     }
   })
-  const edges = displayEdges.value.map((e) => ({
+  const edgeRows = displayEdges.value.map((e) => ({
     source: e.source,
     target: e.target,
     source_module: nodeById.get(e.source)?.color ?? '',
@@ -103,16 +121,64 @@ function exportView() {
     weight: e.weight,
     type: e.type,
   }))
-  const payload = {
-    mode: props.networkMode,
-    weight_type: props.network.weight_type,
-    nodes,
-    edges,
+
+  let text = ''
+  let ext = ''
+  let mime = ''
+
+  if (exportFormat.value === 'gexf') {
+    ext = 'gexf'
+    mime = 'application/xml'
+    const nodesXml = nodeRows.map((n) => {
+      const rgb = hexToRgb(WGCNA_HEX[n.module] ?? '#808080')
+      return `      <node id="${n.id}" label="${n.label}">\n` +
+        `        <attvalues>\n` +
+        `          <attvalue for="0" value="${n.module}"/>\n` +
+        `          <attvalue for="1" value="${n.is_hub}"/>\n` +
+        `          <attvalue for="2" value="${n.is_bridge}"/>\n` +
+        `          <attvalue for="3" value="${n.kme}"/>\n` +
+        `          <attvalue for="4" value="${n.k_cross}"/>\n` +
+        `        </attvalues>\n` +
+        `        <viz:color r="${rgb.split(',')[0]}" g="${rgb.split(',')[1]}" b="${rgb.split(',')[2]}"/>\n` +
+        `      </node>`
+    }).join('\n')
+    const edgesXml = edgeRows.map((e, i) =>
+      `      <edge id="e${i}" source="${e.source}" target="${e.target}" weight="${e.weight}">\n` +
+      `        <attvalues><attvalue for="5" value="${e.type}"/></attvalues>\n` +
+      `      </edge>`
+    ).join('\n')
+    text = `<?xml version="1.0" encoding="UTF-8"?>\n` +
+      `<gexf xmlns="http://www.gexf.net/1.3" xmlns:viz="http://www.gexf.net/1.3/viz" version="1.3">\n` +
+      `  <graph mode="static" defaultedgetype="undirected">\n` +
+      `    <attributes class="node">\n` +
+      `      <attribute id="0" title="module" type="string"/>\n` +
+      `      <attribute id="1" title="is_hub" type="boolean"/>\n` +
+      `      <attribute id="2" title="is_bridge" type="boolean"/>\n` +
+      `      <attribute id="3" title="kme" type="double"/>\n` +
+      `      <attribute id="4" title="k_cross" type="double"/>\n` +
+      `    </attributes>\n` +
+      `    <attributes class="edge">\n` +
+      `      <attribute id="5" title="type" type="string"/>\n` +
+      `    </attributes>\n` +
+      `    <nodes>\n${nodesXml}\n    </nodes>\n` +
+      `    <edges>\n${edgesXml}\n    </edges>\n` +
+      `  </graph>\n</gexf>\n`
+  } else {
+    ext = 'cyjs'
+    mime = 'application/json'
+    text = JSON.stringify({
+      elements: {
+        nodes: nodeRows.map((n) => ({ data: n })),
+        edges: edgeRows.map((e) => ({ data: e })),
+      },
+      data: { name: `rsWGCNA ${props.networkMode} network`, weight_type: props.network.weight_type },
+    }, null, 2)
   }
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+
+  const blob = new Blob([text], { type: mime })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
-  a.download = `network_${props.networkMode}.json`
+  a.download = `network_${props.networkMode}.${ext}`
   a.click()
   URL.revokeObjectURL(a.href)
 }
@@ -262,6 +328,10 @@ onBeforeUnmount(() => {
       <button class="btn btn-sm btn-outline-secondary" :disabled="!network" @click="fitView"><i class="bi bi-arrows-fullscreen me-1"></i>{{ t('mo.fitView') }}</button>
       <button class="btn btn-sm btn-outline-secondary" :disabled="!network" @click="relayout"><i class="bi bi-shuffle me-1"></i>{{ t('mo.relayout') }}</button>
       <button class="btn btn-sm btn-outline-secondary" :disabled="!network" @click="fullscreenToggle"><i class="bi bi-fullscreen me-1"></i>{{ t('mo.fullscreen') }}</button>
+      <select v-model="exportFormat" class="form-select form-select-sm" style="width: auto">
+        <option value="cyjs">Cytoscape (.cyjs)</option>
+        <option value="gexf">Gephi (.gexf)</option>
+      </select>
       <button class="btn btn-sm btn-outline-secondary" :disabled="!network" @click="exportView"><i class="bi bi-download me-1"></i>{{ t('mo.exportView') }}</button>
       <span v-if="network" class="small text-muted ms-auto">
         {{ displayNodes.length }} {{ t('mo.nodes') }}
