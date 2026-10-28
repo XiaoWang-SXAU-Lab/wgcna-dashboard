@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/netutil"
 )
 
 // PubMed searches NCBI E-utilities (free, no key).
@@ -21,7 +22,7 @@ func (p *PubMed) http() *http.Client {
 	if p.HTTP != nil {
 		return p.HTTP
 	}
-	return &http.Client{Timeout: 20 * time.Second}
+	return netutil.Client(20 * time.Second)
 }
 
 const eutils = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"

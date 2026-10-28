@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/netutil"
 )
 
 // Message is a chat message.
@@ -64,7 +66,7 @@ func (c *Client) http() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return http.DefaultClient
+	return netutil.Client(60 * time.Second)
 }
 
 // Chat sends a non-streaming completion and returns the assistant reply.

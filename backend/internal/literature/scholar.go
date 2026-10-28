@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/netutil"
 )
 
 // Scholar searches Google Scholar via SerpAPI (requires the user's API key).
@@ -23,7 +24,7 @@ func (p *Scholar) http() *http.Client {
 	if p.HTTP != nil {
 		return p.HTTP
 	}
-	return &http.Client{Timeout: 20 * time.Second}
+	return netutil.Client(20 * time.Second)
 }
 
 func (p *Scholar) Search(query string, limit int) ([]Paper, error) {

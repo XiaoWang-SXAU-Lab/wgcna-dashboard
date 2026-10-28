@@ -28,6 +28,7 @@ const el = ref<HTMLElement | null>(null)
 const chart = ref<echarts.ECharts | null>(null)
 const layout = ref<LayoutResult | null>(null)
 const fullscreen = ref(false)
+const layoutSeed = ref(0)
 
 // display edges: filter the fetched (intra or combined) edges by the mode
 const displayEdges = computed(() => {
@@ -65,7 +66,54 @@ const bridgeIds = computed(() => {
 // share one combined layout so nodes don't jump when toggling)
 function computeLayout() {
   if (!props.network) return
-  layout.value = moduleAwareLayout(props.network.nodes, props.network.edges, 70, props.hubPerModule, props.spread)
+  layout.value = moduleAwareLayout(props.network.nodes, props.network.edges, 70, props.hubPerModule, props.spread, layoutSeed.value)
+}
+
+function relayout() {
+  layoutSeed.value = Math.floor(Math.random() * 100000)
+  computeLayout()
+  render()
+}
+
+// export the current view (nodes with positions + hub/bridge + edges with type)
+function exportView() {
+  if (!props.network || !layout.value) return
+  const nodeById = new Map(props.network.nodes.map((n) => [n.id, n]))
+  const nodes = displayNodes.value.map((n) => {
+    const p = layout.value!.positions.get(n.id) ?? { x: 0, y: 0 }
+    return {
+      id: n.id,
+      module: n.color,
+      x: +p.x.toFixed(3),
+      y: +p.y.toFixed(3),
+      kme: +n.kme.toFixed(6),
+      k_within: +n.k_within.toFixed(4),
+      k_cross: +n.k_cross.toFixed(4),
+      cross_degree: n.cross_degree,
+      is_hub: layout.value!.hubs.has(n.id),
+      is_bridge: bridgeIds.value.has(n.id),
+    }
+  })
+  const edges = displayEdges.value.map((e) => ({
+    source: e.source,
+    target: e.target,
+    source_module: nodeById.get(e.source)?.color ?? '',
+    target_module: nodeById.get(e.target)?.color ?? '',
+    weight: e.weight,
+    type: e.type,
+  }))
+  const payload = {
+    mode: props.networkMode,
+    weight_type: props.network.weight_type,
+    nodes,
+    edges,
+  }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `network_${props.networkMode}.json`
+  a.click()
+  URL.revokeObjectURL(a.href)
 }
 
 function render() {
@@ -107,6 +155,31 @@ function render() {
     },
   }))
 
+  // module labels: text at each module's centroid (data → pixel)
+  const graphic: any[] = []
+  if (props.showModuleLabels && props.networkMode !== 'inter') {
+    const centers = new Map<string, { x: number; y: number; n: number }>()
+    for (const n of displayNodes.value) {
+      const p = layout.value!.positions.get(n.id)
+      if (!p) continue
+      const c = centers.get(n.color) ?? { x: 0, y: 0, n: 0 }
+      c.x += p.x
+      c.y += p.y
+      c.n++
+      centers.set(n.color, c)
+    }
+    for (const [mod, c] of centers) {
+      if (c.n === 0) continue
+      const px = chart.value!.convertToPixel({ seriesIndex: 0 }, [c.x / c.n, c.y / c.n])
+      graphic.push({
+        type: 'text',
+        left: px[0] - 20,
+        top: px[1] - 8,
+        style: { text: mod, fill: '#333', fontSize: 11, fontWeight: 'bold' },
+      })
+    }
+  }
+
   chart.value.setOption({
     animation: false,
     tooltip: {
@@ -116,6 +189,7 @@ function render() {
         return `<b>${d.id}</b><br/>module: ${d.module}<br/>|kME|: ${d.kme?.toFixed(3) ?? '—'}<br/>kCross: ${d.kCross?.toFixed(2) ?? '—'} (deg ${d.crossDegree ?? 0})`
       },
     },
+    graphic,
     series: [{
       type: 'graphGL',
       layout: 'none',
@@ -179,8 +253,9 @@ onBeforeUnmount(() => {
         <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>{{ t('mo.buildNetwork') }}
       </button>
       <button class="btn btn-sm btn-outline-secondary" :disabled="!network" @click="fitView"><i class="bi bi-arrows-fullscreen me-1"></i>{{ t('mo.fitView') }}</button>
+      <button class="btn btn-sm btn-outline-secondary" :disabled="!network" @click="relayout"><i class="bi bi-shuffle me-1"></i>{{ t('mo.relayout') }}</button>
       <button class="btn btn-sm btn-outline-secondary" :disabled="!network" @click="fullscreenToggle"><i class="bi bi-fullscreen me-1"></i>{{ t('mo.fullscreen') }}</button>
-      <button class="btn btn-sm btn-outline-secondary" :disabled="!network" @click="emit('export')"><i class="bi bi-download me-1"></i>{{ t('mo.exportView') }}</button>
+      <button class="btn btn-sm btn-outline-secondary" :disabled="!network" @click="exportView"><i class="bi bi-download me-1"></i>{{ t('mo.exportView') }}</button>
       <span v-if="network" class="small text-muted ms-auto">
         {{ displayNodes.length }} {{ t('mo.nodes') }}
         <span v-if="networkMode !== 'inter'"> · {{ intraCount }} intra</span>

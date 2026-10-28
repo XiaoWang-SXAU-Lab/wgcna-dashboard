@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/netutil"
 )
 
 // SemanticScholar searches the Semantic Scholar Graph API (free, no key).
@@ -20,7 +21,7 @@ func (p *SemanticScholar) http() *http.Client {
 	if p.HTTP != nil {
 		return p.HTTP
 	}
-	return &http.Client{Timeout: 20 * time.Second}
+	return netutil.Client(20 * time.Second)
 }
 
 func (p *SemanticScholar) Search(query string, limit int) ([]Paper, error) {

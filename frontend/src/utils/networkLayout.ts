@@ -40,6 +40,7 @@ function layoutOneModule(
   edges: NetEdge[],
   hubs: Set<string>,
   iterations: number,
+  seed = 0,
 ): Map<string, { x: number; y: number }> {
   const n = list.length
   const idx = new Map<string, number>()
@@ -58,10 +59,10 @@ function layoutOneModule(
   // initial positions: hubs near center, others on a ring
   const pos = list.map((node, i) => {
     if (hubs.has(node.id)) {
-      return { x: (hash(node.id, 1) - 0.5) * 0.05, y: (hash(node.id, 2) - 0.5) * 0.05 }
+      return { x: (hash(node.id, 1 + seed) - 0.5) * 0.05, y: (hash(node.id, 2 + seed) - 0.5) * 0.05 }
     }
-    const ang = (i / n) * Math.PI * 2 + hash(node.id, 3) * 0.5
-    const r = 1 + hash(node.id, 4) * 0.6
+    const ang = (i / n) * Math.PI * 2 + hash(node.id, 3 + seed) * 0.5
+    const r = 1 + hash(node.id, 4 + seed) * 0.6
     return { x: Math.cos(ang) * r, y: Math.sin(ang) * r }
   })
 
@@ -196,6 +197,7 @@ export function moduleAwareLayout(
   iterations = 70,
   hubPerModule = 10,
   spread = 1.0,
+  seed = 0,
 ): LayoutResult {
   const byMod = new Map<string, NetNode[]>()
   for (const n of nodes) {
@@ -220,7 +222,7 @@ export function moduleAwareLayout(
   const localRadius = new Map<string, number>()
   for (const mod of modNames) {
     const list = byMod.get(mod)!
-    const pos = layoutOneModule(list, edges, hubs, iterations)
+    const pos = layoutOneModule(list, edges, hubs, iterations, seed)
     for (const [id, p] of pos) local.set(id, p)
     localRadius.set(mod, Math.sqrt(list.length))
   }

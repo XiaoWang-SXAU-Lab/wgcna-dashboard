@@ -6,27 +6,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/netutil"
 )
 
 const oboURL = "https://current.geneontology.org/ontology/go-basic.obo"
-
-// proxyAwareClient returns an http.Client that honours the standard HTTP(S)_PROXY
-// environment variables plus an optional WGCNA_PROXY override (e.g.
-// "http://127.0.0.1:7890"), so the ontology update works behind a local proxy.
-func proxyAwareClient(timeout time.Duration) *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if p := os.Getenv("WGCNA_PROXY"); p != "" {
-		if u, err := url.Parse(p); err == nil {
-			transport.Proxy = http.ProxyURL(u)
-		}
-	}
-	return &http.Client{Timeout: timeout, Transport: transport}
-}
 
 // CurrentVersion returns the data-version of the ontology in use (disk copy if
 // present, otherwise the embedded one).
@@ -40,7 +28,7 @@ func CurrentVersion() (string, error) {
 
 // LatestVersion fetches the go-basic.obo header and returns its data-version.
 func LatestVersion() (string, error) {
-	client := proxyAwareClient(30 * time.Second)
+	client := netutil.Client(30 * time.Second)
 	req, _ := http.NewRequest(http.MethodGet, oboURL, nil)
 	req.Header.Set("Range", "bytes=0-8191")
 	resp, err := client.Do(req)
@@ -62,7 +50,7 @@ func LatestVersion() (string, error) {
 // Update downloads the latest go-basic.obo, validates it, gzips it into the
 // user data dir and invalidates the cached ontology.
 func Update() (string, error) {
-	client := proxyAwareClient(5 * time.Minute)
+	client := netutil.Client(5 * time.Minute)
 	resp, err := client.Get(oboURL)
 	if err != nil {
 		return "", err
