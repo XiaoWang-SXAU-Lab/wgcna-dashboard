@@ -58,6 +58,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/jobs/{id}/plots/enrich-heatmap", h.plotEnrichHeatmap)
 	mux.HandleFunc("GET /api/jobs/{id}/overview", h.overview)
 	mux.HandleFunc("GET /api/jobs/{id}/plots/overview", h.plotOverview)
+	mux.HandleFunc("GET /api/jobs/{id}/plots/overview-cluster", h.plotOverviewCluster)
 	mux.HandleFunc("POST /api/jobs/{id}/overview/cluster", h.runCluster)
 	mux.HandleFunc("GET /api/jobs/{id}/overview/cluster", h.getCluster)
 	mux.HandleFunc("POST /api/jobs/{id}/overview/network", h.runOverviewNetwork)

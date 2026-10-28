@@ -17,6 +17,9 @@ const tab = ref<Tab>('overview')
 
 // ---- controls ----
 const enrichType = ref<'go' | 'kegg'>('go')
+const onto = ref('')   // GO ontology: '' = ALL, 'bp' / 'cc' / 'mf'
+const clusterEnrichType = ref<'go' | 'kegg'>('go')   // independent of overview enrichType
+const clusterOnto = ref('')
 const topN = ref(5)
 const percentile = ref(10)
 const clusterMethod = ref<'kmeans' | 'cmeans'>('kmeans')
@@ -34,10 +37,13 @@ const selectedModule = ref('')
 const selectedCluster = ref('')
 
 const overviewUrl = computed(() =>
-  store.jobId ? plotUrl(store.jobId, 'overview', { mode: 'png', type: enrichType.value, top: topN.value, fdr: 0.05, width: 18, height: 13 }) : '')
+  store.jobId ? plotUrl(store.jobId, 'overview', { mode: 'png', type: enrichType.value, onto: onto.value, top: topN.value, fdr: 0.05, width: 18, height: 13 }) : '')
 
 const overviewExportUrlPng = computed(() =>
-  store.jobId ? plotUrl(store.jobId, 'overview', { mode: 'svg', type: enrichType.value, top: topN.value, fdr: 0.05 }) : '')
+  store.jobId ? plotUrl(store.jobId, 'overview', { mode: 'svg', type: enrichType.value, onto: onto.value, top: topN.value, fdr: 0.05 }) : '')
+
+const clusterOverviewUrl = computed(() =>
+  store.jobId && cluster.value ? plotUrl(store.jobId, 'overview-cluster', { mode: 'png', type: clusterEnrichType.value, onto: clusterOnto.value, top: topN.value, fdr: 0.05, width: 18, height: 13 }) : '')
 
 const networkExportUrl = computed(() =>
   store.jobId ? plotUrl(store.jobId, 'overview-network', { mode: 'svg', per_module: 2000 }) : '')
@@ -46,7 +52,7 @@ async function loadOverview() {
   if (!store.jobId) return
   loading.value = true
   try {
-    overview.value = await getOverview(store.jobId, enrichType.value, 0.05, topN.value)
+    overview.value = await getOverview(store.jobId, enrichType.value, onto.value, 0.05, topN.value)
     if (!selectedModule.value && overview.value.module_order.length) {
       selectedModule.value = overview.value.module_order[0]
     }
@@ -139,7 +145,7 @@ function renderNetwork() {
   showNetworkGraph.value = true
 }
 
-watch([enrichType, topN], loadOverview)
+watch([enrichType, onto, topN], loadOverview)
 onMounted(() => {
   if (store.jobId) loadOverview()
 })
@@ -155,6 +161,15 @@ onMounted(() => {
         <select v-model="enrichType" class="form-select form-select-sm">
           <option value="go">GO</option>
           <option value="kegg">KEGG</option>
+        </select>
+      </div>
+      <div v-if="enrichType === 'go'" class="mb-3">
+        <label class="form-label small mb-1">{{ t('mo.ontology') }}</label>
+        <select v-model="onto" class="form-select form-select-sm">
+          <option value="">ALL</option>
+          <option value="bp">BP</option>
+          <option value="cc">CC</option>
+          <option value="mf">MF</option>
         </select>
       </div>
       <div class="mb-3">
@@ -246,8 +261,23 @@ onMounted(() => {
               {{ c }} ({{ cluster.clusters.filter((x) => x === c).length }})
             </span>
           </div>
-          <div v-if="cluster.metrics?.wss?.length" class="small text-muted">
+          <div v-if="cluster.metrics?.wss?.length" class="small text-muted mb-2">
             WSS: {{ cluster.metrics.wss.map((x) => Math.round(x)).join(', ') }}
+          </div>
+          <div class="d-flex gap-2 align-items-center mb-2">
+            <select v-model="clusterEnrichType" class="form-select form-select-sm" style="width: auto">
+              <option value="go">GO</option>
+              <option value="kegg">KEGG</option>
+            </select>
+            <select v-if="clusterEnrichType === 'go'" v-model="clusterOnto" class="form-select form-select-sm" style="width: auto">
+              <option value="">ALL</option>
+              <option value="bp">BP</option>
+              <option value="cc">CC</option>
+              <option value="mf">MF</option>
+            </select>
+          </div>
+          <div class="border rounded p-2 bg-white mt-2">
+            <img :src="clusterOverviewUrl" class="w-100" alt="cluster overview" />
           </div>
         </div>
         <div v-else class="text-center text-muted py-5">{{ t('mo.noData') }}</div>

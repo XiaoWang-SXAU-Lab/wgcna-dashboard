@@ -16,7 +16,7 @@ import (
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/plot"
 )
 
-func overviewData(jobDir, enrichType string, fdr float64, topN int) (json.RawMessage, error) {
+func overviewData(jobDir, enrichType, ontology string, fdr float64, topN int) (json.RawMessage, error) {
 	if fdr <= 0 || fdr > 1 {
 		fdr = 0.05
 	}
@@ -167,21 +167,14 @@ func overviewData(jobDir, enrichType string, fdr float64, topN int) (json.RawMes
 			}
 			var rows []enrich.Result
 			if enrichType == "kegg" {
-				rows, err = enrich.KEGGEnrich(jobDir, mgenes, fdr, topN)
+				rows, err = enrich.KEGGEnrich(jobDir, mgenes, fdr, 20)
 			} else {
-				rows, err = enrich.GOEnrich(jobDir, mgenes, fdr, topN)
+				rows, err = enrich.GOEnrich(jobDir, mgenes, fdr, 20)
 			}
 			if err != nil {
 				continue
 			}
-			terms := make([]map[string]any, 0, len(rows))
-			for _, r := range rows {
-				terms = append(terms, map[string]any{"term": r.Description, "padj": r.PAdjust})
-			}
-			if len(terms) > topN {
-				terms = terms[:topN]
-			}
-			enrichMap[m] = terms
+			enrichMap[m] = selectEnrichTerms(rows, enrichType, ontology, topN)
 		}
 	}
 
@@ -221,6 +214,218 @@ func moduleColorMap(moduleOrder []string) map[string]string {
 		m[mod] = mod
 	}
 	return m
+}
+
+// normOntology maps a GO ontology query value to the canonical short code.
+func normOntology(q string) string {
+	switch strings.ToLower(q) {
+	case "bp":
+		return "BP"
+	case "cc":
+		return "CC"
+	case "mf":
+		return "MF"
+	default:
+		return ""
+	}
+}
+
+// geneRatioFrac parses a "k/n" GeneRatio string to its fraction.
+func geneRatioFrac(s string) float64 {
+	parts := strings.SplitN(s, "/", 2)
+	if len(parts) != 2 {
+		return 0
+	}
+	k, _ := strconv.ParseFloat(parts[0], 64)
+	n, _ := strconv.ParseFloat(parts[1], 64)
+	if n == 0 {
+		return 0
+	}
+	return k / n
+}
+
+// selectEnrichTerms filters rows by GO ontology, sorts by GeneRatio descending
+// (matching the module-explorer ECharts order), and returns the top-N terms.
+func selectEnrichTerms(rows []enrich.Result, enrichType, ontology string, topN int) []map[string]any {
+	filtered := make([]enrich.Result, 0, len(rows))
+	for _, r := range rows {
+		if enrichType == "go" && ontology != "" && r.Ontology != ontology {
+			continue
+		}
+		filtered = append(filtered, r)
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return geneRatioFrac(filtered[i].GeneRatio) > geneRatioFrac(filtered[j].GeneRatio)
+	})
+	if len(filtered) > topN {
+		filtered = filtered[:topN]
+	}
+	terms := make([]map[string]any, 0, len(filtered))
+	for _, r := range filtered {
+		terms = append(terms, map[string]any{"term": r.Description, "padj": r.PAdjust, "ontology": r.Ontology})
+	}
+	return terms
+}
+
+// clusterPalette provides distinct colors for kmeans/cmeans clusters "C1..Ck".
+var clusterPalette = []string{
+	"#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+	"#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+	"#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
+}
+
+func clusterColorMap(clusterOrder []string) map[string]string {
+	m := make(map[string]string, len(clusterOrder))
+	for i, c := range clusterOrder {
+		m[c] = clusterPalette[i%len(clusterPalette)]
+	}
+	return m
+}
+
+// zscoreRows z-scores each row of mat.
+func zscoreRows(mat [][]float64) [][]float64 {
+	g, n := len(mat), len(mat[0])
+	z := make([][]float64, g)
+	for i := 0; i < g; i++ {
+		mean := 0.0
+		for j := 0; j < n; j++ {
+			mean += mat[i][j]
+		}
+		mean /= float64(n)
+		sd := 0.0
+		for j := 0; j < n; j++ {
+			d := mat[i][j] - mean
+			sd += d * d
+		}
+		sd = math.Sqrt(sd / float64(n))
+		if sd < 1e-12 {
+			sd = 1
+		}
+		row := make([]float64, n)
+		for j := 0; j < n; j++ {
+			row[j] = (mat[i][j] - mean) / sd
+		}
+		z[i] = row
+	}
+	return z
+}
+
+// clusterOverviewData builds the overview figure payload for a kmeans/cmeans
+// result (overview_clusters.json), reusing the same plotting script as WGCNA.
+func clusterOverviewData(jobDir, enrichType, ontology string, fdr float64, topN int) (json.RawMessage, error) {
+	if fdr <= 0 || fdr > 1 {
+		fdr = 0.05
+	}
+	if topN <= 0 {
+		topN = 5
+	}
+
+	var cr struct {
+		Genes        []string `json:"genes"`
+		Samples      []string `json:"samples"`
+		Clusters     []string `json:"clusters"`
+		ClusterOrder []string `json:"cluster_order"`
+		Method       string   `json:"method"`
+	}
+	b, err := os.ReadFile(filepath.Join(jobDir, "overview_clusters.json"))
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(b, &cr); err != nil {
+		return nil, err
+	}
+	if len(cr.Clusters) != len(cr.Genes) {
+		return nil, os.ErrInvalid
+	}
+
+	// filtered matrix (genes × samples)
+	genes, samples, mat, err := readFilteredMatrix(jobDir)
+	if err != nil {
+		return nil, err
+	}
+	// align: cluster genes -> filtered matrix row
+	rowIdx := make(map[string]int, len(genes))
+	for i, g := range genes {
+		rowIdx[g] = i
+	}
+	clusterMat := make([][]float64, 0, len(cr.Genes))
+	for _, cg := range cr.Genes {
+		if ri, ok := rowIdx[cg]; ok {
+			clusterMat = append(clusterMat, mat[ri])
+		}
+	}
+	if len(clusterMat) != len(cr.Genes) {
+		return nil, os.ErrInvalid
+	}
+
+	// sample reorder (group by "group", else sort id) + annotations
+	meta, colOrder := readSampleMeta(jobDir)
+	groupCol := ""
+	for _, c := range colOrder {
+		if c == "group" {
+			groupCol = "group"
+			break
+		}
+	}
+	order := computeSampleOrder(samples, meta, groupCol)
+	samples = permute(samples, order)
+	for i := range clusterMat {
+		clusterMat[i] = permute(clusterMat[i], order)
+	}
+	sampleAnn := buildSampleAnnotations(samples, meta, colOrder)
+
+	z := zscoreRows(clusterMat)
+
+	// enrichment per cluster (reuse Go enrich, genes are the cluster members)
+	enrichMap := map[string][]map[string]any{}
+	enrichAvailable := true
+	if enrichType == "kegg" {
+		if _, err := os.Stat(filepath.Join(jobDir, "gene2kegg.tsv")); err != nil {
+			enrichAvailable = false
+		}
+	} else {
+		if _, err := os.Stat(filepath.Join(jobDir, "gene2go.tsv")); err != nil {
+			enrichAvailable = false
+		}
+	}
+	if enrichAvailable {
+		for _, c := range cr.ClusterOrder {
+			var cgenes []string
+			for i, cl := range cr.Clusters {
+				if cl == c {
+					cgenes = append(cgenes, cr.Genes[i])
+				}
+			}
+			if len(cgenes) == 0 {
+				continue
+			}
+			var rows []enrich.Result
+			if enrichType == "kegg" {
+				rows, err = enrich.KEGGEnrich(jobDir, cgenes, fdr, 20)
+			} else {
+				rows, err = enrich.GOEnrich(jobDir, cgenes, fdr, 20)
+			}
+			if err != nil {
+				continue
+			}
+			enrichMap[c] = selectEnrichTerms(rows, enrichType, ontology, topN)
+		}
+	}
+
+	payload := map[string]any{
+		"genes":              cr.Genes,
+		"samples":            samples,
+		"z":                  z,
+		"modules":            cr.Clusters,
+		"module_order":       cr.ClusterOrder,
+		"module_colors":      clusterColorMap(cr.ClusterOrder),
+		"enrich":             enrichMap,
+		"enrich_type":        enrichType,
+		"enrich_ok":          enrichAvailable,
+		"sample_annotations": sampleAnn,
+		"cluster_method":     cr.Method,
+	}
+	return json.Marshal(payload)
 }
 
 // readSampleMeta reads sample_info.tsv into map[sampleID]map[column]value + column order.
@@ -377,7 +582,7 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	if enrichType != "kegg" {
 		enrichType = "go"
 	}
-	data, err := overviewData(jobDir, enrichType, qfloat(r, "fdr"), int(qfloat(r, "top")))
+	data, err := overviewData(jobDir, enrichType, normOntology(r.URL.Query().Get("onto")), qfloat(r, "fdr"), int(qfloat(r, "top")))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -397,7 +602,7 @@ func (h *Handler) plotOverview(w http.ResponseWriter, r *http.Request) {
 	if enrichType != "kegg" {
 		enrichType = "go"
 	}
-	data, err := overviewData(jobDir, enrichType, qfloat(r, "fdr"), int(qfloat(r, "top")))
+	data, err := overviewData(jobDir, enrichType, normOntology(r.URL.Query().Get("onto")), qfloat(r, "fdr"), int(qfloat(r, "top")))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -420,6 +625,44 @@ func (h *Handler) plotOverview(w http.ResponseWriter, r *http.Request) {
 	defer os.RemoveAll(filepath.Dir(out))
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Content-Disposition", `attachment; filename="module_overview.`+mode+`"`)
+	http.ServeFile(w, r, out)
+}
+
+// plotOverviewCluster renders the three-part figure for a kmeans/cmeans result.
+func (h *Handler) plotOverviewCluster(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	mode := r.URL.Query().Get("mode")
+	if mode != "pdf" && mode != "svg" {
+		mode = "png"
+	}
+	jobDir := filepath.Join(h.jobs.Dir(), id)
+	enrichType := r.URL.Query().Get("type")
+	if enrichType != "kegg" {
+		enrichType = "go"
+	}
+	data, err := clusterOverviewData(jobDir, enrichType, normOntology(r.URL.Query().Get("onto")), qfloat(r, "fdr"), int(qfloat(r, "top")))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	params := plot.PlotParams{
+		Low:          r.URL.Query().Get("low"),
+		Mid:          r.URL.Query().Get("mid"),
+		High:         r.URL.Query().Get("high"),
+		Width:        qfloat(r, "width"),
+		Height:       qfloat(r, "height"),
+		Dpi:          qfloat(r, "dpi"),
+		BaseSize:     qfloat(r, "base_size"),
+		ShowCategory: int(qfloat(r, "top")),
+	}
+	out, ctype, err := plot.RenderModuleOverview(data, mode, params)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(filepath.Dir(out))
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", `attachment; filename="cluster_overview.`+mode+`"`)
 	http.ServeFile(w, r, out)
 }
 func updateParamsField(jobDir, key string, value any) error {

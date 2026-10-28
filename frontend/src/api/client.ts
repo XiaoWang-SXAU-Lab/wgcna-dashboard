@@ -373,8 +373,8 @@ export interface ClusterResult {
   metrics?: { ks: number[]; wss: number[]; xb: number[]; pc: number[] }
 }
 
-export async function getOverview(id: string, type: 'go' | 'kegg' = 'go', fdr = 0.05, top = 5): Promise<OverviewData> {
-  const res = await fetch(`${BASE}/jobs/${id}/overview?type=${type}&fdr=${fdr}&top=${top}`)
+export async function getOverview(id: string, type: 'go' | 'kegg' = 'go', onto = '', fdr = 0.05, top = 5): Promise<OverviewData> {
+  const res = await fetch(`${BASE}/jobs/${id}/overview?type=${type}&onto=${onto}&fdr=${fdr}&top=${top}`)
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }

@@ -145,6 +145,7 @@ ht <- Heatmap(
   row_title = NULL,
   cluster_rows = TRUE,
   cluster_row_slices = FALSE,
+  show_row_dend = FALSE,
   cluster_columns = FALSE,
   show_row_names = FALSE,
   show_column_names = n_samples <= 50,
