@@ -128,6 +128,16 @@ watch(() => store.selectedModule, (m) => {
   <SidebarDrawer>
     <template #sidebar>
       <div class="d-flex flex-column gap-2">
+        <!-- tab switcher -->
+        <div class="nav nav-pills flex-column gap-1 mb-1">
+          <button v-for="(tk, key) in (['detail','network','annotation','go','kegg'] as Tab[])" :key="key"
+            class="nav-link text-start" :class="{ active: tab === tk }" @click="tab = tk">
+            <i class="bi me-1" :class="{ detail: 'bi-grid-1x2', network: 'bi-diagram-3', annotation: 'bi-tags', go: 'bi-circle', kegg: 'bi-diagram-2' }[tk]"></i>
+            {{ t('me.tab' + tk.charAt(0).toUpperCase() + tk.slice(1)) }}
+          </button>
+        </div>
+        <hr class="my-1" />
+
         <label v-if="traitOptions.length" class="form-label small mb-0">{{ t('im.trait') }}</label>
         <select v-if="traitOptions.length" v-model="store.selectedTrait" @change="onTraitChange" class="form-select form-select-sm">
           <option v-for="tr in traitOptions" :key="tr" :value="tr">{{ tr }}</option>
@@ -258,14 +268,6 @@ watch(() => store.selectedModule, (m) => {
       <span class="flex-grow-1">{{ store.error }}</span>
       <button class="btn btn-sm btn-outline-danger" @click="analyzeError(store.error)">🤖 {{ t('common.ai') }}</button>
     </div>
-
-    <ul class="nav nav-tabs mb-3">
-      <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'detail' }" @click="tab = 'detail'">{{ t('me.tabDetail') }}</a></li>
-      <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'network' }" @click="tab = 'network'">{{ t('me.tabNetwork') }}</a></li>
-      <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'annotation' }" @click="tab = 'annotation'">{{ t('me.tabAnnotation') }}</a></li>
-      <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'go' }" @click="tab = 'go'">{{ t('me.tabGo') }}</a></li>
-      <li class="nav-item"><a class="nav-link" :class="{ active: tab === 'kegg' }" @click="tab = 'kegg'">{{ t('me.tabKegg') }}</a></li>
-    </ul>
 
     <template v-if="tab === 'detail'">
       <div v-if="store.detail">
