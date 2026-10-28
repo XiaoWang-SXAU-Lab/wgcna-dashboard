@@ -66,7 +66,7 @@ function layoutOneModule(
     return { x: Math.cos(ang) * r, y: Math.sin(ang) * r }
   })
 
-  const k = Math.sqrt(4 / n) // optimal pairwise distance (FR)
+  const k = 1 // constant pairwise distance → uniform gene density per module
   const repulse = (d: number) => (k * k) / Math.max(d, 0.02)
   const attract = (d: number) => (d * d) / k
 
@@ -128,9 +128,9 @@ function layoutOneModule(
   return out
 }
 
-// packModules places module centers with FR-style repulsion (scaled by module
-// radius) plus a soft pull toward the origin, so independent modules settle
-// into a compact, roughly circular arrangement without flying apart.
+// packModules places module centers with overlap resolution plus a soft pull
+// toward the origin, so modules settle into a compact circular arrangement at
+// roughly the sum of their radii (no large gaps, no overlap).
 function packModules(
   modNames: string[],
   localRadius: Map<string, number>,
@@ -139,15 +139,17 @@ function packModules(
   const n = modNames.length
   const centers = new Map<string, { x: number; y: number }>()
   const rr = new Map<string, number>()
-  for (const m of modNames) rr.set(m, Math.sqrt(localRadius.get(m)!) * spread)
+  for (const m of modNames) rr.set(m, Math.sqrt(localRadius.get(m)!) * spread * 1.5)
 
-  // deterministic initial placement on a small circle
+  // deterministic initial placement: circle whose circumference ≈ sum of diameters
+  const totalR = [...rr.values()].reduce((a, b) => a + b, 0)
+  const circleR = Math.max(totalR / Math.PI, 2)
   modNames.forEach((m, i) => {
     const ang = (i / Math.max(1, n)) * Math.PI * 2
-    centers.set(m, { x: Math.cos(ang) * 2, y: Math.sin(ang) * 2 })
+    centers.set(m, { x: Math.cos(ang) * circleR, y: Math.sin(ang) * circleR })
   })
 
-  for (let iter = 0; iter < 160; iter++) {
+  for (let iter = 0; iter < 100; iter++) {
     const disp = new Map<string, { x: number; y: number }>()
     for (const m of modNames) disp.set(m, { x: 0, y: 0 })
 
@@ -160,32 +162,29 @@ function packModules(
         const dx = pa.x - pb.x
         const dy = pa.y - pb.y
         const d = Math.sqrt(dx * dx + dy * dy) || 0.01
-        const ideal = (rr.get(a)! + rr.get(b)!) * 1.05
-        const f = (ideal * ideal) / d
-        const ux = dx / d
-        const uy = dy / d
-        disp.get(a)!.x += ux * f
-        disp.get(a)!.y += uy * f
-        disp.get(b)!.x -= ux * f
-        disp.get(b)!.y -= uy * f
+        const minD = (rr.get(a)! + rr.get(b)!) * 1.02
+        if (d < minD) {
+          const f = ((minD - d) / d) * 0.5
+          disp.get(a)!.x += dx * f
+          disp.get(a)!.y += dy * f
+          disp.get(b)!.x -= dx * f
+          disp.get(b)!.y -= dy * f
+        }
       }
     }
 
-    // soft gravity toward origin keeps the whole layout compact + circular
+    // soft pull toward origin keeps the packing compact + circular
     for (const m of modNames) {
       const p = centers.get(m)!
-      disp.get(m)!.x -= p.x * 0.04
-      disp.get(m)!.y -= p.y * 0.04
+      disp.get(m)!.x -= p.x * 0.08
+      disp.get(m)!.y -= p.y * 0.08
     }
 
-    const temp = Math.max(0.05, 1 - iter / 160)
     for (const m of modNames) {
-      const dd = disp.get(m)!
       const p = centers.get(m)!
-      const len = Math.sqrt(dd.x * dd.x + dd.y * dd.y) || 1
-      const s = Math.min(len, 0.5 * temp) / len
-      p.x += dd.x * s
-      p.y += dd.y * s
+      const dd = disp.get(m)!
+      p.x += dd.x
+      p.y += dd.y
     }
   }
   return centers
@@ -237,8 +236,9 @@ export function moduleAwareLayout(
   for (const mod of modNames) {
     const c = centers.get(mod)!
     const list = byMod.get(mod)!
-    const radius = localRadius.get(mod)!
-    const scale = Math.max(radius * 0.5 * spread, 5)
+    // constant scale: local layout already spans ~sqrt(n), so a constant scale
+    // keeps gene density uniform and module radius ∝ sqrt(n)
+    const scale = spread * 2
     for (const node of list) {
       const p = local.get(node.id)!
       positions.set(node.id, { x: c.x + p.x * scale, y: c.y + p.y * scale })
