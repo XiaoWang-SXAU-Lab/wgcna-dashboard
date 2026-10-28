@@ -68,7 +68,9 @@ const bridgeIds = computed(() => {
 // share one combined layout so nodes don't jump when toggling)
 function computeLayout() {
   if (!props.network) return
-  layout.value = moduleAwareLayout(props.network.nodes, props.network.edges, 70, props.hubPerModule, props.geneSpacing, props.moduleSpacing, layoutSeed.value)
+  const connected = new Set(props.network.edges.flatMap((e) => [e.source, e.target]))
+  const nodes = props.hideIsolated ? props.network.nodes.filter((n) => connected.has(n.id)) : props.network.nodes
+  layout.value = moduleAwareLayout(nodes, props.network.edges, 70, props.hubPerModule, props.geneSpacing, props.moduleSpacing, layoutSeed.value)
 }
 
 function relayout() {
@@ -89,6 +91,12 @@ function hexToRgb(hex: string): string {
   if (!m) return '0,0,0'
   const v = parseInt(m[1], 16)
   return `${(v >> 16) & 255},${(v >> 8) & 255},${v & 255}`
+}
+
+function xmlAttribute(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;',
+  })[character]!)
 }
 
 // export the current view as Cytoscape JSON (.cyjs) or Gephi GEXF (.gexf).
@@ -131,19 +139,20 @@ function exportView() {
     mime = 'application/xml'
     const nodesXml = nodeRows.map((n) => {
       const rgb = hexToRgb(WGCNA_HEX[n.module] ?? '#808080')
-      return `      <node id="${n.id}" label="${n.label}">\n` +
+      return `      <node id="${xmlAttribute(n.id)}" label="${xmlAttribute(n.label)}">\n` +
         `        <attvalues>\n` +
-        `          <attvalue for="0" value="${n.module}"/>\n` +
+        `          <attvalue for="0" value="${xmlAttribute(n.module)}"/>\n` +
         `          <attvalue for="1" value="${n.is_hub}"/>\n` +
         `          <attvalue for="2" value="${n.is_bridge}"/>\n` +
         `          <attvalue for="3" value="${n.kme}"/>\n` +
         `          <attvalue for="4" value="${n.k_cross}"/>\n` +
         `        </attvalues>\n` +
         `        <viz:color r="${rgb.split(',')[0]}" g="${rgb.split(',')[1]}" b="${rgb.split(',')[2]}"/>\n` +
+        `        <viz:position x="${n.x}" y="${n.y}" z="0"/>\n` +
         `      </node>`
     }).join('\n')
     const edgesXml = edgeRows.map((e, i) =>
-      `      <edge id="e${i}" source="${e.source}" target="${e.target}" weight="${e.weight}">\n` +
+      `      <edge id="e${i}" source="${xmlAttribute(e.source)}" target="${xmlAttribute(e.target)}" weight="${e.weight}">\n` +
       `        <attvalues><attvalue for="5" value="${e.type}"/></attvalues>\n` +
       `      </edge>`
     ).join('\n')
@@ -168,7 +177,7 @@ function exportView() {
     mime = 'application/json'
     text = JSON.stringify({
       elements: {
-        nodes: nodeRows.map((n) => ({ data: n })),
+        nodes: nodeRows.map((n) => ({ data: n, position: { x: n.x, y: n.y } })),
         edges: edgeRows.map((e) => ({ data: e })),
       },
       data: { name: `rsWGCNA ${props.networkMode} network`, weight_type: props.network.weight_type },
@@ -278,7 +287,7 @@ function render() {
 }
 
 // watch display/styling changes: re-render without recomputing layout
-watch(() => [props.showLabels, props.nodeScale, props.edgeOpacity, props.networkMode], render)
+watch(() => [props.showLabels, props.showModuleLabels, props.nodeScale, props.edgeOpacity, props.networkMode], render)
 // watch layout/filtering changes: recompute layout + render
 watch(
   () => [props.network, props.hubPerModule, props.hideIsolated, props.geneSpacing, props.moduleSpacing],
@@ -333,8 +342,8 @@ onBeforeUnmount(() => {
         <option value="gexf">Gephi (.gexf)</option>
       </select>
       <button class="btn btn-sm btn-outline-secondary" :disabled="!network" @click="exportView"><i class="bi bi-download me-1"></i>{{ t('mo.exportView') }}</button>
-      <span v-if="network" class="small text-muted ms-auto">
-        {{ displayNodes.length }} {{ t('mo.nodes') }}
+      <span v-if="network" class="small text-muted ms-auto" :title="t('mo.nodeCountHint')">
+        {{ displayNodes.length }} / {{ network.nodes.length }} {{ t('mo.nodes') }}
         <span v-if="networkMode !== 'inter'"> · {{ intraCount }} intra</span>
         <span v-if="networkMode !== 'intra'"> · {{ interCount }} inter</span>
       </span>

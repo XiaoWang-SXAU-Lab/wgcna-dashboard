@@ -14,8 +14,8 @@ import (
 	"sync"
 
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/enrich"
-	"github.com/xuri/excelize/v2"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/plot"
+	"github.com/xuri/excelize/v2"
 )
 
 func overviewData(jobDir, enrichType, ontology string, maxCount int, fdr float64, topN int) (json.RawMessage, error) {
@@ -840,7 +840,7 @@ func (h *Handler) getOverviewNetwork(w http.ResponseWriter, r *http.Request) {
 
 type netNode struct {
 	ID          string  `json:"id"`
-	Symbol      string  `json:"symbol"`       // gene symbol from annotation.tsv (empty if absent)
+	Symbol      string  `json:"symbol"` // gene symbol from annotation.tsv (empty if absent)
 	Color       string  `json:"color"`
 	Degree      int     `json:"degree"`
 	Kme         float64 `json:"kme"`          // |kME| to own module (intramodular hub metric)
@@ -1008,7 +1008,24 @@ func buildNetworkIndex(jobDir string) (*networkIndex, error) {
 			idx.nodes[ib].CrossDegree++
 		}
 	}
+	// Sort before publishing the immutable cache. Request handlers must not
+	// reorder shared adjacency slices (including when requests run concurrently).
+	for _, edges := range idx.intraByGene {
+		sort.Slice(edges, func(i, j int) bool { return networkEdgeLess(edges[i], edges[j]) })
+	}
 	return idx, nil
+}
+
+// Equal TOM weights are common after TSV rounding; resolve ties by endpoints
+// so repeated sampling cannot change the chosen neighbors.
+func networkEdgeLess(a, b netEdge) bool {
+	if a.Weight != b.Weight {
+		return a.Weight > b.Weight
+	}
+	if a.Source != b.Source {
+		return a.Source < b.Source
+	}
+	return a.Target < b.Target
 }
 
 // sampleNetwork selects visible nodes (module-aware, hub-first) and edges for
@@ -1028,7 +1045,10 @@ func sampleNetwork(idx *networkIndex, mode string, maxNodes, minPerModule, intra
 			if list[i].Kme != list[j].Kme {
 				return list[i].Kme > list[j].Kme
 			}
-			return list[i].Degree > list[j].Degree
+			if list[i].Degree != list[j].Degree {
+				return list[i].Degree > list[j].Degree
+			}
+			return list[i].ID < list[j].ID
 		})
 	}
 	mods := make([]string, 0, len(byMod))
@@ -1073,14 +1093,15 @@ func sampleNetwork(idx *networkIndex, mode string, maxNodes, minPerModule, intra
 	if mode == "intra" || mode == "combined" {
 		for g := range visible {
 			list := idx.intraByGene[g]
-			sort.Slice(list, func(i, j int) bool { return list[i].Weight > list[j].Weight })
-			for i, e := range list {
-				if i >= intraPerGene {
+			kept := 0
+			for _, e := range list {
+				if kept >= intraPerGene {
 					break
 				}
 				if !visible[e.Source] || !visible[e.Target] {
 					continue
 				}
+				kept++
 				k := ekey(e.Source, e.Target)
 				if seen[k] {
 					continue
@@ -1107,7 +1128,7 @@ func sampleNetwork(idx *networkIndex, mode string, maxNodes, minPerModule, intra
 			if len(vis) == 0 {
 				continue
 			}
-			sort.Slice(vis, func(i, j int) bool { return vis[i].Weight > vis[j].Weight })
+			sort.Slice(vis, func(i, j int) bool { return networkEdgeLess(vis[i], vis[j]) })
 			if len(vis) > interPerPair {
 				vis = vis[:interPerPair]
 			}
@@ -1133,7 +1154,7 @@ func sampleNetwork(idx *networkIndex, mode string, maxNodes, minPerModule, intra
 			selected = append(selected, p.list[:take]...)
 			rest = append(rest, p.list[take:]...)
 		}
-		sort.Slice(rest, func(i, j int) bool { return rest[i].Weight > rest[j].Weight })
+		sort.Slice(rest, func(i, j int) bool { return networkEdgeLess(rest[i], rest[j]) })
 		rem := interBudget - len(selected)
 		if rem > 0 && len(rest) > 0 {
 			if len(rest) > rem {
@@ -1150,6 +1171,7 @@ func sampleNetwork(idx *networkIndex, mode string, maxNodes, minPerModule, intra
 			edges = append(edges, e)
 		}
 	}
+	sort.Slice(edges, func(i, j int) bool { return networkEdgeLess(edges[i], edges[j]) })
 	return sampled, edges, nil
 }
 
@@ -1162,9 +1184,9 @@ func readNetworkLimited(jobDir string, perModule int) ([]netNode, []netEdge, err
 	}
 
 	type edge struct {
-		a, b    string
-		w       float64
-		cross   bool
+		a, b  string
+		w     float64
+		cross bool
 	}
 	byModule := map[string][]edge{}
 	var cross []edge

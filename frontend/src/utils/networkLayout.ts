@@ -71,6 +71,10 @@ function layoutOneModule(
   const attract = (d: number) => (d * d) / k
 
   const disp = pos.map(() => ({ x: 0, y: 0 }))
+  // Module membership is a layout constraint, not an extra biological edge.
+  // A node may have only cross-module edges, which are intentionally excluded
+  // from this local simulation. Keep those nodes with their own module too.
+  const radiusLimit = Math.max(2, Math.sqrt(n))
 
   for (let it = 0; it < iterations; it++) {
     const temp = Math.max(0.02, 1 - it / iterations) // cooling
@@ -105,12 +109,13 @@ function layoutOneModule(
       }
     }
 
-    // hub-center soft constraint
+    // Every node has a weak module-center tether; hubs have a stronger one.
+    // Without this, nodes with no retained intra-module edges only repel and
+    // drift arbitrarily far even when they have valid cross-module edges.
     for (let i = 0; i < n; i++) {
-      if (hubs.has(list[i].id)) {
-        disp[i].x -= pos[i].x * 2.5
-        disp[i].y -= pos[i].y * 2.5
-      }
+      const gravity = hubs.has(list[i].id) ? 2.5 : 0.15
+      disp[i].x -= pos[i].x * gravity
+      disp[i].y -= pos[i].y * gravity
     }
 
     // integrate with displacement cap
@@ -120,6 +125,11 @@ function layoutOneModule(
       const scale = Math.min(len, cap) / len
       pos[i].x += disp[i].x * scale
       pos[i].y += disp[i].y * scale
+      const radius = Math.hypot(pos[i].x, pos[i].y)
+      if (radius > radiusLimit) {
+        pos[i].x *= radiusLimit / radius
+        pos[i].y *= radiusLimit / radius
+      }
     }
   }
 
@@ -216,25 +226,24 @@ export function moduleAwareLayout(
 
   // per-module local layout
   const local = new Map<string, { x: number; y: number }>()
-  const modSize = new Map<string, number>()
+  const localRadius = new Map<string, number>()
   for (const mod of modNames) {
     const list = byMod.get(mod)!
     const pos = layoutOneModule(list, edges, hubs, iterations, seed)
     for (const [id, p] of pos) local.set(id, p)
-    modSize.set(mod, Math.sqrt(list.length))
+    localRadius.set(mod, Math.max(0, ...[...pos.values()].map((p) => Math.hypot(p.x, p.y))))
   }
 
-  // per-module radius for packing: visual radius (∝ sqrt(n)·geneSpacing) + a
-  // separate inter-module gap (moduleSpacing), so the two are independently
-  // adjustable — big modules occupy more space, small modules less.
+  // Pack using the actual laid-out radius, including sparse peripheral nodes,
+  // rather than an estimated radius that can underestimate their extent.
+  const scale = geneSpacing * 2
   const modRadius = new Map<string, number>()
   for (const mod of modNames) {
-    modRadius.set(mod, modSize.get(mod)! * geneSpacing * 1.2 + moduleSpacing * 3)
+    modRadius.set(mod, Math.max(1, localRadius.get(mod)! * scale) + moduleSpacing * 3)
   }
   const centers = packModules(modNames, modRadius)
 
   // scale + translate each module's local layout into global coords
-  const scale = geneSpacing * 2
   const positions = new Map<string, { x: number; y: number }>()
   for (const mod of modNames) {
     const c = centers.get(mod)!
