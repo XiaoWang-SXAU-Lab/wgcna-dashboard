@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/netutil"
 )
 
 // EuropePMC searches the Europe PMC REST API (free, no key).
@@ -22,7 +21,7 @@ func (p *EuropePMC) http() *http.Client {
 	if p.HTTP != nil {
 		return p.HTTP
 	}
-	return netutil.Client(15 * time.Second)
+	return &http.Client{Timeout: 15 * time.Second}
 }
 
 func (p *EuropePMC) Search(query string, limit int) ([]Paper, error) {

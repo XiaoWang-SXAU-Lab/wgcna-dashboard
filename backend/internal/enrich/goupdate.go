@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/netutil"
 )
 
 const oboURL = "https://current.geneontology.org/ontology/go-basic.obo"
@@ -28,7 +27,7 @@ func CurrentVersion() (string, error) {
 
 // LatestVersion fetches the go-basic.obo header and returns its data-version.
 func LatestVersion() (string, error) {
-	client := netutil.Client(30 * time.Second)
+	client := &http.Client{Timeout: 30 * time.Second}
 	req, _ := http.NewRequest(http.MethodGet, oboURL, nil)
 	req.Header.Set("Range", "bytes=0-8191")
 	resp, err := client.Do(req)
@@ -50,7 +49,7 @@ func LatestVersion() (string, error) {
 // Update downloads the latest go-basic.obo, validates it, gzips it into the
 // user data dir and invalidates the cached ontology.
 func Update() (string, error) {
-	client := netutil.Client(5 * time.Minute)
+	client := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := client.Get(oboURL)
 	if err != nil {
 		return "", err
