@@ -802,7 +802,11 @@ func (h *Handler) getOverviewNetwork(w http.ResponseWriter, r *http.Request) {
 	if edgesPerGene <= 0 {
 		edgesPerGene = 8
 	}
-	nodes, edges, err := readNetworkSampled(jobDir, maxNodes, minPerModule, edgesPerGene)
+	hideGrey := true
+	if q := r.URL.Query().Get("hide_grey"); q == "0" || q == "false" {
+		hideGrey = false
+	}
+	nodes, edges, err := readNetworkSampled(jobDir, maxNodes, minPerModule, edgesPerGene, hideGrey)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -859,7 +863,7 @@ func readKmeByGene(jobDir string, geneMod map[string]string) map[string]float64 
 // a sublinear (sqrt) share of the remaining budget, ordered by |kME| so hub
 // genes are kept. Edges are intra-module only, top edgesPerGene per gene,
 // deduplicated undirected.
-func readNetworkSampled(jobDir string, maxNodes, minPerModule, edgesPerGene int) ([]netNode, []netEdge, error) {
+func readNetworkSampled(jobDir string, maxNodes, minPerModule, edgesPerGene int, hideGrey bool) ([]netNode, []netEdge, error) {
 	nodes, geneMod, err := readNetworkNodes(filepath.Join(jobDir, "network_nodes.tsv"))
 	if err != nil {
 		return nil, nil, err
@@ -869,6 +873,9 @@ func readNetworkSampled(jobDir string, maxNodes, minPerModule, edgesPerGene int)
 	// group + order each module by |kME| descending (hub genes first)
 	byMod := map[string][]netNode{}
 	for _, n := range nodes {
+		if hideGrey && n.Color == "grey" {
+			continue
+		}
 		n.Kme = kme[n.ID]
 		byMod[n.Color] = append(byMod[n.Color], n)
 	}

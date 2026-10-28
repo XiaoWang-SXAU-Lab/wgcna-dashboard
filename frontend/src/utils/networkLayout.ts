@@ -131,6 +131,7 @@ export function moduleAwareLayout(
   nodes: NetNode[],
   edges: NetEdge[],
   iterations = 70,
+  hubPerModule = 10,
 ): LayoutResult {
   const byMod = new Map<string, NetNode[]>()
   for (const n of nodes) {
@@ -144,7 +145,7 @@ export function moduleAwareLayout(
   for (const mod of modNames) {
     if (mod === 'grey') continue
     const list = byMod.get(mod)!.slice().sort((a, b) => b.kme - a.kme)
-    const hubCount = Math.max(3, Math.min(12, Math.round(Math.sqrt(list.length))))
+    const hubCount = Math.max(3, Math.min(hubPerModule, Math.round(Math.sqrt(list.length))))
     for (let i = 0; i < hubCount && i < list.length; i++) {
       if (list[i].kme > 0) hubs.add(list[i].id)
     }

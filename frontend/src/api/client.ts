@@ -380,8 +380,8 @@ export async function getOverview(id: string, type: 'go' | 'kegg' = 'go', onto =
   return res.json()
 }
 
-export async function getOverviewNetwork(id: string, perModule = 300): Promise<OverviewNetwork> {
-  const res = await fetch(`${BASE}/jobs/${id}/overview/network?per_module=${perModule}`)
+export async function getOverviewNetwork(id: string, maxNodes = 2000, minPerModule = 20, edgesPerGene = 8, hideGrey = true): Promise<OverviewNetwork> {
+  const res = await fetch(`${BASE}/jobs/${id}/overview/network?max_nodes=${maxNodes}&min_per_module=${minPerModule}&edges_per_gene=${edgesPerGene}&hide_grey=${hideGrey}`)
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }

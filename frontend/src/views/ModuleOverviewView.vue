@@ -8,29 +8,50 @@ import {
   type OverviewData, type OverviewNetwork, type ClusterResult, type ClusterElbow,
 } from '../api/client'
 import * as echarts from 'echarts'
-import 'echarts-gl'
-import { moduleAwareLayout, type LayoutResult } from '../utils/networkLayout'
+import OverviewSettingsSidebar, { type Tab } from '../components/overview/OverviewSettingsSidebar.vue'
+import OverviewNetworkPanel from '../components/overview/OverviewNetworkPanel.vue'
 
 const store = useWgcnaStore()
 
-type Tab = 'overview' | 'network' | 'cluster' | 'table'
 const tab = ref<Tab>('overview')
+const sidebarCollapsed = ref(false)
 
-// ---- controls ----
+// ---- overview settings ----
 const enrichType = ref<'go' | 'kegg'>('go')
-const onto = ref('')   // GO ontology: '' = ALL, 'bp' / 'cc' / 'mf'
+const onto = ref('')
 const topN = ref(5)
-const maxCountOn = ref(true)   // drop terms with gene count > 500 (default on)
+const maxCountOn = ref(true)
 const lowColor = ref('#08519c')
 const midColor = ref('#ffffff')
 const highColor = ref('#a50f15')
+
+// ---- network settings ----
 const percentile = ref(10)
+const maxNodes = ref(2000)
+const minPerModule = ref(20)
+const edgesPerGene = ref(8)
+const hideGrey = ref(true)
+const hideIsolated = ref(true)
+const hubPerModule = ref(10)
+const showLabels = ref(false)
+const showModuleLabels = ref(true)
+const nodeScale = ref(1)
+const edgeOpacity = ref(0.15)
+const networkDirty = ref(false)
+
+// ---- cluster settings ----
 const clusterMethod = ref<'kmeans' | 'cmeans'>('kmeans')
 const clusterK = ref(0)
 const clusterSeed = ref(42)
 const clusterKmax = ref(12)
 const clusterEnrichType = ref<'go' | 'kegg'>('go')
 const clusterOnto = ref('')
+
+// ---- table settings ----
+const tableMode = ref<'modules' | 'clusters'>('modules')
+const selectedModule = ref('')
+const selectedCluster = ref('')
+const geneSearch = ref('')
 
 // ---- data ----
 const overview = ref<OverviewData | null>(null)
@@ -41,8 +62,6 @@ const networkLoading = ref(false)
 const clusterRunning = ref(false)
 const overviewImgLoading = ref(false)
 const clusterImgLoading = ref(false)
-const selectedModule = ref('')
-const selectedCluster = ref('')
 const elbow = ref<ClusterElbow | null>(null)
 const elbowRunning = ref(false)
 const elbowEl = ref<HTMLElement | null>(null)
@@ -73,23 +92,31 @@ async function loadOverview() {
   }
 }
 
-async function loadNetwork() {
+async function fetchNetwork() {
+  if (!store.jobId || networkLoading.value) return
+  networkLoading.value = true
+  try {
+    network.value = await getOverviewNetwork(store.jobId, maxNodes.value, minPerModule.value, edgesPerGene.value, hideGrey.value)
+  } finally {
+    networkLoading.value = false
+  }
+}
+
+async function buildNetwork() {
   if (!store.jobId || networkLoading.value) return
   networkLoading.value = true
   try {
     await runOverviewNetwork(store.jobId, percentile.value)
-    // poll until the network computation finishes (files appear)
     for (let i = 0; i < 240; i++) {
       await new Promise((r) => setTimeout(r, 1000))
       try {
-        network.value = await getOverviewNetwork(store.jobId, 300)
+        network.value = await getOverviewNetwork(store.jobId, maxNodes.value, minPerModule.value, edgesPerGene.value, hideGrey.value)
         break
       } catch {
         /* still computing */
       }
     }
-    layoutCache.value = null
-    showNetworkGraph.value = false
+    networkDirty.value = false
   } finally {
     networkLoading.value = false
   }
@@ -169,95 +196,45 @@ function renderElbow() {
   }
 }
 
+function resetNetworkSettings() {
+  percentile.value = 10
+  maxNodes.value = 2000
+  minPerModule.value = 20
+  edgesPerGene.value = 8
+  hideGrey.value = true
+  hideIsolated.value = true
+  hubPerModule.value = 10
+  showLabels.value = false
+  showModuleLabels.value = true
+  nodeScale.value = 1
+  edgeOpacity.value = 0.15
+}
+
 // ---- table ----
-const tableMode = ref<'modules' | 'clusters'>('modules')
 const tableGenes = computed(() => {
+  const q = geneSearch.value.trim().toLowerCase()
+  let rows: { gene: string; group: string; kme: number | null }[] = []
   if (tableMode.value === 'modules' && overview.value) {
     const m = selectedModule.value
-    return overview.value.genes
+    rows = overview.value.genes
       .map((g, i) => ({ gene: g, group: overview.value!.modules[i], kme: overview.value!.kme[g] ?? null }))
       .filter((r) => r.group === m)
-  }
-  if (tableMode.value === 'clusters' && cluster.value) {
+  } else if (tableMode.value === 'clusters' && cluster.value) {
     const c = selectedCluster.value
-    return cluster.value.genes
+    rows = cluster.value.genes
       .map((g, i) => ({ gene: g, group: cluster.value!.clusters[i], kme: cluster.value!.score[i] ?? null }))
       .filter((r) => r.group === c)
   }
-  return []
+  if (q) rows = rows.filter((r) => r.gene.toLowerCase().includes(q))
+  return rows
 })
 
 const xlsxUrl = computed(() => store.jobId ? overviewExportUrl(store.jobId, tableMode.value) : '#')
 
-// ---- network ECharts (module-aware hub-centered, fixed coordinates) ----
-const netChart = ref<echarts.ECharts | null>(null)
-const netEl = ref<HTMLElement | null>(null)
-const showNetworkGraph = ref(false)
-const layoutCache = ref<LayoutResult | null>(null)
+const moduleOptions = computed(() => overview.value?.module_order ?? [])
+const clusterOptions = computed(() => cluster.value?.cluster_order ?? [])
 
-async function renderNetwork() {
-  if (!network.value) return
-  showNetworkGraph.value = true
-  await nextTick()
-  if (!netEl.value) return
-  if (!netChart.value) netChart.value = echarts.init(netEl.value)
-
-  if (!layoutCache.value) {
-    layoutCache.value = moduleAwareLayout(network.value.nodes, network.value.edges)
-  }
-  const layout = layoutCache.value
-  const nodeById = new Map(network.value.nodes.map((n) => [n.id, n]))
-
-  const nodes = network.value.nodes.map((n) => {
-    const p = layout.positions.get(n.id)!
-    const isHub = layout.hubs.has(n.id)
-    const size = isHub ? 6 + n.kme * 12 : 3 + Math.min(n.kme, 0.6) * 10
-    return {
-      id: n.id,
-      name: n.id,
-      x: p.x,
-      y: p.y,
-      symbolSize: Math.max(2.5, size),
-      itemStyle: {
-        color: n.color,
-        borderColor: isHub ? '#111' : n.color,
-        borderWidth: isHub ? 2 : 0.4,
-        opacity: 0.95,
-      },
-      module: n.color,
-      kme: n.kme,
-    }
-  })
-  const edges = network.value.edges.map((e) => ({
-    source: e.source,
-    target: e.target,
-    lineStyle: { opacity: 0.12, width: 0.5 },
-  }))
-
-  netChart.value.setOption({
-    animation: false,
-    tooltip: {
-      formatter: (p: any) => {
-        const d = p.data as any
-        if (!d || d.source != null) return ''
-        const n = nodeById.get(d.id)
-        return `<b>${d.id}</b><br/>module: ${d.module}<br/>|kME|: ${d.kme?.toFixed(3) ?? '—'}`
-      },
-    },
-    series: [{
-      type: 'graphGL',
-      layout: 'none',
-      roam: true,
-      data: nodes,
-      links: edges,
-      categories: [...new Set(network.value.nodes.map((n) => n.color))].map((c) => ({ name: c, itemStyle: { color: c } })),
-      label: { show: false },
-      emphasis: { focus: 'adjacency', label: { show: false } },
-      lineStyle: { color: '#9aa5b1' },
-    }],
-  })
-}
-
+// ---- watches ----
 watch([enrichType, onto, topN, maxCountOn], () => {
   overviewImgLoading.value = true
   loadOverview()
@@ -268,219 +245,142 @@ watch([lowColor, midColor, highColor], () => {
 watch([clusterEnrichType, clusterOnto, topN, maxCountOn, lowColor, midColor, highColor], () => {
   if (cluster.value) clusterImgLoading.value = true
 })
+// construction setting change → mark stale (no silent stale results)
+watch(percentile, () => {
+  if (network.value) networkDirty.value = true
+})
+// filtering setting change → re-fetch (re-sample) from existing files, debounced
+let reSampleTimer: ReturnType<typeof setTimeout> | undefined
+watch([maxNodes, edgesPerGene, hideGrey], () => {
+  if (!network.value) return
+  clearTimeout(reSampleTimer)
+  reSampleTimer = setTimeout(() => fetchNetwork(), 400)
+})
+
 onMounted(() => {
   if (store.jobId) loadOverview()
 })
 </script>
 
 <template>
-  <div class="p-3">
+  <div class="p-3 d-flex flex-column" style="height: calc(100vh - 48px); min-height: 560px">
     <div class="d-flex align-items-center justify-content-between mb-3">
-      <h4 class="mb-0 fw-semibold">{{ t('mo.title') }}</h4>
+      <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-sm btn-outline-secondary" @click="sidebarCollapsed = !sidebarCollapsed">
+          <i class="bi" :class="sidebarCollapsed ? 'bi-layout-sidebar-inset' : 'bi-layout-sidebar-inset-reverse'"></i>
+        </button>
+        <h4 class="mb-0 fw-semibold">{{ t('mo.title') }}</h4>
+      </div>
       <a :href="xlsxUrl" class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>{{ t('mo.downloadXlsx') }}</a>
     </div>
 
-    <ul class="nav nav-tabs mb-3">
-      <li class="nav-item"><button class="nav-link" :class="{ active: tab === 'overview' }" @click="tab = 'overview'">{{ t('mo.overview') }}</button></li>
-      <li class="nav-item"><button class="nav-link" :class="{ active: tab === 'network' }" @click="tab = 'network'">{{ t('mo.network') }}</button></li>
-      <li class="nav-item"><button class="nav-link" :class="{ active: tab === 'cluster' }" @click="tab = 'cluster'">{{ t('mo.cluster') }}</button></li>
-      <li class="nav-item"><button class="nav-link" :class="{ active: tab === 'table' }" @click="tab = 'table'">{{ t('mo.table') }}</button></li>
-    </ul>
-
-    <!-- overview figure -->
-    <div v-if="tab === 'overview'">
-      <div class="d-flex gap-2 align-items-end mb-3">
-        <div>
-          <label class="form-label small mb-1">{{ t('mo.enrichType') }}</label>
-          <select v-model="enrichType" class="form-select form-select-sm">
-            <option value="go">GO</option>
-            <option value="kegg">KEGG</option>
-          </select>
-        </div>
-        <div v-if="enrichType === 'go'">
-          <label class="form-label small mb-1">{{ t('mo.ontology') }}</label>
-          <select v-model="onto" class="form-select form-select-sm">
-            <option value="">ALL</option>
-            <option value="bp">BP</option>
-            <option value="cc">CC</option>
-            <option value="mf">MF</option>
-          </select>
-        </div>
-        <div>
-          <label class="form-label small mb-1">{{ t('mo.topN') }}</label>
-          <input type="number" v-model.number="topN" class="form-control form-control-sm" min="1" max="30" style="width: 90px" />
-        </div>
-        <div class="form-check ms-1" style="padding-top: 1.4rem">
-          <input type="checkbox" id="maxCountToggle" v-model="maxCountOn" class="form-check-input" />
-          <label for="maxCountToggle" class="form-check-label small">{{ t('mo.dropBroadTerms') }}</label>
-        </div>
+    <div class="d-flex gap-3 flex-grow-1" style="min-height: 0">
+      <!-- settings sidebar -->
+      <div v-show="!sidebarCollapsed" class="border rounded bg-white p-3" style="width: 300px; flex-shrink: 0; overflow: hidden">
+        <OverviewSettingsSidebar
+          v-model:tab="tab"
+          v-model:enrich-type="enrichType" v-model:onto="onto" v-model:top-n="topN" v-model:max-count-on="maxCountOn"
+          v-model:low-color="lowColor" v-model:mid-color="midColor" v-model:high-color="highColor"
+          v-model:percentile="percentile" v-model:max-nodes="maxNodes" v-model:edges-per-gene="edgesPerGene"
+          v-model:hide-grey="hideGrey" v-model:hide-isolated="hideIsolated" v-model:hub-per-module="hubPerModule"
+          v-model:show-labels="showLabels" v-model:show-module-labels="showModuleLabels"
+          v-model:node-scale="nodeScale" v-model:edge-opacity="edgeOpacity" v-model:network-dirty="networkDirty"
+          v-model:cluster-method="clusterMethod" v-model:cluster-k="clusterK" v-model:cluster-seed="clusterSeed"
+          v-model:cluster-kmax="clusterKmax" v-model:cluster-enrich-type="clusterEnrichType" v-model:cluster-onto="clusterOnto"
+          v-model:table-mode="tableMode" v-model:selected-module="selectedModule" v-model:selected-cluster="selectedCluster"
+          v-model:gene-search="geneSearch"
+          :module-options="moduleOptions" :cluster-options="clusterOptions"
+          @build-network="buildNetwork" @compute-elbow="computeElbow" @run-clustering="runClustering" @reset-network-settings="resetNetworkSettings"
+        />
       </div>
-      <div class="d-flex gap-2 align-items-end mb-3">
-        <div>
-          <label class="form-label small mb-1">{{ t('mo.heatmapColors') }}</label>
-          <div class="d-flex gap-2 align-items-center">
-            <span class="small text-muted">low</span>
-            <input type="color" v-model="lowColor" class="form-control form-control-color form-control-sm" title="low" />
-            <span class="small text-muted">mid</span>
-            <input type="color" v-model="midColor" class="form-control form-control-color form-control-sm" title="mid" />
-            <span class="small text-muted">high</span>
-            <input type="color" v-model="highColor" class="form-control form-control-color form-control-sm" title="high" />
+
+      <!-- main panel -->
+      <div class="flex-grow-1 d-flex flex-column" style="min-width: 0; min-height: 0">
+        <!-- overview -->
+        <div v-if="tab === 'overview'" class="flex-grow-1 overflow-auto">
+          <div v-if="loading" class="text-center text-muted py-5"><div class="spinner-border"></div></div>
+          <div v-else-if="overview">
+            <div v-if="!overview.enrich_ok" class="alert alert-warning py-2 small">{{ t('mo.enrichMissing') }}</div>
+            <div class="border rounded p-2 bg-white position-relative">
+              <img :src="overviewUrl" class="w-100" alt="module overview" @load="overviewImgLoading = false" @error="overviewImgLoading = false" />
+              <div v-if="overviewImgLoading" class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center" style="background: rgba(255,255,255,0.72); z-index: 2">
+                <div class="spinner-border text-primary"></div>
+                <div class="small text-muted mt-2">{{ t('mo.generating') }}</div>
+              </div>
+            </div>
+            <div class="mt-2 d-flex gap-2">
+              <a :href="overviewExportUrlPng" class="btn btn-sm btn-outline-primary"><i class="bi bi-download me-1"></i>SVG</a>
+            </div>
           </div>
+          <div v-else class="text-center text-muted py-5">{{ t('mo.noData') }}</div>
         </div>
-      </div>
 
-      <div v-if="loading" class="text-center text-muted py-5"><div class="spinner-border"></div></div>
-      <div v-else-if="overview">
-        <div v-if="!overview.enrich_ok" class="alert alert-warning py-2 small">{{ t('mo.enrichMissing') }}</div>
-        <div class="border rounded p-2 bg-white position-relative">
-          <img :src="overviewUrl" class="w-100" alt="module overview" @load="overviewImgLoading = false" @error="overviewImgLoading = false" />
-          <div v-if="overviewImgLoading" class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center" style="background: rgba(255,255,255,0.72); z-index: 2">
-            <div class="spinner-border text-primary"></div>
-            <div class="small text-muted mt-2">{{ t('mo.generating') }}</div>
+        <!-- network -->
+        <div v-else-if="tab === 'network'" class="flex-grow-1" style="min-height: 0">
+          <OverviewNetworkPanel
+            :network="network" :loading="networkLoading" :hub-per-module="hubPerModule"
+            :hide-isolated="hideIsolated" :show-labels="showLabels" :show-module-labels="showModuleLabels"
+            :node-scale="nodeScale" :edge-opacity="edgeOpacity"
+            @build="buildNetwork" @export="() => {}"
+          />
+        </div>
+
+        <!-- cluster -->
+        <div v-else-if="tab === 'cluster'" class="flex-grow-1 overflow-auto">
+          <div v-if="elbow" class="border rounded p-3 bg-white mb-3">
+            <div class="small text-muted mb-1">
+              {{ clusterMethod === 'cmeans' ? t('mo.cmeansHint') : t('mo.elbowHint') }}
+              <span class="badge text-bg-primary ms-1">k = {{ elbow.suggested_k }}</span>
+            </div>
+            <div ref="elbowEl" style="height: 260px"></div>
           </div>
-        </div>
-        <div class="mt-2 d-flex gap-2">
-          <a :href="overviewExportUrlPng" class="btn btn-sm btn-outline-primary"><i class="bi bi-download me-1"></i>SVG</a>
-        </div>
-      </div>
-      <div v-else class="text-center text-muted py-5">{{ t('mo.noData') }}</div>
-    </div>
+          <div v-if="elbowRunning" class="text-center text-muted py-4"><div class="spinner-border"></div></div>
 
-    <!-- network -->
-    <div v-if="tab === 'network'">
-      <div class="mb-2 d-flex gap-2 align-items-end">
-        <div>
-          <label class="form-label small mb-1">{{ t('mo.percentile') }} (%)</label>
-          <input type="number" v-model.number="percentile" class="form-control form-control-sm" min="1" max="100" style="width: 90px" />
-        </div>
-        <button class="btn btn-sm btn-primary" :disabled="networkLoading" @click="loadNetwork">
-          <span v-if="networkLoading" class="spinner-border spinner-border-sm me-1"></span>{{ t('mo.buildNetwork') }}
-        </button>
-        <button v-if="network" class="btn btn-sm btn-outline-secondary" @click="renderNetwork">{{ t('mo.renderNetwork') }}</button>
-        <a v-if="network" :href="networkExportUrl" class="btn btn-sm btn-outline-primary"><i class="bi bi-download me-1"></i>SVG</a>
-      </div>
-      <div v-if="networkLoading" class="small text-muted mb-2"><span class="spinner-border spinner-border-sm me-1"></span>{{ t('mo.generating') }}</div>
-      <div v-if="network" class="small text-muted mb-2">
-        {{ network.nodes.length }} {{ t('mo.nodes') }} · {{ network.edges.length }} {{ t('mo.edges') }}
-      </div>
-      <div v-if="showNetworkGraph" ref="netEl" style="height: 560px" class="border rounded bg-white"></div>
-      <div v-else class="text-center text-muted py-5">{{ t('mo.networkHint') }}</div>
-    </div>
-
-    <!-- cluster -->
-    <div v-if="tab === 'cluster'">
-      <div class="d-flex gap-2 align-items-end mb-3">
-        <div>
-          <label class="form-label small mb-1">{{ t('mo.clusterMethod') }}</label>
-          <select v-model="clusterMethod" class="form-select form-select-sm">
-            <option value="kmeans">KMeans</option>
-            <option value="cmeans">{{ t('mo.cmeans') }}</option>
-          </select>
-        </div>
-        <div>
-          <label class="form-label small mb-1">{{ t('mo.seed') }}</label>
-          <input type="number" v-model.number="clusterSeed" class="form-control form-control-sm" min="0" style="width: 90px" />
-        </div>
-        <div>
-          <label class="form-label small mb-1">{{ t('mo.kmax') }}</label>
-          <input type="number" v-model.number="clusterKmax" class="form-control form-control-sm" min="3" max="30" style="width: 90px" />
-        </div>
-        <button class="btn btn-sm btn-outline-primary" :disabled="elbowRunning" @click="computeElbow">
-          <span v-if="elbowRunning" class="spinner-border spinner-border-sm me-1"></span>{{ t('mo.computeElbow') }}
-        </button>
-      </div>
-
-      <div v-if="elbow" class="border rounded p-3 bg-white mb-3">
-        <div class="small text-muted mb-1">
-          {{ clusterMethod === 'cmeans' ? t('mo.cmeansHint') : t('mo.elbowHint') }}
-          <span class="badge text-bg-primary ms-1">k = {{ elbow.suggested_k }}</span>
-        </div>
-        <div ref="elbowEl" style="height: 260px"></div>
-        <div class="d-flex gap-2 align-items-end mt-3">
-          <div>
-            <label class="form-label small mb-1">{{ t('mo.k') }}</label>
-            <input type="number" v-model.number="clusterK" class="form-control form-control-sm" min="2" :max="clusterKmax" style="width: 90px" />
+          <div v-if="clusterRunning" class="text-center text-muted py-5"><div class="spinner-border"></div></div>
+          <div v-else-if="cluster" class="border rounded p-3 bg-white">
+            <div v-if="cluster.degenerate" class="alert alert-warning py-2 small">{{ t('mo.degenerate') }}</div>
+            <div class="mb-2">
+              <span class="badge text-bg-primary me-2">{{ cluster.method }}</span>
+              <span class="badge text-bg-secondary">k = {{ cluster.k }}</span>
+            </div>
+            <div class="mb-2 small text-muted">
+              {{ t('mo.clusterSizes') }}:
+              <span v-for="c in cluster.cluster_order" :key="c" class="badge text-bg-light me-1">
+                {{ c }} ({{ cluster.clusters.filter((x) => x === c).length }})
+              </span>
+            </div>
+            <div v-if="cluster.metrics?.wss?.length" class="small text-muted mb-2">
+              WSS: {{ cluster.metrics.wss.map((x) => Math.round(x)).join(', ') }}
+            </div>
+            <div class="border rounded p-2 bg-white mt-2 position-relative">
+              <img :src="clusterOverviewUrl" class="w-100" alt="cluster overview" @load="clusterImgLoading = false" @error="clusterImgLoading = false" />
+              <div v-if="clusterImgLoading" class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center" style="background: rgba(255,255,255,0.72); z-index: 2">
+                <div class="spinner-border text-primary"></div>
+                <div class="small text-muted mt-2">{{ t('mo.generating') }}</div>
+              </div>
+            </div>
           </div>
-          <button class="btn btn-sm btn-primary" :disabled="clusterRunning || clusterK < 2" @click="runClustering">
-            <span v-if="clusterRunning" class="spinner-border spinner-border-sm me-1"></span>{{ t('mo.runCluster') }}
-          </button>
+          <div v-else class="text-center text-muted py-5">{{ t('mo.noData') }}</div>
         </div>
-      </div>
-      <div v-else-if="elbowRunning" class="text-center text-muted py-4"><div class="spinner-border"></div></div>
 
-      <div v-if="clusterRunning" class="text-center text-muted py-5"><div class="spinner-border"></div></div>
-      <div v-else-if="cluster" class="border rounded p-3 bg-white">
-        <div v-if="cluster.degenerate" class="alert alert-warning py-2 small">{{ t('mo.degenerate') }}</div>
-        <div class="mb-2">
-          <span class="badge text-bg-primary me-2">{{ cluster.method }}</span>
-          <span class="badge text-bg-secondary">k = {{ cluster.k }}</span>
-        </div>
-        <div class="mb-2 small text-muted">
-          {{ t('mo.clusterSizes') }}:
-          <span v-for="c in cluster.cluster_order" :key="c" class="badge text-bg-light me-1">
-            {{ c }} ({{ cluster.clusters.filter((x) => x === c).length }})
-          </span>
-        </div>
-        <div v-if="cluster.metrics?.wss?.length" class="small text-muted mb-2">
-          WSS: {{ cluster.metrics.wss.map((x) => Math.round(x)).join(', ') }}
-        </div>
-        <div class="d-flex gap-2 align-items-end mb-2">
-          <div>
-            <label class="form-label small mb-1">{{ t('mo.enrichType') }}</label>
-            <select v-model="clusterEnrichType" class="form-select form-select-sm">
-              <option value="go">GO</option>
-              <option value="kegg">KEGG</option>
-            </select>
+        <!-- table -->
+        <div v-else class="flex-grow-1 overflow-auto">
+          <div class="table-responsive border rounded bg-white" style="max-height: 100%">
+            <table class="table table-sm table-hover mb-0">
+              <thead class="table-light sticky-top">
+                <tr><th>Gene</th><th>{{ t('mo.group') }}</th><th>kME / score</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in tableGenes.slice(0, 500)" :key="r.gene">
+                  <td class="font-monospace small">{{ r.gene }}</td>
+                  <td>{{ r.group }}</td>
+                  <td>{{ r.kme != null ? r.kme.toFixed(3) : '' }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <div v-if="clusterEnrichType === 'go'">
-            <label class="form-label small mb-1">{{ t('mo.ontology') }}</label>
-            <select v-model="clusterOnto" class="form-select form-select-sm">
-              <option value="">ALL</option>
-              <option value="bp">BP</option>
-              <option value="cc">CC</option>
-              <option value="mf">MF</option>
-            </select>
-          </div>
+          <div v-if="tableGenes.length === 0" class="text-center text-muted py-4 small">{{ t('mo.noData') }}</div>
         </div>
-        <div class="border rounded p-2 bg-white mt-2 position-relative">
-          <img :src="clusterOverviewUrl" class="w-100" alt="cluster overview" @load="clusterImgLoading = false" @error="clusterImgLoading = false" />
-          <div v-if="clusterImgLoading" class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center" style="background: rgba(255,255,255,0.72); z-index: 2">
-            <div class="spinner-border text-primary"></div>
-            <div class="small text-muted mt-2">{{ t('mo.generating') }}</div>
-          </div>
-        </div>
-      </div>
-      <div v-else class="text-center text-muted py-5">{{ t('mo.noData') }}</div>
-    </div>
-
-    <!-- table -->
-    <div v-if="tab === 'table'">
-      <div class="mb-2 d-flex gap-2 align-items-center">
-        <select v-model="tableMode" class="form-select form-select-sm" style="width: auto">
-          <option value="modules">{{ t('mo.modules') }}</option>
-          <option value="clusters">{{ t('mo.clusters') }}</option>
-        </select>
-        <select v-if="tableMode === 'modules'" v-model="selectedModule" class="form-select form-select-sm" style="width: auto">
-          <option v-for="m in overview?.module_order ?? []" :key="m" :value="m">{{ m }}</option>
-        </select>
-        <select v-else v-model="selectedCluster" class="form-select form-select-sm" style="width: auto">
-          <option v-for="c in cluster?.cluster_order ?? []" :key="c" :value="c">{{ c }}</option>
-        </select>
-        <span class="small text-muted">{{ tableGenes.length }} {{ t('mo.genes') }}</span>
-      </div>
-      <div class="table-responsive border rounded bg-white" style="max-height: 560px">
-        <table class="table table-sm table-hover mb-0">
-          <thead class="table-light sticky-top">
-            <tr><th>Gene</th><th>{{ t('mo.group') }}</th><th>kME / score</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in tableGenes.slice(0, 500)" :key="r.gene">
-              <td class="font-monospace small">{{ r.gene }}</td>
-              <td>{{ r.group }}</td>
-              <td>{{ r.kme != null ? r.kme.toFixed(3) : '' }}</td>
-            </tr>
-          </tbody>
-        </table>
       </div>
     </div>
   </div>
