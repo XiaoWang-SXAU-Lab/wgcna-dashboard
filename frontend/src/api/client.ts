@@ -442,6 +442,9 @@ export interface ReportStatus {
   message: string
   dir: string
   done: string[]
+  warnings?: string[]
+  total?: number
+  preview_url?: string
 }
 
 export async function exportReport(id: string, dir: string, name: string, type: 'go' | 'kegg' = 'go', lang = 'zh'): Promise<{ dir: string }> {

@@ -1,3 +1,4 @@
+import { flushReportFigures } from './utils/reportSnapshots'
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from './views/HomeView.vue'
 import DataImportView from './views/DataImportView.vue'
@@ -8,7 +9,7 @@ import ModuleExplorerView from './views/ModuleExplorerView.vue'
 import ModuleOverviewView from './views/ModuleOverviewView.vue'
 import ReportView from './views/ReportView.vue'
 
-export default createRouter({
+const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', name: 'home', component: HomeView },
@@ -23,3 +24,6 @@ export default createRouter({
     { path: '/hub-gene', redirect: '/module-explorer' },
   ],
 })
+
+router.beforeEach(async () => { await flushReportFigures() })
+export default router

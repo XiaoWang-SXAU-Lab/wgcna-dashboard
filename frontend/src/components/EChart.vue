@@ -16,6 +16,7 @@ let ro: ResizeObserver | null = null
 onMounted(() => {
   if (!el.value) return
   chart = echarts.init(el.value)
+  chart.on('finished', () => el.value?.dispatchEvent(new CustomEvent('report-chart-rendered', { bubbles: true })))
   chart.setOption(props.option)
   chart.on('click', (params: unknown) => emit('chart-click', params))
   window.addEventListener('resize', onResize)

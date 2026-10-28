@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ReportFigure from '../components/ReportFigure.vue'
 import { computed, ref, watch } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
 import { getSampleInfo, type SampleInfo } from '../api/client'
@@ -220,7 +221,7 @@ function onSelectSample(name: string) {
               <i class="bi bi-download me-1"></i>{{ t('plot.export') }}
             </button>
           </div>
-          <SampleTreeChart :samples="store.filterResult.samples" :tree="store.filterResult.sample_tree" :categories="categories" :selected="selectedOutliers" @select="onSelectSample" />
+          <ReportFigure figure-key="02_filter/sample_tree.png"><SampleTreeChart :samples="store.filterResult.samples" :tree="store.filterResult.sample_tree" :categories="categories" :selected="selectedOutliers" @select="onSelectSample" /></ReportFigure>
           <PlotDownloadWidget kind="sample-tree" :attrs="colorAttrs.join(',')" :show="showTreeExport" @close="showTreeExport = false" />
         </div>
 

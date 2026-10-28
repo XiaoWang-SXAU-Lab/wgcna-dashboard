@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ReportFigure from '../components/ReportFigure.vue'
 import { computed, ref } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
 import TraitHeatmap from '../components/TraitHeatmap.vue'
@@ -82,7 +83,7 @@ const mtraitRows = computed(() => {
       </div>
       <div v-if="store.mtait">
         <div class="row g-3 mb-3">
-          <div class="col-lg-7"><TraitHeatmap :data="store.mtait" /></div>
+          <div class="col-lg-7"><ReportFigure figure-key="05_module_trait/mtrait.png"><TraitHeatmap :data="store.mtait" /></ReportFigure></div>
           <div class="col-lg-5"><EigengeneHeatmap :data="store.mtait" /></div>
         </div>
         <SimpleTable :columns="[{ key: 'module', label: t('mt.col.module') }, { key: 'trait', label: t('mt.col.trait') }, { key: 'cor', label: t('mt.col.cor') }, { key: 'p', label: t('mt.col.p') }]" :rows="mtraitRows" filename="module_trait" />

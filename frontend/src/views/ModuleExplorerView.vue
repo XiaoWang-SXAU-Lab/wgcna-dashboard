@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ReportFigure from '../components/ReportFigure.vue'
 import { computed, ref, watch } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
 import GsMmScatter from '../components/GsMmScatter.vue'
@@ -276,8 +277,8 @@ watch(() => store.selectedModule, (m) => {
           <button class="btn btn-sm btn-outline-primary" @click="showExportHeatmap = true"><i class="bi bi-download me-1"></i>{{ t('im.exportHeatmap') }}</button>
         </div>
         <div class="row g-3">
-          <div class="col-lg-6"><GsMmScatter :data="store.detail" /></div>
-          <div class="col-lg-6"><ModuleGeneHeatmap :data="store.detail" /></div>
+          <div class="col-lg-6"><ReportFigure :figure-key="`06_module_detail/${store.detail.module}/gs_mm.png`" :trait="store.detail.trait_name"><GsMmScatter :data="store.detail" /></ReportFigure></div>
+          <div class="col-lg-6"><ReportFigure :figure-key="`06_module_detail/${store.detail.module}/expression_heatmap.png`" :trait="store.detail.trait_name"><ModuleGeneHeatmap :data="store.detail" /></ReportFigure></div>
         </div>
         <PlotDownloadWidget kind="gsmm" :show="showExportGsmm" @close="showExportGsmm = false" />
         <PlotDownloadWidget kind="geneheatmap" :show="showExportHeatmap" @close="showExportHeatmap = false" />
@@ -293,7 +294,7 @@ watch(() => store.selectedModule, (m) => {
           <i class="bi bi-exclamation-triangle-fill me-1"></i>
           {{ t('hub.largeNetwork') }}（{{ netNodeCount }} {{ t('hub.nodes') }} / {{ netEdgeCount }} {{ t('hub.edges') }}）
         </div>
-        <NetworkGraph
+        <ReportFigure figure-key="07_hub/hub_network.png" :trait="store.hub.trait_name"><NetworkGraph
           :network="store.hub.network"
           :layout="layout"
           :size-basis="sizeBasis"
@@ -311,7 +312,7 @@ watch(() => store.selectedModule, (m) => {
           :hub-node-color="hubNodeColor"
           :hub-border-color="hubBorderColor"
           :hub-border-width="hubBorderWidth"
-        />
+        /></ReportFigure>
         <SimpleTable class="mt-3" :columns="[
           { key: 'gene', label: t('hub.col.gene') },
           { key: 'symbol', label: 'Symbol' },

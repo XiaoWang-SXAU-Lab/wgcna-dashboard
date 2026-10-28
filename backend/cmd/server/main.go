@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	webview "github.com/webview/webview_go"
@@ -75,7 +76,11 @@ func main() {
 		select {}
 	}
 
-	openWindow(baseURL)
+	startPath := os.Getenv("WGCNA_START_PATH")
+	if !strings.HasPrefix(startPath, "/") || strings.HasPrefix(startPath, "//") {
+		startPath = ""
+	}
+	openWindow(baseURL + startPath)
 
 	_ = srv.Shutdown(context.Background())
 }

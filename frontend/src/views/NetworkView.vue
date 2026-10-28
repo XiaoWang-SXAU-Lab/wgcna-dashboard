@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ReportFigure from '../components/ReportFigure.vue'
 import { computed, ref } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
 import DendrogramChart from '../components/DendrogramChart.vue'
@@ -99,7 +100,7 @@ const geneRows = computed(() => (store.modules?.genes ?? []).map((g, i) => ({ ge
             {{ r.module }}（{{ r.count }}）
           </span>
         </div>
-        <DendrogramChart :genes="store.modules.genes" :colors="store.modules.colors" :dendrogram="store.modules.dendrogram" />
+        <ReportFigure figure-key="04_network/dendrogram.png"><DendrogramChart :genes="store.modules.genes" :colors="store.modules.colors" :dendrogram="store.modules.dendrogram" /></ReportFigure>
         <SimpleTable class="mt-3" :columns="[{ key: 'gene', label: t('net.col.gene') }, { key: 'color', label: t('net.col.module') }]" :rows="geneRows" scroll-height="500px" filename="gene_module" />
         <PlotDownloadWidget kind="dendrogram" :show="showExport" @close="showExport = false" />
       </div>

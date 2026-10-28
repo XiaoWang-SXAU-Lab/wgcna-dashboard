@@ -68,7 +68,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/jobs/{id}/plots/overview-network", h.plotOverviewNetwork)
 	mux.HandleFunc("GET /api/jobs/{id}/overview/export.xlsx", h.exportOverviewXlsx)
 	mux.HandleFunc("POST /api/jobs/{id}/report/export", h.exportReport)
+	mux.HandleFunc("POST /api/jobs/{id}/report/snapshot", h.saveReportSnapshot)
+	mux.HandleFunc("POST /api/jobs/{id}/report/prepare", h.prepareReportFigures)
 	mux.HandleFunc("GET /api/jobs/{id}/report/status", h.reportStatusHandler)
+	mux.HandleFunc("GET /api/jobs/{id}/report/view/{file...}", h.reportPreview)
 	mux.HandleFunc("GET /api/folder-picker", h.pickFolder)
 }
 
@@ -322,12 +325,12 @@ func (h *Handler) plotEnrich(w http.ResponseWriter, r *http.Request) {
 	}
 
 	params := plot.PlotParams{
-		Low:      r.URL.Query().Get("low"),
-		High:     r.URL.Query().Get("high"),
-		BaseSize: qfloat(r, "base_size"),
-		Width:    qfloat(r, "width"),
-		Height:   qfloat(r, "height"),
-		Dpi:      qfloat(r, "dpi"),
+		Low:          r.URL.Query().Get("low"),
+		High:         r.URL.Query().Get("high"),
+		BaseSize:     qfloat(r, "base_size"),
+		Width:        qfloat(r, "width"),
+		Height:       qfloat(r, "height"),
+		Dpi:          qfloat(r, "dpi"),
 		X:            r.URL.Query().Get("x"),
 		ColorVar:     r.URL.Query().Get("color_var"),
 		ShowCategory: int(qfloat(r, "show_category")),

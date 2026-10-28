@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ReportFigure from '../components/ReportFigure.vue'
 import { computed, ref } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
 import SftPlot from '../components/SftPlot.vue'
@@ -64,7 +65,7 @@ const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
             <i class="bi bi-download me-1"></i>{{ t('plot.export') }}
           </button>
         </div>
-        <SftPlot :data="store.sft" :rsquared-cut="store.rsquaredCut" />
+        <ReportFigure figure-key="03_soft_threshold/sft.png"><SftPlot :data="store.sft" :rsquared-cut="store.rsquaredCut" /></ReportFigure>
         <template v-if="store.sft.scale_free_check">
           <div class="d-flex align-items-center mt-4 mb-2">
             <h6 class="fw-semibold mb-0"><i class="bi bi-graph-up me-1"></i>{{ t('sft.checkTitle') }}</h6>

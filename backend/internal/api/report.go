@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,7 +17,6 @@ import (
 	"time"
 
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/enrich"
-	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/plot"
 )
 
 // Report export: generates a result/ + report/ directory with per-module
@@ -24,10 +24,13 @@ import (
 // network, and a simple HTML report.
 
 type reportStatus struct {
-	State   string   `json:"state"` // running | done | error
-	Message string   `json:"message"`
-	Dir     string   `json:"dir"`
-	Done    []string `json:"done,omitempty"`
+	State      string   `json:"state"` // running | done | error
+	Message    string   `json:"message"`
+	Dir        string   `json:"dir"`
+	Done       []string `json:"done"`
+	Warnings   []string `json:"warnings"`
+	Total      int      `json:"total"`
+	PreviewURL string   `json:"preview_url,omitempty"`
 }
 
 var (
@@ -38,8 +41,8 @@ var (
 // exportReport starts an async report/result export into <dir>/<name>/.
 func (h *Handler) exportReport(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	target := r.FormValue("dir")
-	name := r.FormValue("name")
+	target := strings.TrimSpace(r.FormValue("dir"))
+	name := strings.TrimSpace(r.FormValue("name"))
 	if target == "" {
 		http.Error(w, "dir required", http.StatusBadRequest)
 		return
@@ -47,14 +50,20 @@ func (h *Handler) exportReport(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "rsWGCNA-" + time.Now().Format("20060102-150405")
 	}
-	// sanitize name: no path separators / reserved chars
-	name = strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
-			return '-'
-		}
-		return r
-	}, name)
+	if !reportNameOK(name) {
+		http.Error(w, "Invalid project name", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Stat(filepath.Join(h.jobs.Dir(), id, "step3_modules.json")); err != nil {
+		http.Error(w, "Run Network & modules before generating a report.", http.StatusBadRequest)
+		return
+	}
 
+	target, err := filepath.Abs(target)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	base := filepath.Join(target, name)
 	enrichType := r.FormValue("type")
 	if enrichType != "kegg" {
@@ -66,7 +75,22 @@ func (h *Handler) exportReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reportMu.Lock()
-	st := &reportStatus{State: "running", Dir: base}
+	if prior := reportStates[id]; prior != nil && prior.State == "running" {
+		reportMu.Unlock()
+		http.Error(w, "A report is already running for this job.", http.StatusConflict)
+		return
+	}
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		reportMu.Unlock()
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := os.Mkdir(base, 0o755); err != nil {
+		reportMu.Unlock()
+		http.Error(w, "Choose a new project name; output directory cannot be created: "+err.Error(), http.StatusConflict)
+		return
+	}
+	st := &reportStatus{State: "running", Dir: base, Done: []string{}, Warnings: []string{}}
 	reportStates[id] = st
 	reportMu.Unlock()
 
@@ -78,9 +102,7 @@ func (h *Handler) exportReport(w http.ResponseWriter, r *http.Request) {
 // reportStatusHandler returns the current export status for a job.
 func (h *Handler) reportStatusHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	reportMu.Lock()
-	st := reportStates[id]
-	reportMu.Unlock()
+	st := h.savedReportStatus(id)
 	if st == nil {
 		http.Error(w, "no export running", http.StatusNotFound)
 		return
@@ -88,157 +110,10 @@ func (h *Handler) reportStatusHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, st)
 }
 
-func (h *Handler) doReportExport(id, base, enrichType, lang string, st *reportStatus) {
-	jobDir := filepath.Join(h.jobs.Dir(), id)
-	fail := func(msg string) {
-		reportMu.Lock()
-		st.State = "error"
-		st.Message = msg
-		reportMu.Unlock()
-	}
-
-	resultDir := filepath.Join(base, "result")
-	reportDir := filepath.Join(base, "report")
-	_ = os.MkdirAll(reportDir, 0o755)
-	_ = os.MkdirAll(resultDir, 0o755)
-
-	// module list (non-grey) from step5_detail_all.json
-	modules, err := readDetailAllModules(jobDir)
-	if err != nil {
-		fail(err.Error())
-		return
-	}
-
-	// 1. per-module GS/MM + gene heatmap + enrichment
-	for _, m := range modules {
-		modDir := filepath.Join(resultDir, "06_module_detail", m)
-		enrDir := filepath.Join(modDir, "enrichment")
-		_ = os.MkdirAll(enrDir, 0o755)
-
-		detailPath := filepath.Join(jobDir, "step5_detail_"+m+".json")
-		if _, err := os.Stat(detailPath); err == nil {
-			if p, _, err := plot.RenderGsmm(detailPath, "png", plot.PlotParams{}); err == nil {
-				copyFile(p, filepath.Join(modDir, "gs_mm.png"))
-				os.RemoveAll(filepath.Dir(p))
-			}
-			if p, _, err := plot.RenderGeneHeatmap(detailPath, "png", plot.PlotParams{}); err == nil {
-				copyFile(p, filepath.Join(modDir, "expression_heatmap.png"))
-				os.RemoveAll(filepath.Dir(p))
-			}
-		}
-
-		// enrichment (GO/KEGG; skip if background missing)
-		genes, _ := enrich.ModuleGenes(jobDir, m)
-		if len(genes) > 0 {
-			for _, kind := range []string{"go", "kegg"} {
-				if kind != enrichType && enrichType != "both" {
-					continue
-				}
-				var rows []enrich.Result
-				var e error
-				if kind == "go" {
-					rows, e = enrich.GOEnrich(jobDir, genes, 0.05, 20)
-				} else {
-					rows, e = enrich.KEGGEnrich(jobDir, genes, 0.05, 20)
-				}
-				if e != nil {
-					continue // background not provided -> skip (防呆)
-				}
-				writeEnrichTSV(filepath.Join(enrDir, kind+".tsv"), rows)
-				if len(rows) > 0 {
-					if p, _, err := plot.RenderEnrich(rows, "png", plot.PlotParams{}); err == nil {
-						copyFile(p, filepath.Join(enrDir, kind+".png"))
-						os.RemoveAll(filepath.Dir(p))
-					}
-				}
-			}
-		}
-
-		reportMu.Lock()
-		st.Done = append(st.Done, m)
-		reportMu.Unlock()
-	}
-
-	// 2. overview figure + network
-	if data, err := overviewData(jobDir, enrichType, "", 500, 0.05, 5); err == nil {
-		if p, _, err := plot.RenderModuleOverview(data, "png", plot.PlotParams{Width: 18, Height: 13}); err == nil {
-			copyFile(p, filepath.Join(resultDir, "module_overview.png"))
-			os.RemoveAll(filepath.Dir(p))
-		}
-	}
-	if nodes, edges, err := readNetworkLimited(jobDir, 2000); err == nil {
-		if data, err := json.Marshal(map[string]any{"nodes": nodes, "edges": edges}); err == nil {
-			if p, _, err := plot.RenderGeneNetwork(data, "svg", plot.PlotParams{}); err == nil {
-				copyFile(p, filepath.Join(resultDir, "overview_network.svg"))
-				os.RemoveAll(filepath.Dir(p))
-			}
-		}
-	}
-
-	// 2b. dendrogram + SFT + mtrait figures (referenced by the report)
-	_ = os.MkdirAll(filepath.Join(resultDir, "02_filter"), 0o755)
-	_ = os.MkdirAll(filepath.Join(resultDir, "03_soft_threshold"), 0o755)
-	_ = os.MkdirAll(filepath.Join(resultDir, "04_network"), 0o755)
-	_ = os.MkdirAll(filepath.Join(resultDir, "05_module_trait"), 0o755)
-	if p, _, err := plot.RenderDendrogram(filepath.Join(jobDir, "step3_modules.json"), "png", plot.PlotParams{}); err == nil {
-		copyFile(p, filepath.Join(resultDir, "04_network", "dendrogram.png"))
-		os.RemoveAll(filepath.Dir(p))
-	}
-	if p, _, err := plot.RenderSft(filepath.Join(jobDir, "step2_sft.json"), "png", "", plot.PlotParams{}); err == nil {
-		copyFile(p, filepath.Join(resultDir, "03_soft_threshold", "sft.png"))
-		os.RemoveAll(filepath.Dir(p))
-	}
-	if p, _, err := plot.RenderMtrait(filepath.Join(jobDir, "step4_mtrait.json"), "png", plot.PlotParams{}); err == nil {
-		copyFile(p, filepath.Join(resultDir, "05_module_trait", "mtrait.png"))
-		os.RemoveAll(filepath.Dir(p))
-	}
-	if stData, err := sampleTreeData(jobDir); err == nil {
-		if p, _, err := plot.RenderSampleTree(stData, "png", plot.PlotParams{}); err == nil {
-			copyFile(p, filepath.Join(resultDir, "02_filter", "sample_tree.png"))
-			os.RemoveAll(filepath.Dir(p))
-		}
-	}
-
-	// 3. provenance + README + report
-	writeProvenance(resultDir, jobDir, id, lang, filepath.Base(base))
-	writeREADME(resultDir, modules)
-	rd := buildReportData(jobDir, base, modules, enrichType, lang)
-	writeReport(reportDir, rd)
-	writeChecksumsAndExportManifest(resultDir)
-
-	reportMu.Lock()
-	st.State = "done"
-	st.Message = ""
-	reportMu.Unlock()
-}
-
-func readDetailAllModules(jobDir string) ([]string, error) {
-	b, err := os.ReadFile(filepath.Join(jobDir, "step5_detail_all.json"))
-	if err != nil {
-		return nil, err
-	}
-	var d struct {
-		Modules []struct {
-			Module string `json:"module"`
-			Trait  string `json:"trait"`
-		} `json:"modules"`
-	}
-	if err := json.Unmarshal(b, &d); err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, m := range d.Modules {
-		if m.Module != "grey" {
-			out = append(out, m.Module)
-		}
-	}
-	return out, nil
-}
-
-func writeEnrichTSV(path string, rows []enrich.Result) {
+func writeEnrichTSV(path string, rows []enrich.Result) error {
 	f, err := os.Create(path)
 	if err != nil {
-		return
+		return err
 	}
 	defer f.Close()
 	w := csv.NewWriter(f)
@@ -248,30 +123,31 @@ func writeEnrichTSV(path string, rows []enrich.Result) {
 		_ = w.Write([]string{r.ID, r.Description, r.Ontology, r.GeneRatio, fmt.Sprint(r.Count), fmt.Sprintf("%g", r.Pvalue), fmt.Sprintf("%g", r.PAdjust)})
 	}
 	w.Flush()
-}
-
-func copyFile(src, dst string) {
-	if b, err := os.ReadFile(src); err == nil {
-		_ = os.WriteFile(dst, b, 0o644)
+	if err := w.Error(); err != nil {
+		return err
 	}
+	return f.Close()
 }
 
-func writeREADME(resultDir string, modules []string) {
+func writeREADME(resultDir string, modules []string) error {
 	var sb strings.Builder
 	sb.WriteString("rsWGCNA 输出结果说明\n\n")
-	sb.WriteString("本目录包含本次分析的所有图表与数据文件。\n\n")
+	sb.WriteString("本目录包含成功生成的图表与数据文件；跳过与失败项目见 00_provenance/export-warnings.json。\n\n")
 	sb.WriteString("目录结构：\n")
 	sb.WriteString("  06_module_detail/<模块>/gs_mm.png               GS×MM 散点图（基因显著性 vs 模块隶属度）\n")
 	sb.WriteString("  06_module_detail/<模块>/expression_heatmap.png   模块基因表达热图（z-score）\n")
 	sb.WriteString("  06_module_detail/<模块>/enrichment/go.png|tsv     GO 富集结果\n")
 	sb.WriteString("  06_module_detail/<模块>/enrichment/kegg.png|tsv   KEGG 富集结果\n")
 	sb.WriteString("  module_overview.png                             模块总览三合一图\n")
-	sb.WriteString("  overview_network.svg                            全基因共表达网络\n\n")
+	sb.WriteString("  overview_network*.svg|json                       模块内/模块间/组合采样网络\n")
+	sb.WriteString("  08_clustering/                                  已运行的聚类对照、建议K指标与图表\n")
+	sb.WriteString("  07_hub/hub.json                                 当前选定模块/性状的候选表与网络\n")
+	sb.WriteString("  00_provenance/report-settings.json               报告采用的采样与绘图设置（独立于交互画布）\n\n")
 	sb.WriteString("模块列表：\n")
 	for _, m := range modules {
 		sb.WriteString("  - " + m + "\n")
 	}
-	_ = os.WriteFile(filepath.Join(resultDir, "README.txt"), []byte(sb.String()), 0o644)
+	return os.WriteFile(filepath.Join(resultDir, "README.txt"), []byte(sb.String()), 0o644)
 }
 
 // buildReportData assembles the real analysis facts for the report.
@@ -283,6 +159,7 @@ func buildReportData(jobDir, base string, modules []string, enrichType, lang str
 		Lang:        lang,
 		Modules:     modules,
 		ModuleSizes: map[string]int{},
+		EnrichType:  enrichType,
 	}
 
 	// genes + modules + sizes from step3_modules.json
@@ -325,7 +202,19 @@ func buildReportData(jobDir, base string, modules []string, enrichType, lang str
 			P       [][]float64 `json:"p"`
 		}
 		if json.Unmarshal(b, &mt) == nil {
+			selectedModule := pstr(d.Params, "hub", "select_module", "")
+			if b, err := os.ReadFile(filepath.Join(jobDir, "step6_hub.json")); err == nil {
+				var hub struct {
+					Module string `json:"module"`
+				}
+				if json.Unmarshal(b, &hub) == nil {
+					selectedModule = hub.Module
+				}
+			}
 			for mi := range mt.Modules {
+				if mt.Modules[mi] != selectedModule {
+					continue
+				}
 				for ti := range mt.Traits {
 					if mi < len(mt.Cor) && ti < len(mt.Cor[mi]) && mi < len(mt.P) && ti < len(mt.P[mi]) {
 						if absFloat(mt.Cor[mi][ti]) > 0.6 && mt.P[mi][ti] < 0.05 {
@@ -338,16 +227,15 @@ func buildReportData(jobDir, base string, modules []string, enrichType, lang str
 	}
 	if b, err := os.ReadFile(filepath.Join(jobDir, "step6_hub.json")); err == nil {
 		var hub struct {
-			Nodes []struct {
-				IsHub bool `json:"is_hub"`
-			} `json:"nodes"`
+			Module string          `json:"module"`
+			Trait  string          `json:"trait_name"`
+			Genes  []reportHubGene `json:"hub_genes"`
 		}
 		if json.Unmarshal(b, &hub) == nil {
-			for _, n := range hub.Nodes {
-				if n.IsHub {
-					d.HubCount++
-				}
-			}
+			d.HubCount = len(hub.Genes)
+			d.HubGenes = hub.Genes
+			d.HubModule = hub.Module
+			d.HubTrait = hub.Trait
 		}
 	}
 
@@ -359,14 +247,42 @@ func buildReportData(jobDir, base string, modules []string, enrichType, lang str
 		_, err := os.Stat(filepath.Join(jobDir, "gene2go.tsv"))
 		d.EnrichOK = err == nil
 	}
+	if b, err := os.ReadFile(filepath.Join(jobDir, "overview_clusters.json")); err == nil {
+		var cluster struct {
+			Method string `json:"method"`
+			K      int    `json:"k"`
+		}
+		if json.Unmarshal(b, &cluster) == nil {
+			d.ClusterMethod = cluster.Method
+			d.ClusterK = cluster.K
+		}
+	}
+	d.ModuleTraits = map[string]string{}
+	if b, err := os.ReadFile(filepath.Join(jobDir, "step5_detail_all.json")); err == nil {
+		var summary struct {
+			Modules []struct {
+				Module string `json:"module"`
+				Trait  string `json:"trait"`
+			} `json:"modules"`
+		}
+		if json.Unmarshal(b, &summary) == nil {
+			for _, item := range summary.Modules {
+				d.ModuleTraits[item.Module] = item.Trait
+			}
+		}
+	}
 
 	return d
 }
 
 // writeReport copies the CSS/JS and writes the report HTML.
-func writeReport(reportDir string, d reportData) {
-	_ = os.WriteFile(filepath.Join(reportDir, "design.css"), reportCSS, 0o644)
-	_ = os.WriteFile(filepath.Join(reportDir, "design.js"), reportJS, 0o644)
+func writeReport(reportDir string, d reportData) error {
+	if err := os.WriteFile(filepath.Join(reportDir, "design.css"), reportCSS, 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(reportDir, "design.js"), reportJS, 0o644); err != nil {
+		return err
+	}
 
 	body := generateReportHTML(d)
 	langAttr := "zh-CN"
@@ -378,11 +294,13 @@ func writeReport(reportDir string, d reportData) {
 		title = "rsWGCNA Analysis report"
 	}
 	html := "<!doctype html><html lang='" + langAttr + "'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>" + title + "</title><link rel='stylesheet' href='design.css'></head><body>" + body + "<script src='design.js'></script></body></html>"
-	_ = os.WriteFile(filepath.Join(reportDir, "index.html"), []byte(html), 0o644)
+	if err := os.WriteFile(filepath.Join(reportDir, "index.html"), []byte(html), 0o644); err != nil {
+		return err
+	}
 
 	// report.qmd wrapper (recompilable with Quarto)
 	qmd := fmt.Sprintf("---\ntitle: %q\nlang: %s\nformat:\n  html:\n    theme: none\n    css: design.css\n    toc: false\n    pagetitle: %q\n    include-after-body:\n      text: |\n        <script src=\"design.js\"></script>\n---\n\n```{=html}\n%s\n```\n", title, langAttr, title, body)
-	_ = os.WriteFile(filepath.Join(reportDir, "report.qmd"), []byte(qmd), 0o644)
+	return os.WriteFile(filepath.Join(reportDir, "report.qmd"), []byte(qmd), 0o644)
 }
 
 func absFloat(v float64) float64 {
@@ -485,6 +403,8 @@ func detectSteps(jobDir string) []string {
 		{"hub", "step6_hub.json"},
 		{"module_detail_all", "step5_detail_all.json"},
 		{"clustering", "overview_clusters.json"},
+		{"cluster_elbow", "overview_elbow.json"},
+		{"overview_network", "network_edges.tsv"},
 	}
 	var out []string
 	for _, sf := range stepFiles {
@@ -536,6 +456,7 @@ func writeParamsTSV(path string, raw []byte) {
 func writeInputManifest(path, jobDir string) {
 	roles := []struct{ role, file string }{
 		{"expression_matrix", "expr.tsv"},
+		{"trait", "trait.tsv"},
 		{"sample_info", "sample_info.tsv"},
 		{"annotation", "annotation.tsv"},
 		{"gene2go", "gene2go.tsv"},
@@ -568,47 +489,65 @@ func writeInputManifest(path, jobDir string) {
 
 // writeChecksumsAndExportManifest writes checksums.sha256 and
 // export_manifest.tsv for every file under result/.
-func writeChecksumsAndExportManifest(resultDir string) {
+func writeChecksumsAndExportManifest(resultDir string) error {
 	prov := filepath.Join(resultDir, "00_provenance")
 	cf, err := os.Create(filepath.Join(prov, "checksums.sha256"))
 	if err != nil {
-		return
+		return err
 	}
 	defer cf.Close()
 	mf, err := os.Create(filepath.Join(prov, "export_manifest.tsv"))
 	if err != nil {
-		return
+		return err
 	}
 	defer mf.Close()
 	mw := csv.NewWriter(mf)
 	mw.Comma = '\t'
 	_ = mw.Write([]string{"relative_path", "sha256", "status"})
 
-	_ = filepath.Walk(resultDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+	err = filepath.Walk(resultDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
 			return nil
 		}
 		rel, _ := filepath.Rel(resultDir, path)
+		rel = filepath.ToSlash(rel)
 		if rel == "00_provenance/checksums.sha256" || rel == "00_provenance/export_manifest.tsv" {
 			return nil
 		}
 		h, err := fileSha256(path)
 		if err != nil {
-			_ = mw.Write([]string{rel, "", "error"})
-			return nil
+			return err
 		}
-		fmt.Fprintf(cf, "%s  %s\n", h, rel)
-		_ = mw.Write([]string{rel, h, "generated"})
-		return nil
+		if _, err := fmt.Fprintf(cf, "%s  %s\n", h, rel); err != nil {
+			return err
+		}
+		return mw.Write([]string{rel, h, "generated"})
 	})
+	if err != nil {
+		return err
+	}
 	mw.Flush()
+	if err := mw.Error(); err != nil {
+		return err
+	}
+	if err := cf.Close(); err != nil {
+		return err
+	}
+	return mf.Close()
 }
 
 func fileSha256(path string) (string, error) {
-	b, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:]), nil
+	defer f.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }

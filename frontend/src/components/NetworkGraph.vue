@@ -284,6 +284,7 @@ onMounted(() => {
     minZoom: 0.1,
     maxZoom: 4,
   })
+  cy.on('layoutstop pan zoom dragfree', () => container.value?.dispatchEvent(new CustomEvent('report-chart-rendered', { bubbles: true })))
   render()
   cy.on('mouseover', 'node', (e: any) => {
     const d = e.target.data()

@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,6 +70,22 @@ func NewManager(dir, workerBin string, threads int) *Manager {
 
 // Dir returns the on-disk jobs directory.
 func (m *Manager) Dir() string { return m.dir }
+
+// PrepareReportDetails runs against an isolated report snapshot. It must not
+// change the interactive job's selected module, params, progress or DoneSteps.
+func (m *Manager) PrepareReportDetails(ctx context.Context, id, snapshotDir string) error {
+	return m.PrepareReportStep(ctx, id, snapshotDir, "module_detail_all")
+}
+
+func (m *Manager) PrepareReportStep(ctx context.Context, id, snapshotDir, step string) error {
+	cmd := exec.CommandContext(ctx, m.workerBin, "--job-dir", snapshotDir, "--step", step, "--threads", fmt.Sprint(m.threadsFor(id)))
+	subproc.HideWindow(cmd)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("prepare module details: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
 
 // Create stores the uploaded expression matrix + params. It does not run anything.
 func (m *Manager) Create(expr []byte, params json.RawMessage, threads int) (string, error) {
