@@ -11,7 +11,8 @@ const props = defineProps<{
   loading: boolean
   networkMode: 'intra' | 'inter' | 'combined'
   hubPerModule: number
-  spread: number
+  geneSpacing: number
+  moduleSpacing: number
   hideIsolated: boolean
   showLabels: boolean
   showModuleLabels: boolean
@@ -66,7 +67,7 @@ const bridgeIds = computed(() => {
 // share one combined layout so nodes don't jump when toggling)
 function computeLayout() {
   if (!props.network) return
-  layout.value = moduleAwareLayout(props.network.nodes, props.network.edges, 70, props.hubPerModule, props.spread, layoutSeed.value)
+  layout.value = moduleAwareLayout(props.network.nodes, props.network.edges, 70, props.hubPerModule, props.geneSpacing, props.moduleSpacing, layoutSeed.value)
 }
 
 function relayout() {
@@ -214,7 +215,7 @@ function render() {
 watch(() => [props.showLabels, props.nodeScale, props.edgeOpacity, props.networkMode], render)
 // watch layout/filtering changes: recompute layout + render
 watch(
-  () => [props.network, props.hubPerModule, props.hideIsolated, props.spread],
+  () => [props.network, props.hubPerModule, props.hideIsolated, props.geneSpacing, props.moduleSpacing],
   async () => {
     computeLayout()
     await nextTick()

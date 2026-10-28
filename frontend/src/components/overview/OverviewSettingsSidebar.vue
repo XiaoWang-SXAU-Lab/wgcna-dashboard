@@ -24,7 +24,8 @@ const interBudget = defineModel<number>('interBudget', { required: true })
 const hideGrey = defineModel<boolean>('hideGrey', { required: true })
 const hideIsolated = defineModel<boolean>('hideIsolated', { required: true })
 const hubPerModule = defineModel<number>('hubPerModule', { required: true })
-const spread = defineModel<number>('spread', { required: true })
+const geneSpacing = defineModel<number>('geneSpacing', { required: true })
+const moduleSpacing = defineModel<number>('moduleSpacing', { required: true })
 const showLabels = defineModel<boolean>('showLabels', { required: true })
 const showModuleLabels = defineModel<boolean>('showModuleLabels', { required: true })
 const nodeScale = defineModel<number>('nodeScale', { required: true })
@@ -117,7 +118,6 @@ const emit = defineEmits<{
             <option value="combined">{{ t('mo.modeCombined') }}</option>
           </select>
         </div>
-        <div v-if="networkMode !== 'intra'" class="alert alert-warning py-1 px-2 small mb-2">{{ t('mo.interModeHint') }}</div>
         <div class="mb-2">
           <label class="form-label small mb-1">{{ t('mo.percentile') }} (%)</label>
           <input type="number" v-model.number="percentile" class="form-control form-control-sm" min="1" max="100" />
@@ -158,8 +158,12 @@ const emit = defineEmits<{
           <input type="number" v-model.number="hubPerModule" class="form-control form-control-sm" min="1" max="50" />
         </div>
         <div class="mb-2">
-          <label class="form-label small mb-1">{{ t('mo.spread') }}: <b>{{ spread.toFixed(1) }}</b></label>
-          <input type="range" v-model.number="spread" class="form-range" min="0.5" max="2.5" step="0.1" />
+          <label class="form-label small mb-1">{{ t('mo.geneSpacing') }}: <b>{{ geneSpacing.toFixed(1) }}</b></label>
+          <input type="range" v-model.number="geneSpacing" class="form-range" min="0.5" max="3" step="0.1" />
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">{{ t('mo.moduleSpacing') }}: <b>{{ moduleSpacing.toFixed(1) }}</b></label>
+          <input type="range" v-model.number="moduleSpacing" class="form-range" min="0.3" max="2.5" step="0.1" />
         </div>
 
         <div class="mb-2 fw-semibold small text-muted text-uppercase">{{ t('mo.visual') }}</div>

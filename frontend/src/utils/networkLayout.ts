@@ -133,13 +133,10 @@ function layoutOneModule(
 // roughly the sum of their radii (no large gaps, no overlap).
 function packModules(
   modNames: string[],
-  localRadius: Map<string, number>,
-  spread: number,
+  rr: Map<string, number>,
 ): Map<string, { x: number; y: number }> {
   const n = modNames.length
   const centers = new Map<string, { x: number; y: number }>()
-  const rr = new Map<string, number>()
-  for (const m of modNames) rr.set(m, Math.sqrt(localRadius.get(m)!) * spread * 1.5)
 
   // deterministic initial placement: circle whose circumference ≈ sum of diameters
   const totalR = [...rr.values()].reduce((a, b) => a + b, 0)
@@ -195,7 +192,8 @@ export function moduleAwareLayout(
   edges: NetEdge[],
   iterations = 70,
   hubPerModule = 10,
-  spread = 1.0,
+  geneSpacing = 1.0,
+  moduleSpacing = 1.0,
   seed = 0,
 ): LayoutResult {
   const byMod = new Map<string, NetNode[]>()
@@ -218,27 +216,29 @@ export function moduleAwareLayout(
 
   // per-module local layout
   const local = new Map<string, { x: number; y: number }>()
-  const localRadius = new Map<string, number>()
+  const modSize = new Map<string, number>()
   for (const mod of modNames) {
     const list = byMod.get(mod)!
     const pos = layoutOneModule(list, edges, hubs, iterations, seed)
     for (const [id, p] of pos) local.set(id, p)
-    localRadius.set(mod, Math.sqrt(list.length))
+    modSize.set(mod, Math.sqrt(list.length))
   }
 
-  // module packing: FR-style (repulsion between modules + center gravity) so
-  // independent modules settle into a compact roughly-circular arrangement
-  // instead of being spread out on a large fixed circle.
-  const centers = packModules(modNames, localRadius, spread)
+  // per-module radius for packing: visual radius (∝ sqrt(n)·geneSpacing) + a
+  // separate inter-module gap (moduleSpacing), so the two are independently
+  // adjustable — big modules occupy more space, small modules less.
+  const modRadius = new Map<string, number>()
+  for (const mod of modNames) {
+    modRadius.set(mod, modSize.get(mod)! * geneSpacing * 1.2 + moduleSpacing * 3)
+  }
+  const centers = packModules(modNames, modRadius)
 
   // scale + translate each module's local layout into global coords
+  const scale = geneSpacing * 2
   const positions = new Map<string, { x: number; y: number }>()
   for (const mod of modNames) {
     const c = centers.get(mod)!
     const list = byMod.get(mod)!
-    // constant scale: local layout already spans ~sqrt(n), so a constant scale
-    // keeps gene density uniform and module radius ∝ sqrt(n)
-    const scale = spread * 2
     for (const node of list) {
       const p = local.get(node.id)!
       positions.set(node.id, { x: c.x + p.x * scale, y: c.y + p.y * scale })
