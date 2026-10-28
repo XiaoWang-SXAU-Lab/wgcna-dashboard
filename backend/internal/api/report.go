@@ -1,12 +1,16 @@
 package api
 
 import (
+	"crypto/sha256"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -196,10 +200,11 @@ func (h *Handler) doReportExport(id, base, enrichType, lang string, st *reportSt
 	}
 
 	// 3. provenance + README + report
-	writeProvenance(resultDir, jobDir)
+	writeProvenance(resultDir, jobDir, id, lang, filepath.Base(base))
 	writeREADME(resultDir, modules)
 	rd := buildReportData(jobDir, base, modules, enrichType, lang)
 	writeReport(reportDir, rd)
+	writeChecksumsAndExportManifest(resultDir)
 
 	reportMu.Lock()
 	st.State = "done"
@@ -364,8 +369,20 @@ func writeReport(reportDir string, d reportData) {
 	_ = os.WriteFile(filepath.Join(reportDir, "design.js"), reportJS, 0o644)
 
 	body := generateReportHTML(d)
-	html := "<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>rsWGCNA 分析报告</title><link rel='stylesheet' href='design.css'></head><body>" + body + "<script src='design.js'></script></body></html>"
+	langAttr := "zh-CN"
+	if d.Lang == "en" {
+		langAttr = "en"
+	}
+	title := "rsWGCNA 分析报告"
+	if d.Lang == "en" {
+		title = "rsWGCNA Analysis report"
+	}
+	html := "<!doctype html><html lang='" + langAttr + "'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>" + title + "</title><link rel='stylesheet' href='design.css'></head><body>" + body + "<script src='design.js'></script></body></html>"
 	_ = os.WriteFile(filepath.Join(reportDir, "index.html"), []byte(html), 0o644)
+
+	// report.qmd wrapper (recompilable with Quarto)
+	qmd := fmt.Sprintf("---\ntitle: %q\nlang: %s\nformat:\n  html:\n    theme: none\n    css: design.css\n    toc: false\n    pagetitle: %q\n    include-after-body:\n      text: |\n        <script src=\"design.js\"></script>\n---\n\n```{=html}\n%s\n```\n", title, langAttr, title, body)
+	_ = os.WriteFile(filepath.Join(reportDir, "report.qmd"), []byte(qmd), 0o644)
 }
 
 func absFloat(v float64) float64 {
@@ -423,13 +440,175 @@ func sampleTreeData(jobDir string) ([]byte, error) {
 }
 
 // writeProvenance writes a minimal provenance folder (final params + environment).
-func writeProvenance(resultDir, jobDir string) {
+func writeProvenance(resultDir, jobDir, id, lang, projectName string) {
 	prov := filepath.Join(resultDir, "00_provenance")
 	_ = os.MkdirAll(prov, 0o755)
+
+	// parameters.final.json + parameters.final.tsv
 	if b, err := os.ReadFile(filepath.Join(jobDir, "params.json")); err == nil {
 		_ = os.WriteFile(filepath.Join(prov, "parameters.final.json"), b, 0o644)
+		writeParamsTSV(filepath.Join(prov, "parameters.final.tsv"), b)
 	}
-	env := fmt.Sprintf("rsWGCNA v0.5.0\nGenerated: %s\n", time.Now().Format(time.RFC3339))
+
+	// analysis_manifest.json
+	steps := detectSteps(jobDir)
+	manifest := map[string]any{
+		"project":      projectName,
+		"job_id":       id,
+		"language":     lang,
+		"generated_at": time.Now().Format(time.RFC3339),
+		"version":      "rsWGCNA v0.5.0",
+		"steps":        steps,
+	}
+	if b, err := json.MarshalIndent(manifest, "", "  "); err == nil {
+		_ = os.WriteFile(filepath.Join(prov, "analysis_manifest.json"), b, 0o644)
+	}
+
+	// input_manifest.tsv (uploaded/input files with size + sha256)
+	writeInputManifest(filepath.Join(prov, "input_manifest.tsv"), jobDir)
+
+	// environment.txt
+	env := fmt.Sprintf("rsWGCNA v0.5.0\nGenerated: %s\nOS: %s\nArch: %s\n", time.Now().Format(time.RFC3339), runtime.GOOS, runtime.GOARCH)
 	_ = os.WriteFile(filepath.Join(prov, "environment.txt"), []byte(env), 0o644)
-	_ = os.WriteFile(filepath.Join(prov, "README.txt"), []byte("最终参数见 parameters.final.json；环境信息见 environment.txt。"), 0o644)
+
+	_ = os.WriteFile(filepath.Join(prov, "README.txt"), []byte("分析可追溯信息：\n- analysis_manifest.json：项目/任务/语言/时间/步骤\n- parameters.final.json + .tsv：最终参数\n- input_manifest.tsv：输入文件与校验\n- checksums.sha256：导出文件校验\n- export_manifest.tsv：导出文件清单\n- environment.txt：环境信息"), 0o644)
+}
+
+// detectSteps returns the steps whose output files are present.
+func detectSteps(jobDir string) []string {
+	stepFiles := []struct{ step, file string }{
+		{"filter", "step1_filtered.tsv"},
+		{"soft_threshold", "step2_sft.json"},
+		{"network", "step3_modules.json"},
+		{"module_trait", "step4_mtrait.json"},
+		{"module_detail", "step5_detail.json"},
+		{"hub", "step6_hub.json"},
+		{"module_detail_all", "step5_detail_all.json"},
+		{"clustering", "overview_clusters.json"},
+	}
+	var out []string
+	for _, sf := range stepFiles {
+		if _, err := os.Stat(filepath.Join(jobDir, sf.file)); err == nil {
+			out = append(out, sf.step)
+		}
+	}
+	return out
+}
+
+// writeParamsTSV writes params.json as a step | key | value table.
+func writeParamsTSV(path string, raw []byte) {
+	var p map[string]any
+	if json.Unmarshal(raw, &p) != nil {
+		return
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	w := csv.NewWriter(f)
+	w.Comma = '\t'
+	_ = w.Write([]string{"step", "parameter", "value"})
+	order := []string{"filter", "soft_threshold", "network", "module_trait", "module_detail", "hub", "overview", "cluster"}
+	for _, group := range order {
+		v, ok := p[group]
+		if !ok {
+			continue
+		}
+		m, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			j, _ := json.Marshal(m[k])
+			_ = w.Write([]string{group, k, string(j)})
+		}
+	}
+	w.Flush()
+}
+
+// writeInputManifest records the input files with size + sha256.
+func writeInputManifest(path, jobDir string) {
+	roles := []struct{ role, file string }{
+		{"expression_matrix", "expr.tsv"},
+		{"sample_info", "sample_info.tsv"},
+		{"annotation", "annotation.tsv"},
+		{"gene2go", "gene2go.tsv"},
+		{"gene2kegg", "gene2kegg.tsv"},
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	w := csv.NewWriter(f)
+	w.Comma = '\t'
+	_ = w.Write([]string{"role", "filename", "size_bytes", "sha256"})
+	for _, r := range roles {
+		fp := filepath.Join(jobDir, r.file)
+		st, err := os.Stat(fp)
+		if err != nil {
+			_ = w.Write([]string{r.role, r.file, "", "not provided"})
+			continue
+		}
+		h, err := fileSha256(fp)
+		sum := ""
+		if err == nil {
+			sum = h
+		}
+		_ = w.Write([]string{r.role, r.file, fmt.Sprint(st.Size()), sum})
+	}
+	w.Flush()
+}
+
+// writeChecksumsAndExportManifest writes checksums.sha256 and
+// export_manifest.tsv for every file under result/.
+func writeChecksumsAndExportManifest(resultDir string) {
+	prov := filepath.Join(resultDir, "00_provenance")
+	cf, err := os.Create(filepath.Join(prov, "checksums.sha256"))
+	if err != nil {
+		return
+	}
+	defer cf.Close()
+	mf, err := os.Create(filepath.Join(prov, "export_manifest.tsv"))
+	if err != nil {
+		return
+	}
+	defer mf.Close()
+	mw := csv.NewWriter(mf)
+	mw.Comma = '\t'
+	_ = mw.Write([]string{"relative_path", "sha256", "status"})
+
+	_ = filepath.Walk(resultDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel(resultDir, path)
+		if rel == "00_provenance/checksums.sha256" || rel == "00_provenance/export_manifest.tsv" {
+			return nil
+		}
+		h, err := fileSha256(path)
+		if err != nil {
+			_ = mw.Write([]string{rel, "", "error"})
+			return nil
+		}
+		fmt.Fprintf(cf, "%s  %s\n", h, rel)
+		_ = mw.Write([]string{rel, h, "generated"})
+		return nil
+	})
+	mw.Flush()
+}
+
+func fileSha256(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
 }
