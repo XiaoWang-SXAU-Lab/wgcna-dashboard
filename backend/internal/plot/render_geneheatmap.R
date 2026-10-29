@@ -29,7 +29,7 @@ cluster_rows  <- as.integer(get_arg("--cluster-rows", "1"))
 cluster_cols  <- as.integer(get_arg("--cluster-cols", "1"))
 show_rownames <- as.integer(get_arg("--show-rownames", "0"))
 show_colnames <- as.integer(get_arg("--show-colnames", "1"))
-border        <- as.integer(get_arg("--border", "0"))
+border        <- as.integer(get_arg("--border", "1"))
 title         <- get_arg("--title", NULL)
 if (is.null(json_path) || is.null(out_path)) stop("usage: render_geneheatmap.R --json <f> --out <f>")
 
@@ -110,7 +110,7 @@ if (mode == "pdf") {
 } else if (mode == "svg") {
   svg(out_path, width = width, height = height)
 } else {
-  png(out_path, width = width, height = height, units = "in", res = dpi)
+  png(out_path, width = width, height = height, units = "in", res = dpi, bg = "transparent")
 }
 if (legend == "bottom") {
   draw(ht, heatmap_legend_side = "bottom")

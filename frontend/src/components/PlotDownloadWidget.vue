@@ -33,7 +33,7 @@ const clusterCols = ref(true)
 const showRowNames = ref(true)
 const showColNames = ref(true)
 const cellFontSize = ref(12)
-const border = ref(false)
+const border = ref(true)
 const heatTitle = ref('')
 const width = ref(10)
 const height = ref(8)
@@ -315,15 +315,13 @@ function download() {
               </div>
             </template>
 
-            <div class="row g-2">
-              <div class="col-6">
-                <label class="form-label small mb-1">{{ t('plot.width') }}</label>
-                <input type="number" class="form-control form-control-sm" min="3" max="24" step="0.1" v-model.number="width" />
-              </div>
-              <div class="col-6">
-                <label class="form-label small mb-1">{{ t('plot.height') }}</label>
-                <input type="number" class="form-control form-control-sm" min="2" max="24" step="0.1" v-model.number="height" />
-              </div>
+            <div class="mb-1">
+              <label class="form-label small mb-1">{{ t('plot.width') }}: <b>{{ width }}</b></label>
+              <input type="range" class="form-range" min="3" max="24" step="0.5" v-model.number="width" />
+            </div>
+            <div class="mb-1">
+              <label class="form-label small mb-1">{{ t('plot.height') }}: <b>{{ height }}</b></label>
+              <input type="range" class="form-range" min="2" max="24" step="0.5" v-model.number="height" />
             </div>
             <div>
               <label class="form-label small mb-1">{{ t('plot.dpi') }}</label>
