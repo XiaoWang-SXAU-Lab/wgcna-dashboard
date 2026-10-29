@@ -81,7 +81,7 @@ const maxHubs = ref(30)
 
   function params() {
     return {
-      filter: { normalize_method: normalizeMethod.value, n_keep: nKeep.value, filter_method: filterMethod.value, sample_percentage: samplePercentage.value, cutoff: cutoff.value, exclude_samples: excludedSamples.value },
+      filter: { normalize_method: normalizeMethod.value, n_keep: nKeep.value, filter_method: filterMethod.value, sample_percentage: samplePercentage.value / 100, cutoff: cutoff.value, exclude_samples: excludedSamples.value },
       soft_threshold: { network_type: sftNetworkType.value, rsquared_cut: rsquaredCut.value },
       network: { power: power.value, network_type: netNetworkType.value, tom_type: tomType.value, tom_denom: tomDenom.value, min_module_size: minModuleSize.value, merge_cut_height: mergeCutHeight.value, deep_split: deepSplit.value, detect_cut_height: detectCutHeight.value },
       module_trait: { trait_source: traitSource.value, trait_column: traitColumn.value },

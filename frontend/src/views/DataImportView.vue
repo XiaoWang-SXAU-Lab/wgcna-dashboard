@@ -167,8 +167,8 @@ function onSelectSample(name: string) {
             </select>
           </div>
           <div>
-            <label class="form-label small mb-1">{{ t('param.samplePct') }}</label>
-            <input class="form-control form-control-sm" type="number" v-model.number="store.samplePercentage" min="0" max="100" />
+            <label class="form-label small mb-1">{{ t('param.samplePct') }}: <b>{{ store.samplePercentage }}%</b></label>
+            <input class="form-range" type="range" v-model.number="store.samplePercentage" min="0" max="100" step="5" />
           </div>
           <div>
             <label class="form-label small mb-1">{{ t('param.cutoff') }}</label>

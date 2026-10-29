@@ -276,6 +276,8 @@ func buildReportData(jobDir, base string, modules []string, enrichType, lang str
 	if st, err := sampleTreeData(jobDir); err == nil {
 		d.SampleTreeJSON = string(st)
 	}
+	// project-introduction input-file summary
+	populateInputs(&d, jobDir)
 
 	return d
 }
@@ -291,6 +293,9 @@ func writeReport(reportDir string, d reportData) error {
 	if err := os.WriteFile(filepath.Join(reportDir, "sample_tree.js"), sampleTreeJS, 0o644); err != nil {
 		return err
 	}
+	if err := os.WriteFile(filepath.Join(reportDir, "echarts.min.js"), echartsJS, 0o644); err != nil {
+		return err
+	}
 
 	body := generateReportHTML(d)
 	langAttr := "zh-CN"
@@ -301,11 +306,11 @@ func writeReport(reportDir string, d reportData) error {
 	if d.Lang == "en" {
 		title = "rsWGCNA Analysis report"
 	}
-	echartsCDN := ""
+	echartsScript := ""
 	if d.SampleTreeJSON != "" {
-		echartsCDN = `<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>`
+		echartsScript = `<script src="echarts.min.js"></script>`
 	}
-	html := "<!doctype html><html lang='" + langAttr + "'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>" + title + "</title><link rel='stylesheet' href='design.css'>" + echartsCDN + "</head><body>" + body + "<script src='sample_tree.js'></script><script src='design.js'></script></body></html>"
+	html := "<!doctype html><html lang='" + langAttr + "'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>" + title + "</title><link rel='stylesheet' href='design.css'>" + echartsScript + "</head><body>" + body + "<script src='sample_tree.js'></script><script src='design.js'></script></body></html>"
 	if err := os.WriteFile(filepath.Join(reportDir, "index.html"), []byte(html), 0o644); err != nil {
 		return err
 	}
@@ -373,6 +378,82 @@ func sampleInfoBands(jobDir string) []map[string]any {
 		bands = append(bands, map[string]any{"name": col, "values": values})
 	}
 	return bands
+}
+
+// populateInputs fills the project-introduction input-file summary.
+func populateInputs(d *reportData, jobDir string) {
+	if hdr, rows := readTSVHeaderRows(filepath.Join(jobDir, "expr.tsv")); hdr != nil {
+		d.RawSamples = len(hdr) - 1
+		d.RawGenes = rows
+	}
+	if hdr, _ := readTSVHeaderRows(filepath.Join(jobDir, "trait.tsv")); hdr != nil {
+		d.TraitCount = len(hdr) - 1
+	}
+	if hdr, _ := readTSVHeaderRows(filepath.Join(jobDir, "sample_info.tsv")); hdr != nil {
+		for _, c := range hdr[1:] {
+			if c != "sample_id" && c != "sample_name" {
+				d.SampleInfoCols = append(d.SampleInfoCols, c)
+			}
+		}
+	}
+	if _, rows := readTSVHeaderRows(filepath.Join(jobDir, "annotation.tsv")); rows > 0 {
+		d.AnnoGenes = rows
+	}
+	d.GoGenes, d.GoEntries = countGeneAnno(filepath.Join(jobDir, "gene2go.tsv"))
+	d.KeggGenes, d.KeggEntries = countGeneAnno(filepath.Join(jobDir, "gene2kegg.tsv"))
+}
+
+func readTSVHeaderRows(path string) ([]string, int) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0
+	}
+	defer f.Close()
+	r := csv.NewReader(f)
+	r.Comma = '\t'
+	r.FieldsPerRecord = -1
+	hdr, err := r.Read()
+	if err != nil {
+		return nil, 0
+	}
+	rows := 0
+	for {
+		if _, err := r.Read(); err != nil {
+			break
+		}
+		rows++
+	}
+	return hdr, rows
+}
+
+func countGeneAnno(path string) (genes, entries int) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+	r := csv.NewReader(f)
+	r.Comma = '\t'
+	r.FieldsPerRecord = -1
+	if _, err := r.Read(); err != nil { // header
+		return 0, 0
+	}
+	seen := map[string]bool{}
+	for {
+		rec, err := r.Read()
+		if err != nil {
+			break
+		}
+		if len(rec) < 1 {
+			continue
+		}
+		entries++
+		if !seen[rec[0]] {
+			seen[rec[0]] = true
+			genes++
+		}
+	}
+	return genes, entries
 }
 
 // writeProvenance writes a minimal provenance folder (final params + environment).
