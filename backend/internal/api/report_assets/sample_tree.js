@@ -105,6 +105,7 @@
         yAxes.push({
           type: 'value', min: 0, max: 1, gridIndex: gi,
           name: band.name, nameLocation: 'middle', nameGap: 12,
+          nameRotate: 0,
           nameTextStyle: { fontSize: 11, color: '#4b5563', align: 'right' },
           axisLine: { show: false }, axisTick: { show: false }, axisLabel: { show: false }, splitLine: { show: false },
         });
