@@ -206,7 +206,7 @@ export async function getEnrich(
   module: string,
   type: 'go' | 'kegg',
   fdr = 0.05,
-  top = 20,
+  top = 0,
   maxCount = 500,
 ): Promise<EnrichResult[]> {
   const res = await fetch(

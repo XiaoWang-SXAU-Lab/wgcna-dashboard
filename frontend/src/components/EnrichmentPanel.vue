@@ -18,7 +18,7 @@ const keggResults = ref<EnrichResult[]>([])
 const loading = ref(false)
 const error = ref('')
 const fdr = ref(0.05)
-const top = ref(20)
+const top = ref(0)
 const maxCountOn = ref(true)   // drop terms with gene count > 500 (default on)
 const goVersion = ref<GOVersionInfo | null>(null)
 const updatingGO = ref(false)
@@ -269,7 +269,7 @@ onMounted(() => { if (store.selectedModule) load(); checkGO(); loadSampleInfo() 
         <input type="number" class="form-control form-control-sm" style="width:80px" v-model.number="fdr" step="0.01" min="0.01" max="1" />
       </label>
       <label class="small mb-0 d-flex align-items-center gap-1">{{ t('enrich.top') }}
-        <input type="number" class="form-control form-control-sm" style="width:72px" v-model.number="top" min="5" max="100" />
+        <input type="number" class="form-control form-control-sm" style="width:72px" v-model.number="top" min="0" max="1000" title="0 = all" />
       </label>
       <label class="small mb-0 d-flex align-items-center gap-1">
         <input type="checkbox" v-model="maxCountOn" class="form-check-input me-1" />{{ t('mo.dropBroadTerms') }}

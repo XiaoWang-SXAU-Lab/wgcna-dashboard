@@ -200,9 +200,7 @@ func (h *Handler) enrich(w http.ResponseWriter, r *http.Request) {
 		fdr = 0.05
 	}
 	top := int(qfloat(r, "top"))
-	if top <= 0 {
-		top = 20
-	}
+	// top <= 0 means no limit (show all significant terms, matching the report)
 
 	jobDir := filepath.Join(h.jobs.Dir(), id)
 	genes, err := enrich.ModuleGenes(jobDir, module)
