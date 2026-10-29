@@ -793,7 +793,7 @@ func pairPanelsHTML(d reportData) string {
 		if du, ok := d.HeatmapDataURLs[key]; ok && du != "" {
 			src = du
 		}
-		b.WriteString(`<div class="col-md-6"><img src="` + src + `" alt="z-score eigengene" style="max-width:100%;border:1px solid var(--line)"></div></div>`)
+		b.WriteString(`<div class="col-md-6"><div style="resize:both;overflow:auto;max-width:100%;width:100%"><img src="` + src + `" alt="z-score eigengene" style="width:100%;display:block;border:1px solid var(--line)"></div></div></div>`)
 		b.WriteString(`</div>`)
 	}
 	b.WriteString(`<script type="application/json" id="mt-pairs-data">` + d.PairPanelsJSON + `</script>`)

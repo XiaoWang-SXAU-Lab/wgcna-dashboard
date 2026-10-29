@@ -100,6 +100,7 @@ ht <- Heatmap(
     title_position = if (legend == "bottom") "topcenter" else "lefttop-rot"
   ),
   show_heatmap_legend = show_legend,
+  rect_gp = gpar(type = "none"),
   border_gp = gpar(col = if (border == 1) "grey40" else NA),
   column_title = title,
   column_title_gp = gpar(fontsize = 15, fontface = "bold")
@@ -113,9 +114,9 @@ if (mode == "pdf") {
   png(out_path, width = width, height = height, units = "in", res = dpi, bg = "transparent")
 }
 if (legend == "bottom") {
-  draw(ht, heatmap_legend_side = "bottom")
+  draw(ht, heatmap_legend_side = "bottom", background = "transparent")
 } else {
-  draw(ht, heatmap_legend_side = "right")
+  draw(ht, heatmap_legend_side = "right", background = "transparent")
 }
 dev.off()
 cat("done:", out_path, "\n")
