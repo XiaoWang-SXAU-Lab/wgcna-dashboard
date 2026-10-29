@@ -295,6 +295,10 @@ func buildReportData(jobDir, base string, modules []string, enrichType, lang str
 	if m, err := pairPanelsData(jobDir); err == nil {
 		d.PairPanelsJSON = string(m)
 	}
+	// per-module GO/KEGG enrichment for function exploration
+	if m, err := moduleEnrichData(jobDir); err == nil {
+		d.ModuleEnrichJSON = string(m)
+	}
 
 	return d
 }
@@ -534,6 +538,39 @@ func pairPanelsData(jobDir string) ([]byte, error) {
 		out = append(out, pl)
 	}
 	return json.Marshal(out)
+}
+
+// moduleEnrichData builds the per-module enrichment payload for the
+// module-function exploration section (GO BP/MF/CC + KEGG + gene annotation).
+func moduleEnrichData(jobDir string) ([]byte, error) {
+	keys := significantModules(jobDir)
+	type modEnrich struct {
+		Module string          `json:"module"`
+		GO     []enrich.Result `json:"go"`
+		KEGG   []enrich.Result `json:"kegg"`
+	}
+	mods := make([]modEnrich, 0, len(keys))
+	anno := map[string]enrich.AnnotationRow{}
+	for _, m := range keys {
+		genes, err := enrich.ModuleGenes(jobDir, m.Module)
+		if err != nil {
+			continue
+		}
+		me := modEnrich{Module: m.Module}
+		if rows, err := enrich.GOEnrich(jobDir, genes, 0.05, 0); err == nil {
+			me.GO = rows
+		}
+		if rows, err := enrich.KEGGEnrich(jobDir, genes, 0.05, 0); err == nil {
+			me.KEGG = rows
+		}
+		mods = append(mods, me)
+		if rows, err := enrich.Annotate(jobDir, genes); err == nil {
+			for _, a := range rows {
+				anno[a.GeneID] = a
+			}
+		}
+	}
+	return json.Marshal(map[string]any{"modules": mods, "anno": anno})
 }
 
 // moduleTraitData reads the module–trait result and merges the trait source +

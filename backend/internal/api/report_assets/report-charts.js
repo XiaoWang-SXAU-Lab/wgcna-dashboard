@@ -21,6 +21,7 @@ var reportCharts = (() => {
   // src/utils/reportCharts.ts
   var reportCharts_exports = {};
   __export(reportCharts_exports, {
+    enrichBubbleOption: () => enrichBubbleOption,
     geneDendrogramOption: () => geneDendrogramOption,
     gsMmScatterOption: () => gsMmScatterOption,
     hubNetworkOption: () => hubNetworkOption,
@@ -738,6 +739,48 @@ scale R\xB2=${adj_r2.toFixed(2)}, slope=${slope.toFixed(2)}`,
         label: { show: false },
         emphasis: { focus: "adjacency", label: { show: true, fontSize: 8, color: "#334" } },
         lineStyle: { color: edgeColor, curveness: 0 }
+      }]
+    };
+  }
+  function enrichBubbleOption(results) {
+    const ratioFrac = (r) => {
+      const [k, n] = String(r).split("/").map(Number);
+      return n > 0 ? k / n : 0;
+    };
+    const sigColor = (q) => {
+      const t = q >= 0.1 ? 1 : q / 0.1;
+      return `rgb(${Math.round(255 * (1 - t))},0,${Math.round(255 * t)})`;
+    };
+    const truncate = (s) => s.length > 40 ? s.slice(0, 40) + "\u2026" : s;
+    const points = results.map((r) => ({
+      value: [ratioFrac(r.gene_ratio), r.description, r.count, r["p.adjust"]],
+      termId: r.id,
+      description: r.description,
+      genes: r.gene_id || [],
+      ontology: r.ontology || ""
+    })).sort((a, b) => a.value[0] - b.value[0]);
+    const maxCount = Math.max(1, ...points.map((p) => p.value[2]));
+    return {
+      tooltip: {
+        trigger: "item",
+        formatter: (p) => {
+          const d = p.data;
+          return `<b>${d.termId}</b><br/>${d.description}<br/>GeneRatio ${d.value[0].toFixed(3)} \xB7 Count ${d.value[2]}<br/>p.adjust ${d.value[3].toExponential(2)}`;
+        }
+      },
+      grid: { left: 220, right: 48, top: 16, bottom: 48 },
+      xAxis: { type: "value", name: "GeneRatio", min: 0, nameLocation: "middle", nameGap: 26, axisLine: { show: true, lineStyle: { color: "#9ca3af" } } },
+      yAxis: {
+        type: "category",
+        data: points.map((p) => p.description),
+        axisLabel: { fontSize: 11, margin: 14, formatter: (v) => truncate(v) },
+        axisLine: { show: true, lineStyle: { color: "#9ca3af" } }
+      },
+      series: [{
+        type: "scatter",
+        data: points,
+        symbolSize: (val) => 8 + val[2] / maxCount * 26,
+        itemStyle: { color: (p) => sigColor(p.value[3]), opacity: 0.85 }
       }]
     };
   }

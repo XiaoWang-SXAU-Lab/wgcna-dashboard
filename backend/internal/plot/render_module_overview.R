@@ -162,8 +162,8 @@ if (mode == "pdf") {
 } else if (mode == "svg") {
   svg(out_path, width = width, height = height)
 } else {
-  png(out_path, width = width, height = height, units = "in", res = dpi, bg = "white")
+  png(out_path, width = width, height = height, units = "in", res = dpi, bg = "transparent")
 }
-draw(ht)
+draw(ht, background = "transparent")
 dev.off()
 cat("done:", out_path, "\n")

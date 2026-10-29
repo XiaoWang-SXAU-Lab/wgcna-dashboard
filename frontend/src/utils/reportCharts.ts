@@ -450,6 +450,7 @@ export function hubNetworkOption(nodes: any[], edges: any[], nodeScale = 1, edge
       opacity: 0.95,
     },
     value: n.kme,
+    gs: n.gs,
     module: n.color,
     isHub: !!n.is_hub,
   }))
@@ -463,7 +464,9 @@ export function hubNetworkOption(nodes: any[], edges: any[], nodeScale = 1, edge
       formatter: (p: any) => {
         const d = p.data as any
         if (!d || p.dataType === 'edge') return ''
-        return `<b>${d.id}</b><br/>module: ${d.module}<br/>|kME|: ${d.value?.toFixed(3) ?? '—'}${d.isHub ? '<br/>hub' : ''}`
+        const kme = d.value != null ? d.value.toFixed(3) : '—'
+        const gs = d.gs != null ? d.gs.toFixed(3) : '—'
+        return `<b>${d.id}</b><br/>module: ${d.module}<br/>|kME|: ${kme}<br/>|GS|: ${gs}${d.isHub ? '<br/>hub' : ''}`
       },
     },
     series: [{
@@ -477,6 +480,52 @@ export function hubNetworkOption(nodes: any[], edges: any[], nodeScale = 1, edge
       label: { show: false },
       emphasis: { focus: 'adjacency', label: { show: true, fontSize: 8, color: '#334' } },
       lineStyle: { color: edgeColor, curveness: 0 },
+    }],
+  }
+}
+
+// ---- Enrichment bubble chart (GO/KEGG dotplot) ----
+export function enrichBubbleOption(results: any[]): EChartsOption {
+  const ratioFrac = (r: string) => {
+    const [k, n] = String(r).split('/').map(Number)
+    return n > 0 ? k / n : 0
+  }
+  const sigColor = (q: number) => {
+    const t = q >= 0.1 ? 1 : q / 0.1
+    return `rgb(${Math.round(255 * (1 - t))},0,${Math.round(255 * t)})`
+  }
+  const truncate = (s: string) => (s.length > 40 ? s.slice(0, 40) + '…' : s)
+  const points = results
+    .map((r) => ({
+      value: [ratioFrac(r.gene_ratio), r.description, r.count, r['p.adjust']] as [number, string, number, number],
+      termId: r.id,
+      description: r.description,
+      genes: r.gene_id || [],
+      ontology: r.ontology || '',
+    }))
+    .sort((a, b) => a.value[0] - b.value[0])
+  const maxCount = Math.max(1, ...points.map((p) => p.value[2]))
+  return {
+    tooltip: {
+      trigger: 'item',
+      formatter: (p: any) => {
+        const d = p.data as any
+        return `<b>${d.termId}</b><br/>${d.description}<br/>GeneRatio ${d.value[0].toFixed(3)} · Count ${d.value[2]}<br/>p.adjust ${d.value[3].toExponential(2)}`
+      },
+    },
+    grid: { left: 220, right: 48, top: 16, bottom: 48 },
+    xAxis: { type: 'value', name: 'GeneRatio', min: 0, nameLocation: 'middle', nameGap: 26, axisLine: { show: true, lineStyle: { color: '#9ca3af' } } },
+    yAxis: {
+      type: 'category',
+      data: points.map((p) => p.description),
+      axisLabel: { fontSize: 11, margin: 14, formatter: (v: string) => truncate(v) },
+      axisLine: { show: true, lineStyle: { color: '#9ca3af' } },
+    },
+    series: [{
+      type: 'scatter',
+      data: points,
+      symbolSize: (val: number[]) => 8 + (val[2] / maxCount) * 26,
+      itemStyle: { color: (p: any) => sigColor(p.value[3]), opacity: 0.85 },
     }],
   }
 }

@@ -56,6 +56,7 @@ type reportData struct {
 	ModuleTraitJSON string // raw module-trait data (modules/traits/cor/p/eigengenes/genes/kme + trait_source/column)
 	PairPanelsJSON  string // significant module–trait pairs with genes/MM/GS for the tab panels
 	HeatmapDataURLs map[string]string // key "module_trait" -> base64 data URL for the z-score heatmap
+	ModuleEnrichJSON string // per-module GO/KEGG enrichment + gene annotation for function exploration
 
 	// input-file summary (project introduction)
 	RawSamples     int
@@ -101,7 +102,7 @@ func generateReportHTML(d reportData) string {
 		d.L("软阈值筛选", "Soft-threshold selection"),
 		d.L("网络构建与模块划分", "Network construction & modules"),
 		d.L("模块-性状", "Module–trait"),
-		d.L("后续章节", "Further sections"),
+		d.L("模块总览", "Module overview"),
 	}
 	b.WriteString(`<aside class="rail"><a class="brand">rs<em>WGCNA</em><span style="font-size:10px;letter-spacing:0;margin-left:8px">REPORT</span></a><div class="eyebrow">` + d.L("分析记录", "Analysis record") + `</div><nav>`)
 	for i, n := range nav {
@@ -242,6 +243,7 @@ func generateReportHTML(d reportData) string {
 		b.WriteString(significantCorrHTML(d))
 		b.WriteString(pairPanelsHTML(d))
 		b.WriteString(mmTableHTML(d))
+		b.WriteString(moduleEnrichHTML(d))
 		b.WriteString(`</section>`)
 	} else {
 		b.WriteString(stepHead(d, 5, nav[4], d.L("模块-性状。", "Module–trait.")))
@@ -249,9 +251,9 @@ func generateReportHTML(d reportData) string {
 		b.WriteString(`</section>`)
 	}
 
-	// ---- placeholder ----
-	b.WriteString(stepHead(d, 6, nav[5], d.L("后续章节（模块解析、Hub 基因等）将陆续补充。", "Further sections (module analysis, Hub genes, …) will be added.")))
-	b.WriteString(`<p class="step-intro">` + d.L("此处留白，等待后续章节。", "Placeholder for upcoming sections.") + `</p>`)
+	// ---- step 6: 模块总览 ----
+	b.WriteString(stepHead(d, 6, nav[5], d.L("所有模块的表达趋势、热图与功能富集总览；用 ALL/MF/BP/CC/KEGG 切换富集视角。", "Expression trends, heatmap and enrichment overview for all modules; switch the enrichment view with ALL/MF/BP/CC/KEGG.")))
+	b.WriteString(moduleOverviewHTML(d))
 	b.WriteString(`</section>`)
 
 	// ---- inline chart init (calls the shared reportCharts bundle) ----
@@ -809,6 +811,83 @@ func pairPanelsHTML(d reportData) string {
 		`</div>`)
 	b.WriteString(`<script type="application/json" id="mt-pairs-data">` + d.PairPanelsJSON + `</script>`)
 	b.WriteString(`<script>(function(){var el=document.getElementById('mt-pairs-data');if(!el)return;var pairs=JSON.parse(el.textContent);var charts=[],hubs=[];function hubOpt(p,ns,ew,ec){return reportCharts.hubNetworkOption(p.hub&&p.hub.nodes||[],p.hub&&p.hub.edges||[],ns,ew,ec)}var initialized={};function initPanel(i){if(initialized[i])return;initialized[i]=true;var p=pairs[i];var c=document.getElementById('gsmm-'+i);if(c){var ch=echarts.init(c);ch.setOption(reportCharts.gsMmScatterOption(p.mm,p.gs,p.genes,p.module,p.trait,'` + d.L("GS vs MM", "GS vs MM") + `'));charts[i]=ch}var h=document.getElementById('hubnet-'+i);if(h&&p.hub){var hc=echarts.init(h);hc.setOption(hubOpt(p,1,1,'#9aa5b1'));hubs[i]=hc}}initPanel(0);window.addEventListener('resize',function(){charts.forEach(function(ch){if(ch)ch.resize()});hubs.forEach(function(hc){if(hc)hc.resize()})});var tabs=document.querySelectorAll('#mt-tabs .mt-tab');var activeIdx=0;tabs.forEach(function(t){t.onclick=function(){var idx=t.getAttribute('data-idx');activeIdx=+idx;tabs.forEach(function(x){x.classList.remove('active')});t.classList.add('active');document.querySelectorAll('.mt-panel').forEach(function(pan){pan.style.display=pan.getAttribute('data-idx')===idx?'':'none'});initPanel(+idx);if(charts[+idx])charts[+idx].resize();if(hubs[+idx])hubs[+idx].resize()}});var nodeEl=document.getElementById('hub-node'),edgeEl=document.getElementById('hub-edge'),colorEl=document.getElementById('hub-color'),relayoutEl=document.getElementById('hub-relayout');function refreshHub(){var hc=hubs[activeIdx];if(!hc)return;var p=pairs[activeIdx];hc.setOption(hubOpt(p,+nodeEl.value,+edgeEl.value,colorEl.value),true)}if(nodeEl){nodeEl.oninput=refreshHub;edgeEl.oninput=refreshHub;colorEl.oninput=refreshHub;relayoutEl.onclick=function(){var hc=hubs[activeIdx];if(hc){var p=pairs[activeIdx];hc.setOption(hubOpt(p,+nodeEl.value,+edgeEl.value,colorEl.value))}};var zoomInEl=document.getElementById('hub-zoom-in'),zoomOutEl=document.getElementById('hub-zoom-out'),fitEl=document.getElementById('hub-fit');if(zoomInEl){zoomInEl.onclick=function(){var hc=hubs[activeIdx];if(hc)hc.dispatchAction({type:'graphRoam',zoom:1.25})}}if(zoomOutEl){zoomOutEl.onclick=function(){var hc=hubs[activeIdx];if(hc)hc.dispatchAction({type:'graphRoam',zoom:0.8})}}if(fitEl){fitEl.onclick=function(){var hc=hubs[activeIdx];if(hc)hc.dispatchAction({type:'restore'})}}}})();</script>`)
+	return b.String()
+}
+
+// moduleEnrichHTML renders the module-function exploration section: per-module
+// tabs with GO (BP/MF/CC) + KEGG enrichment (bubble chart + table) and the
+// gene annotation table for the selected term.
+func moduleEnrichHTML(d reportData) string {
+	var payload struct {
+		Modules []struct {
+			Module string `json:"module"`
+		} `json:"modules"`
+	}
+	if json.Unmarshal([]byte(d.ModuleEnrichJSON), &payload) != nil || len(payload.Modules) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<h3>` + d.L("模块功能探究", "Module function exploration") + `</h3>`)
+	b.WriteString(`<div class="me-tabs" id="me-tabs">`)
+	for i, m := range payload.Modules {
+		active := ""
+		if i == 0 {
+			active = " active"
+		}
+		b.WriteString(`<button type="button" class="me-tab` + active + `" data-idx="` + fmtInt(i) + `">` + html.EscapeString(m.Module) + `</button>`)
+	}
+	b.WriteString(`</div>`)
+	b.WriteString(`<div class="me-subtabs" id="me-subtabs">`)
+	for i, k := range []string{"ALL", "MF", "BP", "CC", "KEGG"} {
+		active := ""
+		if i == 0 {
+			active = " active"
+		}
+		b.WriteString(`<button type="button" class="me-subtab` + active + `" data-kind="` + k + `">` + k + `</button>`)
+	}
+	b.WriteString(`</div>`)
+	b.WriteString(`<div class="row g-3" style="margin-top:12px">` +
+		`<div class="col-md-7"><div id="me-bubble" style="height:460px;border:1px solid var(--line);border-radius:4px"></div></div>` +
+		`<div class="col-md-5"><div id="me-table" style="max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:4px"></div></div>` +
+		`</div><div id="me-anno" style="margin-top:16px"></div>`)
+	b.WriteString(`<script type="application/json" id="me-data">` + d.ModuleEnrichJSON + `</script>`)
+	b.WriteString(`<script>(function(){var el=document.getElementById('me-data');if(!el)return;var data=JSON.parse(el.textContent);var mods=data.modules||[],anno=data.anno||{};if(!mods.length)return;var activeMod=0,activeKind='ALL',bubble=null;function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}function rowsFor(m,k){if(k==='KEGG')return m.kegg||[];var go=m.go||[];if(k==='ALL')return go;return go.filter(function(r){return r.ontology===k})}function renderTable(rows){var t=document.getElementById('me-table');if(!rows.length){t.innerHTML='<div class="notice" style="padding:12px">No significant enrichment terms.</div>';return}var h='<table style="white-space:nowrap"><thead><tr><th>ID</th><th>Description</th><th>GeneRatio</th><th>BgRatio</th><th>p.adjust</th><th>Count</th></tr></thead><tbody>';rows.forEach(function(r){h+='<tr class="me-term"><td>'+esc(r.id)+'</td><td>'+esc(r.description)+'</td><td>'+esc(r.gene_ratio)+'</td><td>'+esc(r.bg_ratio)+'</td><td>'+r['p.adjust'].toExponential(2)+'</td><td>'+r.count+'</td></tr>'});h+='</tbody></table>';t.innerHTML=h;var trs=t.querySelectorAll('tr.me-term');rows.forEach(function(r,i){trs[i].onclick=function(){renderAnno(r.id,r.description,r.gene_id)}})}function renderAnno(id,desc,genes){var w=document.getElementById('me-anno');if(!id){w.innerHTML='';return}var h='<h4>'+esc(id)+' · '+esc(desc)+'</h4>';genes=genes||[];if(!genes.length){h+='<div class="notice">No genes associated with this term.</div>'}else{h+='<div style="max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:4px"><table style="white-space:nowrap"><thead><tr><th>Gene ID</th><th>Gene name</th><th>Symbol</th><th>Description</th></tr></thead><tbody>';genes.forEach(function(g){var a=anno[g]||{};h+='<tr><td>'+esc(a.gene_id||g)+'</td><td>'+esc(a.gene_name||'')+'</td><td>'+esc(a.symbol||'')+'</td><td>'+esc(a.description||'')+'</td></tr>'});h+='</tbody></table></div>'}w.innerHTML=h}function render(){var m=mods[activeMod];var rows=rowsFor(m,activeKind);if(bubble)bubble.dispose();bubble=echarts.init(document.getElementById('me-bubble'));bubble.setOption(reportCharts.enrichBubbleOption(rows));bubble.on('click',function(p){renderAnno(p.data.termId,p.data.description,p.data.genes)});renderTable(rows);renderAnno(null,null,null)}var mt=document.querySelectorAll('#me-tabs .me-tab');mt.forEach(function(t){t.onclick=function(){activeMod=+t.getAttribute('data-idx');mt.forEach(function(x){x.classList.remove('active')});t.classList.add('active');render()}});var st=document.querySelectorAll('#me-subtabs .me-subtab');st.forEach(function(t){t.onclick=function(){activeKind=t.getAttribute('data-kind');st.forEach(function(x){x.classList.remove('active')});t.classList.add('active');render()}});render();window.addEventListener('resize',function(){if(bubble)bubble.resize()})})();</script>`)
+	return b.String()
+}
+
+// moduleOverviewHTML renders the module-overview section: ALL/MF/BP/CC/KEGG
+// tabs switch the module overview figure and the clustering overview figure
+// (eigengene + z-score heatmap + enrichment), each resizable.
+func moduleOverviewHTML(d reportData) string {
+	var b strings.Builder
+	b.WriteString(overviewTabGroupHTML("module_overview", "module_overview_"))
+	b.WriteString(`<h3>` + d.L("聚类对照", "Clustering comparison") + `</h3>`)
+	b.WriteString(`<p>` + d.L("独立于 WGCNA 模块的聚类（KMeans / 模糊 c-means）总览，用于对照表达分组。", "Overview of clustering (KMeans / fuzzy c-means) independent of WGCNA modules, for comparison of expression groups.") + `</p>`)
+	b.WriteString(overviewTabGroupHTML("cluster_overview", "08_clustering/cluster_overview_"))
+	b.WriteString(`<script>(function(){document.querySelectorAll('.ov-tab').forEach(function(t){t.onclick=function(){var g=t.getAttribute('data-group'),k=t.getAttribute('data-kind');document.querySelectorAll('.ov-tab[data-group="'+g+'"]').forEach(function(x){x.classList.remove('active')});t.classList.add('active');document.querySelectorAll('.ov-panel[data-group="'+g+'"]').forEach(function(p){p.style.display=p.getAttribute('data-kind')===k?'':'none'})}})})();</script>`)
+	return b.String()
+}
+
+// overviewTabGroupHTML renders the ALL/MF/BP/CC/KEGG tab row plus one resizable
+// panel per kind (a draggable container around a lazy-loaded overview PNG).
+func overviewTabGroupHTML(group, srcPrefix string) string {
+	var b strings.Builder
+	b.WriteString(`<div class="ov-tabs">`)
+	for i, k := range []string{"ALL", "MF", "BP", "CC", "KEGG"} {
+		active := ""
+		if i == 0 {
+			active = " active"
+		}
+		b.WriteString(`<button type="button" class="ov-tab` + active + `" data-group="` + group + `" data-kind="` + k + `">` + k + `</button>`)
+	}
+	b.WriteString(`</div>`)
+	for i, k := range []string{"ALL", "MF", "BP", "CC", "KEGG"} {
+		style := ` style="display:none"`
+		if i == 0 {
+			style = ""
+		}
+		b.WriteString(`<div class="ov-panel" data-group="` + group + `" data-kind="` + k + `"` + style + `><div style="resize:both;overflow:auto;max-width:100%;width:100%"><img src="../result/` + srcPrefix + k + `.png" alt="overview" loading="lazy" style="width:100%;display:block;border:1px solid var(--line)"></div></div>`)
+	}
 	return b.String()
 }
 

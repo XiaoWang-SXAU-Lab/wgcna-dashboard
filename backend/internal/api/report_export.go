@@ -196,17 +196,30 @@ func (h *Handler) doReportExport(id, base, enrichType, lang string, st *reportSt
 		st.Done = append(st.Done, m)
 		reportMu.Unlock()
 	}
-	update(label.L("正在生成总览、网络和聚类图…", "Rendering overview, network and clustering…"))
-	if data, err := overviewData(snapshot, enrichType, "", 500, 0.05, 5); err != nil {
-		warn("module_overview", err)
-	} else {
-		save("module_overview.png", rendered(plot.RenderModuleOverview(data, "png", plot.PlotParams{Width: 18, Height: 13})))
+	update(label.L("正在生成总览和聚类图…", "Rendering overview and clustering…"))
+	overviewKinds := []struct{ name, enrichType, ontology string }{
+		{"ALL", "go", ""},
+		{"MF", "go", "MF"},
+		{"BP", "go", "BP"},
+		{"CC", "go", "CC"},
+		{"KEGG", "kegg", ""},
+	}
+	for _, k := range overviewKinds {
+		data, err := overviewData(snapshot, k.enrichType, k.ontology, 500, 0.05, 5)
+		if err != nil {
+			warn("module_overview_"+k.name, err)
+			continue
+		}
+		save("module_overview_"+k.name+".png", rendered(plot.RenderModuleOverview(data, "png", plot.PlotParams{Width: 18, Height: 13, Dpi: 300})))
 	}
 	if _, err := os.Stat(filepath.Join(snapshot, "overview_clusters.json")); err == nil {
-		if data, err := clusterOverviewData(snapshot, enrichType, "", 500, 0.05, 5); err != nil {
-			warn("cluster_overview", err)
-		} else {
-			save("08_clustering/cluster_overview.png", rendered(plot.RenderModuleOverview(data, "png", plot.PlotParams{Width: 18, Height: 13})))
+		for _, k := range overviewKinds {
+			data, err := clusterOverviewData(snapshot, k.enrichType, k.ontology, 500, 0.05, 5)
+			if err != nil {
+				warn("cluster_overview_"+k.name, err)
+				continue
+			}
+			save("08_clustering/cluster_overview_"+k.name+".png", rendered(plot.RenderModuleOverview(data, "png", plot.PlotParams{Width: 18, Height: 13, Dpi: 300})))
 		}
 	}
 	// render z-score + eigengene heatmap per significant pair
