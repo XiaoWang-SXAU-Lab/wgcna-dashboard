@@ -708,6 +708,7 @@ scale R\xB2=${adj_r2.toFixed(2)}, slope=${slope.toFixed(2)}`,
         opacity: 0.95
       },
       value: n.kme,
+      gs: n.gs,
       module: n.color,
       isHub: !!n.is_hub
     }));
@@ -719,10 +720,11 @@ scale R\xB2=${adj_r2.toFixed(2)}, slope=${slope.toFixed(2)}`,
     return {
       tooltip: {
         formatter: (p) => {
-          var _a, _b;
           const d = p.data;
           if (!d || p.dataType === "edge") return "";
-          return `<b>${d.id}</b><br/>module: ${d.module}<br/>|kME|: ${(_b = (_a = d.value) == null ? void 0 : _a.toFixed(3)) != null ? _b : "\u2014"}${d.isHub ? "<br/>hub" : ""}`;
+          const kme = d.value != null ? d.value.toFixed(3) : "\u2014";
+          const gs = d.gs != null ? d.gs.toFixed(3) : "\u2014";
+          return `<b>${d.id}</b><br/>module: ${d.module}<br/>|kME|: ${kme}<br/>|GS|: ${gs}${d.isHub ? "<br/>hub" : ""}`;
         }
       },
       series: [{

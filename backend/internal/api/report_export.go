@@ -114,7 +114,7 @@ func (h *Handler) doReportExport(id, base, enrichType, lang string, st *reportSt
 			return
 		}
 	}
-	for _, file := range []string{"step1_filter.json", "step2_sft.json", "step4_mtrait.json", "step5_detail.json", "step6_hub.json", "trait.tsv", "sample_info.tsv", "annotation.tsv", "gene2go.tsv", "gene2kegg.tsv", "overview_clusters.json", "overview_elbow.json"} {
+	for _, file := range []string{"expr.tsv", "step1_filter.json", "step2_sft.json", "step4_mtrait.json", "step5_detail.json", "step6_hub.json", "trait.tsv", "sample_info.tsv", "annotation.tsv", "gene2go.tsv", "gene2kegg.tsv", "overview_clusters.json", "overview_elbow.json"} {
 		if _, err := os.Stat(filepath.Join(jobDir, file)); err == nil {
 			if err := checkedCopy(filepath.Join(jobDir, file), filepath.Join(snapshot, file)); err != nil {
 				fail(err)

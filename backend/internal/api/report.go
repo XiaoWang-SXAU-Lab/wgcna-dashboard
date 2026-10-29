@@ -802,15 +802,17 @@ func hubNetworkData(jobDir, module string) ([]byte, error) {
 		scored = append(scored, sc{g, mm * gs, mm, gs})
 	}
 	sort.Slice(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
+	gsByGene := map[string]float64{}
+	for _, s := range scored {
+		gsByGene[s.gene] = s.gs
+	}
 	const maxHubs = 20
 	if len(scored) > maxHubs {
 		scored = scored[:maxHubs]
 	}
 	hubSet := map[string]bool{}
-	gsByGene := map[string]float64{}
 	for _, s := range scored {
 		hubSet[s.gene] = true
-		gsByGene[s.gene] = s.gs
 	}
 
 	idx, err := getNetworkIndex(jobDir)
