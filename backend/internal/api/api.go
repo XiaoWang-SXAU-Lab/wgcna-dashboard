@@ -855,19 +855,18 @@ func prepareGeneHeatmapJSON(jobDir, detailPath string, annCols []string) (string
 
 	meta, colOrder := readSampleMeta(jobDir)
 	ann := buildSampleAnnotations(samples, meta, colOrder)
-	if len(annCols) > 0 {
-		keep := map[string]bool{}
-		for _, c := range annCols {
-			keep[c] = true
-		}
-		var filtered []map[string]any
-		for _, a := range ann {
-			if name, ok := a["name"].(string); ok && keep[name] {
-				filtered = append(filtered, a)
-			}
-		}
-		ann = filtered
+	// Always filter by the explicitly selected columns (empty = no annotations).
+	keep := map[string]bool{}
+	for _, c := range annCols {
+		keep[c] = true
 	}
+	var filtered []map[string]any
+	for _, a := range ann {
+		if name, ok := a["name"].(string); ok && keep[name] {
+			filtered = append(filtered, a)
+		}
+	}
+	ann = filtered
 
 	var out map[string]any
 	if err := json.Unmarshal(b, &out); err != nil {

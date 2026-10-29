@@ -22,6 +22,7 @@ var reportCharts = (() => {
   var reportCharts_exports = {};
   __export(reportCharts_exports, {
     geneDendrogramOption: () => geneDendrogramOption,
+    gsMmScatterOption: () => gsMmScatterOption,
     meanConnectivityOption: () => meanConnectivityOption,
     moduleTraitHeatmapOption: () => moduleTraitHeatmapOption,
     sampleTreeOption: () => sampleTreeOption,
@@ -125,6 +126,131 @@ var reportCharts = (() => {
   function moduleColor(name) {
     var _a;
     return (_a = MODULE_COLORS[name]) != null ? _a : "#cccccc";
+  }
+
+  // src/utils/stats.ts
+  function pearson(a, b) {
+    const n = a.length;
+    if (n < 2) return NaN;
+    let ma = 0;
+    let mb = 0;
+    for (let i = 0; i < n; i++) {
+      ma += a[i];
+      mb += b[i];
+    }
+    ma /= n;
+    mb /= n;
+    let sxx = 0;
+    let syy = 0;
+    let sxy = 0;
+    for (let i = 0; i < n; i++) {
+      const da = a[i] - ma;
+      const db = b[i] - mb;
+      sxx += da * da;
+      syy += db * db;
+      sxy += da * db;
+    }
+    const den = Math.sqrt(sxx * syy);
+    return den === 0 ? NaN : sxy / den;
+  }
+  function linearRegression(xs, ys) {
+    const n = xs.length;
+    if (n === 0) return { slope: 0, intercept: 0 };
+    let mx = 0;
+    let my = 0;
+    for (let i = 0; i < n; i++) {
+      mx += xs[i];
+      my += ys[i];
+    }
+    mx /= n;
+    my /= n;
+    let sxx = 0;
+    let sxy = 0;
+    for (let i = 0; i < n; i++) {
+      const dx = xs[i] - mx;
+      sxx += dx * dx;
+      sxy += dx * (ys[i] - my);
+    }
+    const slope = sxx === 0 ? 0 : sxy / sxx;
+    return { slope, intercept: my - slope * mx };
+  }
+  function corPvalueStudent(r, n) {
+    if (n <= 2 || !Number.isFinite(r) || Math.abs(r) >= 1) {
+      return Math.abs(r) >= 1 ? 0 : NaN;
+    }
+    const df = n - 2;
+    const t = r * Math.sqrt(df / (1 - r * r));
+    return 2 * studentTCdf(-Math.abs(t), df);
+  }
+  function tCritical(alpha, df) {
+    if (df < 1) return NaN;
+    const p = 1 - alpha / 2;
+    let lo = 0;
+    let hi = 100;
+    for (let i = 0; i < 100; i++) {
+      const mid = (lo + hi) / 2;
+      if (studentTCdf(mid, df) < p) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+  function studentTCdf(t, df) {
+    const x = df / (df + t * t);
+    const ib = betai(df / 2, 0.5, x);
+    return t < 0 ? 0.5 * ib : 1 - 0.5 * ib;
+  }
+  function betai(a, b, x) {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    const bt = Math.exp(lnGamma(a + b) - lnGamma(a) - lnGamma(b) + a * Math.log(x) + b * Math.log(1 - x));
+    const fpmin = 1e-300;
+    const qab = a + b;
+    const qap = a + 1;
+    const qam = a - 1;
+    let c = 1;
+    let d = 1 - qab * x / qap;
+    if (Math.abs(d) < fpmin) d = fpmin;
+    d = 1 / d;
+    let h = d;
+    for (let m = 1; m <= 200; m++) {
+      const m2 = 2 * m;
+      let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+      d = 1 + aa * d;
+      if (Math.abs(d) < fpmin) d = fpmin;
+      c = 1 + aa / c;
+      if (Math.abs(c) < fpmin) c = fpmin;
+      d = 1 / d;
+      h *= d * c;
+      aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+      d = 1 + aa * d;
+      if (Math.abs(d) < fpmin) d = fpmin;
+      c = 1 + aa / c;
+      if (Math.abs(c) < fpmin) c = fpmin;
+      d = 1 / d;
+      const del = d * c;
+      h *= del;
+      if (Math.abs(del - 1) < 1e-15) break;
+    }
+    return bt * h / a;
+  }
+  function lnGamma(x) {
+    if (x < 0.5) {
+      return Math.log(Math.PI / Math.sin(Math.PI * x)) - lnGamma(1 - x);
+    }
+    const cof = [
+      76.18009172947146,
+      -86.50532032941678,
+      24.01409824083091,
+      -1.231739572450155,
+      0.001208650973866179,
+      -5395239384953e-18
+    ];
+    const xx = x - 1;
+    let tmp = xx + 5.5;
+    tmp -= (xx + 0.5) * Math.log(tmp);
+    let ser = 1.000000000190015;
+    for (let i = 0; i < cof.length; i++) ser += cof[i] / (xx + i + 1);
+    return -tmp + Math.log(2.5066282746310007 * ser);
   }
 
   // src/utils/reportCharts.ts
@@ -490,6 +616,82 @@ scale R\xB2=${adj_r2.toFixed(2)}, slope=${slope.toFixed(2)}`,
           itemStyle: { borderColor: "#333", borderWidth: 0.6 },
           emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,0.4)" } }
         }
+      ]
+    };
+  }
+  function gsMmScatterOption(mm, gs, genes, moduleName, trait, title, downloadTitle = "Download PNG") {
+    const xs = mm.map((m) => Math.abs(m));
+    const ys = gs.map((g) => Math.abs(g));
+    const points = xs.map((x, i) => [x, ys[i]]);
+    const cor = pearson(xs, ys);
+    const p = corPvalueStudent(cor, xs.length);
+    const corText = Number.isFinite(cor) ? cor.toFixed(3) : "NA";
+    const pText = Number.isFinite(p) ? p < 1e-3 ? p.toExponential(1) : p.toFixed(4) : "NA";
+    const { slope, intercept } = linearRegression(xs, ys);
+    const xmin = Math.min(...xs);
+    const xmax = Math.max(...xs);
+    const line = [[xmin, slope * xmin + intercept], [xmax, slope * xmax + intercept]];
+    const n = xs.length;
+    const xMean = xs.reduce((a, b) => a + b, 0) / n;
+    const sxx = xs.reduce((s, x) => s + (x - xMean) ** 2, 0) || 1;
+    const s2 = xs.reduce((s, x, i) => s + (ys[i] - (slope * x + intercept)) ** 2, 0) / Math.max(n - 2, 1);
+    const tCrit = tCritical(0.05, n - 2);
+    const se = (x) => Math.sqrt(s2 * (1 / n + (x - xMean) ** 2 / sxx));
+    const N = 50;
+    const ciX = Array.from({ length: N }, (_, i) => xmin + (xmax - xmin) * i / (N - 1));
+    const ciBand = [];
+    for (let i = 0; i < N; i++) {
+      const x = ciX[i];
+      ciBand.push([x, slope * x + intercept - tCrit * se(x)]);
+    }
+    for (let i = N - 1; i >= 0; i--) {
+      const x = ciX[i];
+      ciBand.push([x, slope * x + intercept + tCrit * se(x)]);
+    }
+    return {
+      title: {
+        text: title + "\uFF08" + moduleName + " / " + trait + "\uFF09",
+        subtext: "cor = " + corText + "\u3000p = " + pText,
+        left: "center",
+        textStyle: { fontSize: 14 },
+        subtextStyle: { fontSize: 12, color: "#6b7280" }
+      },
+      tooltip: {
+        trigger: "item",
+        formatter: (params) => {
+          var _a, _b, _c;
+          const i = params.dataIndex;
+          const gene = (_a = genes[i]) != null ? _a : "";
+          const mmv = Math.abs((_b = mm[i]) != null ? _b : 0);
+          const gsv = Math.abs((_c = gs[i]) != null ? _c : 0);
+          return gene + "<br/>|MM| = " + mmv.toFixed(4) + "<br/>|GS| = " + gsv.toFixed(4);
+        }
+      },
+      xAxis: { type: "value", name: "Module Membership (|MM|)", nameLocation: "middle", nameGap: 32, min: 0 },
+      yAxis: { type: "value", name: "Gene Significance (|GS|)", nameLocation: "middle", nameRotate: 90, nameGap: 55 },
+      toolbox: { right: 10, top: 10, feature: { saveAsImage: { title: downloadTitle, name: "gs_mm_scatter", pixelRatio: 2, backgroundColor: "#ffffff" } } },
+      series: [
+        {
+          type: "scatter",
+          data: points,
+          symbolSize: 8,
+          itemStyle: { color: moduleColor(moduleName), opacity: 0.6 }
+        },
+        {
+          type: "custom",
+          z: 1,
+          silent: true,
+          data: [0],
+          renderItem: (params, api) => {
+            const pts = ciBand.map(([x, y]) => api.coord([x, y]));
+            return {
+              type: "polygon",
+              shape: { points: pts },
+              style: { fill: "rgba(128,128,128,0.28)", stroke: "rgba(128,128,128,0.5)", lineWidth: 1 }
+            };
+          }
+        },
+        { type: "line", data: line, lineStyle: { color: "#e11d48", width: 2 }, symbol: "none", silent: true, z: 10 }
       ]
     };
   }

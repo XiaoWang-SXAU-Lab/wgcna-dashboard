@@ -8,6 +8,7 @@ import type { EChartsOption } from 'echarts'
 import type { Dendrogram, FitIndex, ScaleFreeCheck } from '../api/client'
 import { layoutDendrogram } from './dendrogramLayout'
 import { moduleColor } from './colors'
+import { pearson, linearRegression, corPvalueStudent, tCritical } from './stats'
 
 export interface CategoryBand {
   name: string
@@ -358,6 +359,80 @@ export function moduleTraitHeatmapOption(
         itemStyle: { borderColor: '#333', borderWidth: 0.6 },
         emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.4)' } },
       },
+    ],
+  }
+}
+
+// ---- GS vs MM scatter (dynamic) ----
+export function gsMmScatterOption(mm: number[], gs: number[], genes: string[], moduleName: string, trait: string, title: string, downloadTitle = 'Download PNG'): EChartsOption {
+  const xs = mm.map((m) => Math.abs(m))
+  const ys = gs.map((g) => Math.abs(g))
+  const points = xs.map((x, i) => [x, ys[i]])
+
+  const cor = pearson(xs, ys)
+  const p = corPvalueStudent(cor, xs.length)
+  const corText = Number.isFinite(cor) ? cor.toFixed(3) : 'NA'
+  const pText = Number.isFinite(p) ? (p < 0.001 ? p.toExponential(1) : p.toFixed(4)) : 'NA'
+
+  const { slope, intercept } = linearRegression(xs, ys)
+  const xmin = Math.min(...xs)
+  const xmax = Math.max(...xs)
+  const line = [[xmin, slope * xmin + intercept], [xmax, slope * xmax + intercept]]
+
+  const n = xs.length
+  const xMean = xs.reduce((a, b) => a + b, 0) / n
+  const sxx = xs.reduce((s, x) => s + (x - xMean) ** 2, 0) || 1
+  const s2 = xs.reduce((s, x, i) => s + (ys[i] - (slope * x + intercept)) ** 2, 0) / Math.max(n - 2, 1)
+  const tCrit = tCritical(0.05, n - 2)
+  const se = (x: number) => Math.sqrt(s2 * (1 / n + (x - xMean) ** 2 / sxx))
+  const N = 50
+  const ciX = Array.from({ length: N }, (_, i) => xmin + ((xmax - xmin) * i) / (N - 1))
+  const ciBand: [number, number][] = []
+  for (let i = 0; i < N; i++) {
+    const x = ciX[i]
+    ciBand.push([x, slope * x + intercept - tCrit * se(x)])
+  }
+  for (let i = N - 1; i >= 0; i--) {
+    const x = ciX[i]
+    ciBand.push([x, slope * x + intercept + tCrit * se(x)])
+  }
+
+  return {
+    title: {
+      text: title + '（' + moduleName + ' / ' + trait + '）',
+      subtext: 'cor = ' + corText + '　p = ' + pText,
+      left: 'center', textStyle: { fontSize: 14 }, subtextStyle: { fontSize: 12, color: '#6b7280' },
+    },
+    tooltip: {
+      trigger: 'item',
+      formatter: (params: any) => {
+        const i = params.dataIndex as number
+        const gene = genes[i] ?? ''
+        const mmv = Math.abs(mm[i] ?? 0)
+        const gsv = Math.abs(gs[i] ?? 0)
+        return gene + '<br/>|MM| = ' + mmv.toFixed(4) + '<br/>|GS| = ' + gsv.toFixed(4)
+      },
+    },
+    xAxis: { type: 'value', name: 'Module Membership (|MM|)', nameLocation: 'middle', nameGap: 32, min: 0 },
+    yAxis: { type: 'value', name: 'Gene Significance (|GS|)', nameLocation: 'middle', nameRotate: 90, nameGap: 55 },
+    toolbox: { right: 10, top: 10, feature: { saveAsImage: { title: downloadTitle, name: 'gs_mm_scatter', pixelRatio: 2, backgroundColor: '#ffffff' } } },
+    series: [
+      {
+        type: 'scatter', data: points, symbolSize: 8,
+        itemStyle: { color: moduleColor(moduleName), opacity: 0.6 },
+      },
+      {
+        type: 'custom', z: 1, silent: true, data: [0],
+        renderItem: (params: any, api: any) => {
+          const pts = ciBand.map(([x, y]) => api.coord([x, y]))
+          return {
+            type: 'polygon',
+            shape: { points: pts },
+            style: { fill: 'rgba(128,128,128,0.28)', stroke: 'rgba(128,128,128,0.5)', lineWidth: 1 },
+          }
+        },
+      },
+      { type: 'line', data: line, lineStyle: { color: '#e11d48', width: 2 }, symbol: 'none', silent: true, z: 10 },
     ],
   }
 }
