@@ -28,7 +28,7 @@ const nav = [
     <div class="container-fluid flex-nowrap">
       <router-link class="navbar-brand fw-bold d-flex align-items-center gap-2 me-3" to="/">
         <img src="/rsWGCNA_icon.svg" alt="rsWGCNA" width="30" height="30" />
-        <span>rsWGCNA</span><small class="text-muted fw-normal ms-1">v0.5.0</small>
+        <span>rsWGCNA</span><small class="text-muted fw-normal ms-1">v0.6.0</small>
       </router-link>
       <ul class="navbar-nav flex-row flex-nowrap overflow-auto">
         <li v-for="n in nav" :key="n.to" class="nav-item">
@@ -37,9 +37,17 @@ const nav = [
           </router-link>
         </li>
       </ul>
-      <button class="btn btn-sm btn-outline-secondary ms-auto text-nowrap" @click="toggleLocale()">
+      <div class="d-flex align-items-center gap-2 ms-auto flex-shrink-0">
+        <a class="navbar-contact" href="https://github.com/XiaoWang-SXAU-Lab/wgcna-dashboard" target="_blank" rel="noopener noreferrer" :title="locale === 'en' ? 'Project on GitHub' : '项目 GitHub 仓库'" :aria-label="locale === 'en' ? 'Project on GitHub (opens in a new tab)' : '项目 GitHub 仓库（新窗口打开）'">
+          <i class="bi bi-github" aria-hidden="true"></i>
+        </a>
+        <a class="navbar-contact" href="mailto:shawnwang@sxau.edu.cn" :title="locale === 'en' ? 'Email: shawnwang@sxau.edu.cn' : '联系邮箱：shawnwang@sxau.edu.cn'" :aria-label="locale === 'en' ? 'Email shawnwang@sxau.edu.cn' : '发送邮件至 shawnwang@sxau.edu.cn'">
+          <i class="bi bi-envelope" aria-hidden="true"></i>
+        </a>
+      <button class="btn btn-sm btn-outline-secondary text-nowrap" @click="toggleLocale()">
         <i class="bi bi-translate me-1"></i>{{ locale === 'en' ? '中文' : 'EN' }}
       </button>
+      </div>
     </div>
   </nav>
   <main class="p-3 p-lg-4">
@@ -52,4 +60,6 @@ const nav = [
 <style scoped>
 .navbar .nav-link { color: #4b5563; font-weight: 500; border-bottom: 3px solid transparent; }
 .navbar .nav-link.router-link-active { color: #008080; border-bottom: 3px solid #008080; }
+.navbar-contact { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; color: #607589; border-radius: 6px; font-size: 18px; text-decoration: none; }
+.navbar-contact:hover { color: #067d89; background: #edf6f7; }
 </style>

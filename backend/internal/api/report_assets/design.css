@@ -5,3 +5,45 @@
 .st-controls{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}.st-controls .st-key{border:1px solid var(--line);background:#fff;color:var(--muted);padding:4px 10px;border-radius:3px;font-size:12px}.st-controls .st-key.on{background:var(--ink);color:#fff;border-color:var(--ink)}#sample-tree{width:100%;background:#fff}
 
 .mt-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}.mt-tab{border:1px solid var(--line);background:#fff;color:var(--muted);padding:6px 14px;border-radius:4px;font-size:13px}.mt-tab.active{background:var(--ink);color:#fff;border-color:var(--ink)}.mt-panel{margin-top:12px}
+
+/* rsWGCNA scientific report theme */
+:root{--paper:#f5f7fa;--ink:#223747;--muted:#607589;--line:#dce5ec;--accent:#067d89;--soft:#edf6f7;--rust:#975332}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.7}
+.rail{background:#fff;width:232px;padding:26px 18px;box-shadow:2px 0 12px rgba(34,55,71,.025)}
+.brand{font-size:24px;letter-spacing:-.7px}.rail nav{gap:4px}.rail nav a{border-left:0;border-radius:5px;padding:8px 10px}.rail nav a.active{background:#e7f3f5;color:#067d89;box-shadow:inset 3px 0 #067d89}.rail nav a:hover{background:#f0f5f8;color:#223747}.rail nav a span{color:#718697}
+.report{max-width:none;margin-left:232px;padding:24px 36px 0}.topline{padding-bottom:14px}.hero{padding:30px 0 24px}.hero h1,.step h2,.metric strong,.step-no,.flow b{font-family:inherit}.hero h1{font-size:36px;font-weight:650;letter-spacing:-.6px}.hero p{max-width:900px}.project-line{overflow-wrap:anywhere}.metrics{background:#fff;border:1px solid var(--line);border-radius:8px;padding:20px 24px;margin-top:24px}.metric strong{font-size:30px;font-weight:600;font-variant-numeric:tabular-nums}.step{padding:30px 0}.step-head{gap:14px;margin-bottom:18px}.step-no{font-size:20px;font-weight:600;color:#067d89;background:#e6f1f4;border-radius:5px;padding:6px 9px}.step h2{font-size:23px;font-weight:600;letter-spacing:0}.step h3{font-size:17px;font-weight:600}.step-intro{max-width:1000px}.panel,figure,.parameter,.table-wrap{border-radius:7px}.panel,figure{padding:18px;box-shadow:0 2px 8px rgba(34,55,71,.025)}th{background:#f0f5f8;color:#455f73;font-size:12px}td,th{padding:8px 12px;border-bottom-color:#e5ebf0}tbody tr:hover{background:#f1f8fa}.reading{border-radius:5px;background:#edf6f7}.flow>div{background:#edf3f7;border-radius:5px}.flow b{font-size:24px;font-weight:600}.notice{background:#fff7e9;border-left-color:#be9144;border-radius:0 5px 5px 0}.primary{background:#067d89;border-color:#067d89}.primary:hover{background:#066773}.actions .button,button{font-size:12px;border-radius:5px;padding:6px 12px}button:hover{border-color:#80b1ba;background:#f1f8fa}button:focus-visible,a:focus-visible{outline:2px solid #067d89;outline-offset:3px}
+.me-tabs{display:flex;flex-wrap:wrap;gap:7px;padding:12px;background:#fff;border:1px solid var(--line);border-radius:7px 7px 0 0;margin-top:16px}.me-tab{font-size:12px;padding:6px 13px;border:1px solid #dce5ec;border-radius:5px;background:#f5f8fa;color:#455f73}.me-tab.active{background:#067d89;border-color:#067d89;color:#fff;font-weight:600;box-shadow:0 2px 4px rgba(6,125,137,.15)}.me-subtabs{display:flex;flex-wrap:wrap;gap:5px;padding:9px 12px;background:#f0f5f8;border:1px solid var(--line);border-top:0;border-radius:0 0 7px 7px}.me-subtab{padding:4px 12px;font-size:11px;border:1px solid transparent;background:transparent;color:#607589}.me-subtab.active{background:#fff;color:#067d89;border-color:#bfd6df;font-weight:600}.mt-tab.active,.st-controls .st-key.on{background:#067d89;border-color:#067d89}.ov-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.ov-tabs button.active{background:#067d89;color:#fff;border-color:#067d89}
+#me-tabs~.row{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:16px;align-items:start}#me-tabs~.row>div{min-width:0}#me-bubble{background:#fff}#me-table{background:#fff}#me-table tr.me-term{cursor:pointer}#me-anno{background:#fff;border-radius:7px}#me-anno h4{font-size:14px;padding:14px 16px;margin:0;border-bottom:1px solid var(--line)}.footer{border-top:1px solid var(--line)}
+@media(min-width:1600px){.report{margin-left:232px;padding-left:44px;padding-right:44px}}@media(max-width:1100px){#me-tabs~.row{grid-template-columns:minmax(0,1fr)}.report{padding:24px;margin-left:232px}}@media(max-width:760px){.rail{width:100%;padding:15px 20px}.report{margin:0;padding:18px}.hero h1{font-size:28px}.metrics{padding:16px}.step h2{font-size:20px}.me-tabs{gap:6px}.me-tab{padding:6px 10px}.step-head{align-items:center}.topline{flex-wrap:wrap}}
+@media print{.report{margin:0;padding:0}.hero h1{font-size:30px}#me-tabs~.row{display:block}.metrics{box-shadow:none}.rail{display:none}}
+
+/* Final report polish */
+.brand{display:flex;align-items:center;flex-wrap:wrap;gap:0;letter-spacing:-.5px}.report-brand-icon{width:29px;height:29px;margin-right:8px;flex-shrink:0}.brand>span{display:block;color:var(--muted)}.rail .eyebrow{margin-top:28px}.rail-bottom a{overflow-wrap:anywhere;font-size:10px}.topline .eyebrow{letter-spacing:.08em}.hero h1{font-size:32px;line-height:1.35;margin:14px 0}.hero>p{font-size:14px;line-height:1.85}.metrics{box-shadow:0 3px 12px rgba(34,55,71,.025)}.metric small{display:block;margin-top:5px}.step h3{color:#294858}.story{border-left-width:2px;background:#fff;border-radius:0 6px 6px 0;padding:14px 18px;font-size:13px}.story p:last-child{margin-bottom:0}.caption{line-height:1.85}.parameter summary:hover{background:#f1f7f9}.me-tabs,.me-subtabs{box-shadow:0 2px 6px rgba(34,55,71,.02)}.me-tab.active{box-shadow:none}.table-wrap{scrollbar-color:#bdcdd8 #f2f6f8;scrollbar-width:thin}tbody tr{transition:background-color .12s}.footer{font-size:12px}.report a:hover{text-decoration-thickness:2px}@media(max-width:760px){.hero h1{font-size:26px}}@media print{.story{background:transparent}.metrics{box-shadow:none}}
+
+/* Result cards: shared surfaces for analysis outputs, not section wrappers. */
+.step>.row,.mt-panel>.row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin:18px 0;align-items:start}
+.step>.row>div,.mt-panel>.row>div{min-width:0}
+[id^="sft-"],#gene-dendrogram,#mtrait-heatmap,[id^="gsmm-"],[id^="hubnet-"]{background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 3px 12px rgba(34,55,71,.035);overflow:hidden}
+#gene-dendrogram,#mtrait-heatmap{margin:18px 0}
+.mt-panel>.row>div>div[style*="resize:both"]{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px;box-shadow:0 3px 12px rgba(34,55,71,.035)}
+.ov-panel>div{background:#fff;border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 3px 12px rgba(34,55,71,.035);margin:14px 0}
+.ov-panel img{border:0!important}
+figure,.panel,.table-wrap,.parameter{border-radius:8px;box-shadow:0 3px 12px rgba(34,55,71,.035)}
+figure{margin:20px 0;padding:20px}
+figcaption{background:#f7fafc;margin:16px -20px -20px;padding:12px 20px;border-radius:0 0 8px 8px;border-top:1px solid #e4ebf1}
+.parameter>summary{background:#f7fafc;border-radius:8px 8px 0 0;color:#344f61;padding:12px 16px}
+.parameter:not([open])>summary{border-radius:8px}
+.parameter>.table-wrap{box-shadow:none;border-radius:0 0 8px 8px}
+.table-wrap thead th{padding-top:11px;padding-bottom:11px}
+.mt-tabs{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px;margin:18px 0 12px;gap:7px}
+.mt-tab{font-size:12px;border-radius:5px;background:#f5f8fa;padding:6px 12px}
+.mt-tab.active{background:#067d89;color:#fff}
+.mt-panel{padding-top:2px}
+.step>h3{margin-top:28px;margin-bottom:14px}
+#me-bubble,#me-table{border-radius:8px!important;box-shadow:0 3px 12px rgba(34,55,71,.035)}
+#me-anno:empty{display:none}
+#me-anno:not(:empty){border:1px solid var(--line);box-shadow:0 3px 12px rgba(34,55,71,.035);overflow:hidden}
+#me-anno>div{border:0!important;border-radius:0!important}
+@media(max-width:1100px){.step>.row,.mt-panel>.row{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:760px){figure{padding:12px}figcaption{margin:12px -12px -12px;padding:12px}.ov-panel>div{padding:10px}}
+@media print{.step>.row,.mt-panel>.row{display:block}.step>.row>div,.mt-panel>.row>div{margin:12px 0}figure,.panel,.table-wrap,.parameter,[id^="sft-"],#gene-dendrogram,#mtrait-heatmap,[id^="gsmm-"],[id^="hubnet-"],.ov-panel>div{box-shadow:none;break-inside:avoid}}

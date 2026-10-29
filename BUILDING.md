@@ -18,6 +18,11 @@ w64devkit、Go（以 backend/go.mod 为准）、Node 和 pnpm。
 默认 GCC 路径为 `%LOCALAPPDATA%\w64devkit\w64devkit\bin`，可用 `-GccBin` 指定。
 默认 Rust 源码为相邻 `rs_WGCNA`，可用 `-WorkerSource` 指定。
 
+前端的 `frontend/.npmrc` 使用 `node-linker=hoisted`，避免 pnpm 在无符号链接权限的
+Windows 账户下安装依赖时出现 `ERR_PNPM_EPERM`。无需管理员权限或开启开发者模式。
+该配置会随前端源码复制到每次全新的隔离快照，因此无需删除同步目录内的旧依赖。
+已有依赖目录不会被脚本复用；请直接重新运行上述构建命令。
+
 脚本显式使用 Windows GNU 工具链和 `-C link-self-contained=yes`，让 Rust 使用
 自身携带的 CRT/展开支持库；该设置同时覆盖宿主构建脚本，因此不额外传 `--target`。
 这解决当前 w64devkit 缺少 `libgcc_eh` 的链接失败，无需改变系统默认 Rust 工具链。
@@ -26,6 +31,12 @@ w64devkit、Go（以 backend/go.mod 为准）、Node 和 pnpm。
 `%LOCALAPPDATA%\rsWGCNA-build\windows\latest-app.txt` 保存最新成功构建位置。
 每次构建使用新快照，包含尚未提交的工作文件；不写回同步源码，也不复用旧的内嵌引擎。
 `build-info.json` 记录源码提交和 Windows EXE / 引擎的 SHA-256。
+
+供用户打开的本地版本统一复制到相邻 `releases/rsWGCNA-current/`，后续覆盖更新该目录，
+不再为每次 UI 修改新建发布目录。隔离构建快照仍保留在本机缓存，避免同步编译依赖。
+固定发布目录必须保留 `R/` 运行环境（含 ComplexHeatmap 等绘图包）。首次准备时从
+现有 Windows 发行包复制完整 `R/`；后续仅覆盖 EXE、worker 和构建信息，不删除 `R/`。
+只复制编译生成的三个文件会导致 Overview Figure 等 R 图表无法预览。
 
 ## macOS
 

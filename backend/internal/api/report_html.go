@@ -3,6 +3,7 @@ package api
 import (
 	_ "embed"
 	"encoding/json"
+	"encoding/base64"
 	"fmt"
 	"html"
 	"regexp"
@@ -21,6 +22,9 @@ var reportChartsJS []byte
 
 //go:embed report_assets/echarts.min.js
 var echartsJS []byte
+
+//go:embed report_assets/rsWGCNA_icon.svg
+var reportIcon []byte
 
 // reportData carries the real analysis facts used to build the report.
 type reportData struct {
@@ -88,7 +92,7 @@ func (d reportData) L(zh, en string) string {
 // Codex v2 visual language, populated with real analysis data.
 func generateReportHTML(d reportData) string {
 	if d.Version == "" {
-		d.Version = "v0.5.0"
+		d.Version = "v0.6.0"
 	}
 	if d.Lang == "" {
 		d.Lang = "zh"
@@ -104,7 +108,7 @@ func generateReportHTML(d reportData) string {
 		d.L("模块-性状", "Module–trait"),
 		d.L("模块总览", "Module overview"),
 	}
-	b.WriteString(`<aside class="rail"><a class="brand">rs<em>WGCNA</em><span style="font-size:10px;letter-spacing:0;margin-left:8px">REPORT</span></a><div class="eyebrow">` + d.L("分析记录", "Analysis record") + `</div><nav>`)
+	b.WriteString(`<aside class="rail"><a class="brand" href="#"><img class="report-brand-icon" alt="" src="data:image/svg+xml;base64,` + base64.StdEncoding.EncodeToString(reportIcon) + `">rs<em>WGCNA</em><span style="font-size:10px;letter-spacing:0;margin-left:8px">REPORT</span></a><div class="eyebrow">` + d.L("分析记录", "Analysis record") + `</div><nav>`)
 	for i, n := range nav {
 		cls := ""
 		if i == 0 {
@@ -112,18 +116,18 @@ func generateReportHTML(d reportData) string {
 		}
 		b.WriteString(fmt.Sprintf(`<a href="#step-%d"%s><span>%02d</span>%s</a>`, i+1, cls, i+1, n))
 	}
-	b.WriteString(`</nav><div class="rail-bottom">` + d.L("rsWGCNA 分析报告", "rsWGCNA analysis report") + `<a href="https://github.com/XiaoWang-SXAU-Lab/xiaowang-sxau-lab.github.io" target="_blank" rel="noopener">Xiao Wang Lab ↗</a></div></aside><main class="report">`)
+	b.WriteString(`</nav><div class="rail-bottom">` + d.L("rsWGCNA 分析报告", "rsWGCNA analysis report") + `<a href="https://xwang-lab-sxau.cn/" target="_blank" rel="noopener">Xiao Wang Lab · Personal laboratory ↗</a></div></aside><main class="report">`)
 
 	// ---- hero ----
 	b.WriteString(`<div class="topline"><div class="eyebrow">` + d.L("加权基因共表达网络分析", "Weighted gene co-expression network analysis") + `</div><div class="actions"><button data-print>` + d.L("打印 / 保存 PDF", "Print / Save PDF") + `</button></div></div>`)
-	b.WriteString(`<header class="hero"><div class="eyebrow">` + html.EscapeString(d.ProjectName) + `</div><h1>` + d.L("从表达矩阵，<br>到共表达网络。", "From expression,<br>to connection.") + `</h1><p>` + d.L("一份可追溯的分析记录。从输入文件、数据清洗到模块解析，逐步说明本次分析做了什么，以及每张图应该怎么看。", "A traceable analysis record. Follow the inputs, filtering decisions and module analysis, with a practical guide to reading every figure.") + `</p><div class="project-line">` + html.EscapeString(d.ProjectName) + ` · ` + d.Timestamp + ` · rsWGCNA ` + d.Version + `</div><div class="metrics">`)
+	b.WriteString(`<header class="hero"><div class="eyebrow">` + html.EscapeString(d.ProjectName) + `</div><h1>` + d.L("基因共表达网络分析报告", "Gene co-expression network analysis report") + `</h1><p>` + d.L("本报告汇总输入数据、预处理参数、网络构建、模块识别及功能分析结果，并提供交互图表与结果表格。", "This report summarizes input data, preprocessing parameters, network construction, module detection and functional analysis, with interactive figures and result tables.") + `</p><div class="project-line">` + html.EscapeString(d.ProjectName) + ` · ` + d.Timestamp + ` · rsWGCNA ` + d.Version + `</div><div class="metrics">`)
 	b.WriteString(fmt.Sprintf(`<div class="metric"><strong>%d</strong><small>%s</small></div>`, d.RawSamples, d.L("样本", "samples")))
 	b.WriteString(fmt.Sprintf(`<div class="metric"><strong>%d</strong><small>%s</small></div>`, d.RawGenes, d.L("原始基因", "raw genes")))
 	b.WriteString(fmt.Sprintf(`<div class="metric"><strong>%d</strong><small>%s</small></div>`, len(d.Modules), d.L("共表达模块", "modules")))
 	b.WriteString(fmt.Sprintf(`<div class="metric"><strong>%d</strong><small>%s</small></div></div></header>`, d.HubCount, d.L("Hub 候选", "hub candidates")))
 
 	// ---- step 1: 项目介绍 ----
-	b.WriteString(stepHead(d, 1, nav[0], d.L("罗列本次分析使用的输入文件；有则显示，无则不显示。", "Input files used in this analysis.")))
+	b.WriteString(stepHead(d, 1, nav[0], d.L("本次分析使用的输入数据及注释资源。", "Input files used in this analysis.")))
 	introRows := [][]string{
 		{d.L("表达量矩阵", "Expression matrix"), d.L(fmt.Sprintf("%d 个样本 × %d 个基因", d.RawSamples, d.RawGenes), fmt.Sprintf("%d samples × %d genes", d.RawSamples, d.RawGenes))},
 	}
@@ -439,8 +443,8 @@ func filterStory(d reportData) string {
 		story2 = d.L("样本比例参数为 "+fmtNum(pct)+"，超出引擎要求的0–1范围。按本次引擎行为，该阈值不会删除低表达基因；请核对参数并重新分析。", "The sample-percentage parameter is "+fmtNum(pct)+", outside the engine's 0–1 range. With this value, the engine does not remove low-expression genes. Review the parameter and rerun the analysis.")
 	} else if pct > 0 {
 		story2 = d.L(
-			"低表达过滤：如果一个基因在超过 "+fmtPercent(pct)+" 的样本中表达值低于 "+fmtNum(cutoff)+"，就被当作低表达噪音基因去除。",
-			"Low-expression filtering: a gene is removed as noise if its expression is below "+fmtNum(cutoff)+" in more than "+fmtPercent(pct)+" of samples.",
+			"低表达过滤：如果一个基因在超过 "+fmtPercent(pct)+" 的样本中表达值低于 "+fmtNum(cutoff)+"，则按低表达过滤条件移除。",
+			"Low-expression filtering: a gene is excluded by the low-expression filter if its expression is below "+fmtNum(cutoff)+" in more than "+fmtPercent(pct)+" of samples.",
 		)
 	} else {
 		story2 = d.L(
@@ -527,9 +531,9 @@ func sftConclusion(d reportData) string {
 	gamma := -sc.Slope
 	var verdict string
 	if sc.AdjR2 >= 0.8 && gamma >= 0.5 && gamma <= 3 {
-		verdict = d.L("拟合良好、斜率处于生物学网络的典型范围（γ ≈ 1–3），说明该网络近似服从无标度分布，拓扑结构合理。", "the fit is strong and the slope is in the typical range for biological networks (γ ≈ 1–3), indicating the network approximately follows a scale-free distribution with a reasonable topology.")
+		verdict = d.L("当前拟合指标及斜率与设定的无标度拓扑筛选条件相符。该诊断不能单独证明网络服从幂律分布或具有生物学合理性。", "the fit and slope meet the specified scale-free topology screening criteria. This diagnostic alone does not establish a power-law distribution or biological validity.")
 	} else if sc.AdjR2 >= 0.5 {
-		verdict = d.L("拟合可接受但 R² 或斜率偏离理想范围，无标度趋势近似成立，建议结合下游模块结果判断。", "the fit is acceptable but R² or the slope is outside the ideal range; the scale-free trend holds only approximately, so interpret it alongside downstream module results.")
+		verdict = d.L("R² 或斜率未同时满足设定的筛选条件，需结合数据质量与下游模块结果进行评估。", "R² and the slope do not jointly meet the specified screening criteria. Assess these diagnostics together with data quality and downstream module results.")
 	} else {
 		verdict = d.L("拟合较弱，网络拓扑可能不完全符合无标度假设，建议增大 power 或检查数据。", "the fit is weak; the topology may not fully satisfy the scale-free assumption — consider a higher power or checking the data.")
 	}

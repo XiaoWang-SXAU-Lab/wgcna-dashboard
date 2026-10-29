@@ -11,7 +11,7 @@
 [![Rust worker](https://img.shields.io/badge/Rust-worker-rs--wgcna-orange.svg)](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna)
 [![单二进制](https://img.shields.io/badge/部署-单二进制-lightgrey.svg)](#构建)
 
-> [`rs-wgcna`](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna) 的图形界面：上传数据、调参，直接得到可发表的图和表——无需 R、无需命令行。
+> [`rs-wgcna`](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna) 的图形界面：上传数据、调参，生成交互图表和结果表格，无需使用命令行。部分绘图需要随发行包提供的 R 运行环境。
 
 ---
 
@@ -53,7 +53,6 @@
 - **7 步管线**：导入质检 → 清洗过滤 → 软阈值 β → 网络与模块 → 模块-性状 →
   模块深入 → hub 基因。
 - **两种模式**：
-  - *one-step*——一键跑完全流程；
   - *step-by-step*——分步运行；改某步参数只重算该步及其下游（脏级联），结果缓存复用。
 - **交互式可视化**：ECharts 树状图（模块上色样本树）、模块-性状热图、GS/MM 散点、
   AG Grid 基因表；每个图都可缩放、换色、下载 PNG/SVG。
@@ -116,10 +115,11 @@ Windows（PowerShell）：
 
 ## 路线图
 
-- [x] 完整 7 步管线 + one-step / step-by-step 模式
+- [x] 分步 WGCNA 分析流程与交互式结果探索
 - [x] AI 领航员（LLM + RAG + 错误诊断）
 - [x] raw count 的 vst 归一化（纯 Rust）
-- [ ] 去掉 R 绘图依赖（原生 Rust/SVG 图），实现完全自包含、无 R 的 DMG/EXE 打包
+- ~~去掉 R 绘图依赖（原生 Rust/SVG 图），实现完全自包含、无 R 的 DMG/EXE 打包~~
+  部分绘图仍依赖 R 的 **ggplot2**、**ComplexHeatmap** 和 **circlize**；桌面发行包保留 R 运行环境，常规交互报告图表使用 ECharts。
 - [ ] 桌面打包（macOS `.dmg` / Windows `.exe`）
 
 ---

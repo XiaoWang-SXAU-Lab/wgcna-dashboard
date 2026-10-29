@@ -3,6 +3,29 @@
 All notable changes to the wgcna-dashboard are documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] — 2026-10-30
+
+### Changed
+
+- Redesigned the bilingual homepage around rsWGCNA analysis capabilities; removed the obsolete one-step entry.
+- Unified application colors, controls and tables while preserving analysis-page layouts and parameter sidebars.
+- Added project GitHub and contact-email links to the navbar and updated homepage affiliations.
+- Moved report directory, project name and export controls into the report sidebar; removed the enrichment selector.
+- Restyled offline reports with scientific result cards, responsive chart/table layouts and clearer module/enrichment tabs.
+- Revised report descriptions and scale-free topology interpretations; corrected the personal laboratory link and embedded the project icon.
+- Improved enrichment bubble-chart label containment without changing analysis data.
+
+### Fixed
+
+- Use pnpm's hoisted linker for fresh Windows installs without symlink privileges.
+- Resolve the default worker source path after PowerShell parameter binding.
+- Document the persistent local release folder and required bundled R runtime.
+
+### Documentation
+
+- Retire the R-free packaging roadmap item: some plots continue to use ggplot2, ComplexHeatmap and circlize.
+- Bump application, report and desktop packaging metadata to 0.6.0.
+
 ## [0.5.0] — 2026-10-26
 
 ### Added

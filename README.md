@@ -9,9 +9,9 @@
 [![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8.svg)](https://go.dev)
 [![Vue](https://img.shields.io/badge/Vue-3-42b883.svg)](https://vuejs.org)
 [![Rust worker](https://img.shields.io/badge/Rust-worker-rs--wgcna-orange.svg)](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna)
-[![Single binary](https://img.shields.io/badge/deploy-single--binary-lightgrey.svg)](#build)
+[![Version](https://img.shields.io/badge/version-0.6.0-067d89.svg)](NEWS.md)
 
-> A battery-included GUI for [`rs-wgcna`](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna): upload data, tune parameters, and get publication-ready plots and tables — no R, no command line.
+> A battery-included GUI for [`rs-wgcna`](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna): upload data, tune parameters, and get interactive plots and result tables without using the command line. Some plots require the bundled R runtime.
 
 ---
 
@@ -55,7 +55,6 @@ and the Rust worker are embedded), so users install nothing but the executable.
 - **7-step pipeline**: import & QC → cleaning/filtering → soft-threshold β →
   network & modules → module–trait → module detail → hub genes.
 - **Two run modes**:
-  - *one-step* — run the whole pipeline in one click;
   - *step-by-step* — run per step; changing a parameter re-runs only that step
     and its downstream (dirty cascade), with cached results.
 - **Interactive visualization**: ECharts dendrogram (module-colored sample tree),
@@ -124,11 +123,11 @@ Windows (PowerShell):
 
 ## Roadmap
 
-- [x] Full 7-step pipeline + one-step / step-by-step modes
+- [x] Step-by-step WGCNA analysis pipeline with interactive result exploration
 - [x] AI navigator (LLM + RAG + error diagnosis)
 - [x] Raw-count vst normalization (pure Rust)
-- [ ] Drop the R plotting dependency (native Rust/SVG charts) for a fully
-      self-contained, R-free DMG/EXE package
+- ~~Drop the R plotting dependency (native Rust/SVG charts) for a fully self-contained, R-free DMG/EXE package.~~
+  Some plots depend on R packages **ggplot2**, **ComplexHeatmap** and **circlize**. Desktop packages retain the bundled R runtime; standard interactive report charts use ECharts.
 - [x] Desktop packaging (macOS `.dmg` / Windows installer `.exe`)
 
 ---

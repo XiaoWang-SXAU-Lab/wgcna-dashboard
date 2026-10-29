@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" role="img" aria-labelledby="title desc">
+  <title id="title">rsWGCNA hexagonal package logo</title>
+  <desc id="desc">A hexagonal logo containing a dendrogram and four colored co-expression network modules.</desc>
+  <defs>
+    <clipPath id="hexClip">
+      <path d="M500 24 912 262v476L500 976 88 738V262Z"/>
+    </clipPath>
+    <style>
+      .tree{fill:none;stroke:#062b57;stroke-width:13;stroke-linecap:round;stroke-linejoin:round}
+      .edge{stroke:#062b57;stroke-width:9;stroke-linecap:round}
+      .node{stroke:#fffdf7;stroke-width:5}
+    </style>
+  </defs>
+
+  <!-- Transparent outside the package-sticker silhouette. -->
+  <path d="M500 24 912 262v476L500 976 88 738V262Z" fill="#fffdf7" stroke="#062b57" stroke-width="42" stroke-linejoin="round"/>
+
+  <g clip-path="url(#hexClip)">
+    <!-- Hierarchical clustering / module dendrogram. -->
+    <path class="tree" d="M500 112v72M500 184H280v64M500 184h220v64M280 248H205v52M280 248h75v52M720 248h-75v52M720 248h75v52M500 184v74M500 258H430v42M500 258h70v42"/>
+    <circle cx="500" cy="105" r="30" fill="#062b57"/>
+
+    <!-- Teal module. -->
+    <g>
+      <path class="edge" d="M242 455 190 397M242 455l-75 20M242 455l-36 77M242 455l75-44M242 455l77 65M190 397l-23 78M190 397l127 14M167 475l39 57M206 532l113-12M317 411l2 109"/>
+      <circle class="node" cx="242" cy="455" r="44" fill="#078c88"/>
+      <circle class="node" cx="190" cy="397" r="25" fill="#11aaa8"/>
+      <circle class="node" cx="167" cy="475" r="24" fill="#18b9ba"/>
+      <circle class="node" cx="206" cy="532" r="27" fill="#06918e"/>
+      <circle class="node" cx="317" cy="411" r="27" fill="#27c2c1"/>
+      <circle class="node" cx="319" cy="520" r="24" fill="#51cdcc"/>
+    </g>
+
+    <!-- Coral module. -->
+    <g>
+      <path class="edge" d="M500 413 446 365M500 413l55-48M500 413l-70 43M500 413l70 43M500 413v86M446 365l-16 91M446 365l109 0M555 365l15 91M430 456l70 43M570 456l-70 43"/>
+      <circle class="node" cx="500" cy="413" r="44" fill="#ff5a32"/>
+      <circle class="node" cx="446" cy="365" r="25" fill="#ff724c"/>
+      <circle class="node" cx="555" cy="365" r="27" fill="#ff5932"/>
+      <circle class="node" cx="430" cy="456" r="25" fill="#ff6743"/>
+      <circle class="node" cx="570" cy="456" r="26" fill="#ff7954"/>
+      <circle class="node" cx="500" cy="499" r="24" fill="#ff906a"/>
+    </g>
+
+    <!-- Blue module. -->
+    <g>
+      <path class="edge" d="M758 455 706 397M758 455l75-58M758 455l75 20M758 455l36 77M758 455l-75-44M758 455l-77 65M706 397l-23 14M833 397v78M833 475l-39 57M794 532l-113-12M683 411l-2 109"/>
+      <circle class="node" cx="758" cy="455" r="44" fill="#0870b9"/>
+      <circle class="node" cx="706" cy="397" r="25" fill="#289ce5"/>
+      <circle class="node" cx="833" cy="397" r="27" fill="#238fd9"/>
+      <circle class="node" cx="833" cy="475" r="24" fill="#0865aa"/>
+      <circle class="node" cx="794" cy="532" r="27" fill="#0874c0"/>
+      <circle class="node" cx="683" cy="411" r="24" fill="#35a7ef"/>
+      <circle class="node" cx="681" cy="520" r="24" fill="#2498df"/>
+    </g>
+
+    <!-- Gold module. -->
+    <g>
+      <path class="edge" d="M500 605 445 563M500 605l59-42M500 605l-70 51M500 605l70 51M500 605v82M445 563l-15 93M559 563l11 93M430 656l70 31M570 656l-70 31"/>
+      <circle class="node" cx="500" cy="605" r="43" fill="#f8ad08"/>
+      <circle class="node" cx="445" cy="563" r="24" fill="#ffc845"/>
+      <circle class="node" cx="559" cy="563" r="25" fill="#f5af16"/>
+      <circle class="node" cx="430" cy="656" r="24" fill="#ffd065"/>
+      <circle class="node" cx="570" cy="656" r="25" fill="#ffd066"/>
+      <circle class="node" cx="500" cy="687" r="23" fill="#f5b418"/>
+    </g>
+
+    <!-- Rust/performance accent. -->
+    <path d="M638 572h128l-24 16H614Zm0 43h148l-28 17H610Zm-10 45h123l-31 17H596Z" fill="#ff4d22"/>
+
+    <!-- Wordmark. -->
+    <text x="500" y="844" text-anchor="middle" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="116" font-weight="800" letter-spacing="-6">
+      <tspan fill="#ff4d22" font-style="italic">rs</tspan><tspan fill="#062b57">WGCNA</tspan>
+    </text>
+  </g>
+</svg>

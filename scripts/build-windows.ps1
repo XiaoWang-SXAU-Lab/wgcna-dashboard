@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$WorkerSource = (Join-Path $PSScriptRoot '../../rs_WGCNA'),
+    [string]$WorkerSource,
     [string]$BuildRoot = (Join-Path $env:LOCALAPPDATA 'rsWGCNA-build/windows'),
     [string]$GccBin = (Join-Path $env:LOCALAPPDATA 'w64devkit/w64devkit/bin'),
     [switch]$Launch
@@ -9,6 +9,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT') { throw 'Use build-macos.sh on macOS.' }
 $dashboard = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+if (-not $WorkerSource) { $WorkerSource = Join-Path $dashboard '../rs_WGCNA' }
 $worker = (Resolve-Path $WorkerSource).Path
 $BuildRoot = [IO.Path]::GetFullPath($BuildRoot)
 $syncRoot = Split-Path $dashboard -Parent

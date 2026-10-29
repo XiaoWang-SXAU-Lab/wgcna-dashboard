@@ -156,7 +156,7 @@ func buildReportData(jobDir, base string, modules []string, enrichType, lang str
 	d := reportData{
 		ProjectName: filepath.Base(base),
 		Timestamp:   time.Now().Format("2006-01-02 15:04 -07:00"),
-		Version:     "v0.5.0",
+		Version:     "v0.6.0",
 		Lang:        lang,
 		Modules:     modules,
 		ModuleSizes: map[string]int{},
@@ -633,7 +633,7 @@ func writeProvenance(resultDir, jobDir, id, lang, projectName string) {
 		"job_id":       id,
 		"language":     lang,
 		"generated_at": time.Now().Format(time.RFC3339),
-		"version":      "rsWGCNA v0.5.0",
+		"version":      "rsWGCNA v0.6.0",
 		"steps":        steps,
 	}
 	if b, err := json.MarshalIndent(manifest, "", "  "); err == nil {
@@ -644,7 +644,7 @@ func writeProvenance(resultDir, jobDir, id, lang, projectName string) {
 	writeInputManifest(filepath.Join(prov, "input_manifest.tsv"), jobDir)
 
 	// environment.txt
-	env := fmt.Sprintf("rsWGCNA v0.5.0\nGenerated: %s\nOS: %s\nArch: %s\n", time.Now().Format(time.RFC3339), runtime.GOOS, runtime.GOARCH)
+	env := fmt.Sprintf("rsWGCNA v0.6.0\nGenerated: %s\nOS: %s\nArch: %s\n", time.Now().Format(time.RFC3339), runtime.GOOS, runtime.GOARCH)
 	_ = os.WriteFile(filepath.Join(prov, "environment.txt"), []byte(env), 0o644)
 
 	_ = os.WriteFile(filepath.Join(prov, "README.txt"), []byte("分析可追溯信息：\n- analysis_manifest.json：项目/任务/语言/时间/步骤\n- parameters.final.json + .tsv：最终参数\n- input_manifest.tsv：输入文件与校验\n- checksums.sha256：导出文件校验\n- export_manifest.tsv：导出文件清单\n- environment.txt：环境信息"), 0o644)

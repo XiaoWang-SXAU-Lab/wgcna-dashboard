@@ -4,13 +4,13 @@
 
 [Setup]
 AppName=rsWGCNA
-AppVersion=0.5.0
+AppVersion=0.6.0
 AppPublisher=XiaoWang-SXAU-Lab
 AppPublisherURL=https://github.com/XiaoWang-SXAU-Lab
 DefaultDirName={localappdata}\rsWGCNA
 DefaultGroupName=rsWGCNA
 OutputDir=..\dist-windows
-OutputBaseFilename=rsWGCNA-setup-0.5.0
+OutputBaseFilename=rsWGCNA-setup-0.6.0
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible

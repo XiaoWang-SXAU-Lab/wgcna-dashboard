@@ -84,12 +84,12 @@ jobs:
           ln -s /Applications build/macos/stage/Applications
           hdiutil create -volname rsWGCNA \
             -srcfolder build/macos/stage \
-            -ov -format UDZO build/macos/rsWGCNA-0.5.0.dmg
+            -ov -format UDZO build/macos/rsWGCNA-0.6.0.dmg
 
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: build/macos/rsWGCNA-0.5.0.dmg
+          path: build/macos/rsWGCNA-0.6.0.dmg
 
   windows:
     runs-on: windows-2022
@@ -166,7 +166,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: dist-windows/rsWGCNA-setup-0.5.0.exe
+          path: dist-windows/rsWGCNA-setup-0.6.0.exe
 
   release:
     if: startsWith(github.ref, 'refs/tags/')

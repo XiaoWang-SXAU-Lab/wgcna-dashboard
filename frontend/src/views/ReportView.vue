@@ -1,9 +1,9 @@
 <script setup lang="ts">
+import SidebarDrawer from '../components/SidebarDrawer.vue'
 import { prepareReportFigures } from '../utils/prepareReportFigures'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useWgcnaStore } from '../stores/wgcna'
-import SidebarDrawer from '../components/SidebarDrawer.vue'
 import { t, locale } from '../utils/i18n'
 import { exportReport, getReportStatus, pickFolder, type ReportStatus } from '../api/client'
 
@@ -11,7 +11,7 @@ const store = useWgcnaStore()
 const route = useRoute()
 // A report deep link can reopen an existing on-disk job after an app restart.
 const jobId = computed(() => store.jobId || (typeof route.query.job === 'string' && /^[a-zA-Z0-9_-]+$/.test(route.query.job) ? route.query.job : ''))
-const enrichType = ref<'go' | 'kegg'>('go')
+
 const reportDir = ref('')
 const reportName = ref('')
 const reportState = ref<ReportStatus | null>(null)
@@ -79,8 +79,8 @@ async function doExportReport() {
   error.value = ''
   try {
     reportState.value = { state: 'running', dir: '', message: '准备图表快照…', done: [] }
-    await prepareReportFigures(id, enrichType.value, text => { if (reportState.value) reportState.value.message = text })
-    const result = await exportReport(id, reportDir.value.trim(), reportName.value.trim() || defaultReportName.value, enrichType.value, locale.value)
+    await prepareReportFigures(id, 'go', text => { if (reportState.value) reportState.value.message = text })
+    const result = await exportReport(id, reportDir.value.trim(), reportName.value.trim() || defaultReportName.value, 'go', locale.value)
     reportState.value = { state: 'running', dir: result.dir, message: '', done: [] }
     await poll(id, token)
     if (!reportName.value.trim()) defaultReportName.value = newReportName()
@@ -97,40 +97,21 @@ onBeforeUnmount(() => { mounted = false; generation++ })
 <template>
   <SidebarDrawer>
     <template #sidebar>
-      <h6 class="mb-2"><i class="bi bi-file-earmark-text me-1"></i>{{ t('report.title') }}</h6>
-      <div class="mb-3">
-        <label class="form-label small mb-1">{{ t('mo.enrichType') }}</label>
-        <select v-model="enrichType" class="form-select form-select-sm" :disabled="reportRunning"><option value="go">GO</option><option value="kegg">KEGG</option></select>
-      </div>
-      <div class="small text-muted mb-3">{{ t('report.autoDetails') }}</div>
-      <hr />
-      <div class="small text-muted">
-        <div class="fw-semibold mb-1">{{ t('report.whatsIncluded') }}</div>
-        <ul class="ps-3 mb-0 small">
-          <li>{{ t('report.itemOverview') }}</li><li>{{ t('report.itemNetwork') }}</li><li>{{ t('report.itemModules') }}</li><li>{{ t('report.itemEnrich') }}</li><li>{{ t('report.itemCluster') }}</li><li>{{ t('report.itemProvenance') }}</li>
-        </ul>
-      </div>
-    </template>
-    <div class="p-3">
-      <div class="d-flex align-items-center justify-content-between mb-3">
-        <h4 class="mb-0 fw-semibold">{{ t('report.title') }}</h4>
-        <span class="badge" :class="jobId ? 'text-bg-light' : 'text-bg-warning'">{{ jobId ? t('report.jobReady') : t('report.noJob') }}</span>
-      </div>
-      <div class="border rounded p-3 mb-3 bg-white">
-        <div class="row g-2 align-items-end">
-          <div class="col-12 col-lg-5">
+      <div class="report-export-settings">
+        <div class="vstack gap-3">
+          <div class="w-100">
             <label class="form-label small mb-1">{{ t('mo.reportDir') }}</label>
             <div class="input-group input-group-sm">
               <input type="text" v-model="reportDir" class="form-control" :disabled="reportRunning" :placeholder="t('mo.reportDirPlaceholder')" />
               <button class="btn btn-outline-secondary" type="button" :disabled="reportRunning" @click="pickFolderDir"><i class="bi bi-folder2-open me-1"></i>{{ t('mo.browse') }}</button>
             </div>
           </div>
-          <div class="col-12 col-lg-4">
+          <div class="w-100">
             <label class="form-label small mb-1">{{ t('mo.reportName') }} ({{ t('mo.optional') }})</label>
             <input type="text" v-model="reportName" :disabled="reportRunning" class="form-control form-control-sm" :class="{ 'is-invalid': reportNameInvalid }" :placeholder="defaultReportName" />
             <div v-if="reportNameInvalid" class="invalid-feedback">{{ t('mo.nameInvalid') }}</div>
           </div>
-          <div class="col-12 col-lg-3">
+<div class="w-100">
             <button class="btn btn-sm btn-primary w-100" :disabled="!jobId || reportRunning || !reportDir.trim() || reportNameInvalid" @click="doExportReport">
               <span v-if="reportRunning" class="spinner-border spinner-border-sm me-1"></span>{{ t('mo.startExport') }}
             </button>
@@ -151,6 +132,11 @@ onBeforeUnmount(() => { mounted = false; generation++ })
           </details>
         </div>
       </div>
+    </template>
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h4 class="mb-0 fw-semibold">{{ t('report.title') }}</h4>
+        <span class="badge" :class="jobId ? 'text-bg-light' : 'text-bg-warning'">{{ jobId ? t('report.jobReady') : t('report.noJob') }}</span>
+      </div>
       <section class="border rounded bg-white overflow-hidden">
         <div class="d-flex align-items-center justify-content-between gap-2 border-bottom p-3">
           <h6 class="mb-0">{{ t('report.preview') }}</h6>
@@ -165,7 +151,6 @@ onBeforeUnmount(() => { mounted = false; generation++ })
       <details class="small text-muted mt-3"><summary>{{ t('report.structureTitle') }}</summary>
         <pre class="p-3 bg-light rounded mt-2">{{ t('report.bundleStructure') }}</pre>
       </details>
-    </div>
   </SidebarDrawer>
 </template>
 

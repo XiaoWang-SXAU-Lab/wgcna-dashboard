@@ -66,3 +66,24 @@ body { background: #f4f6f9; color: #1f2937; font-family: system-ui, -apple-syste
 
 /* ---- Chart container ---- */
 .chart-box { width: 100%; }
+
+/* rsWGCNA visual theme. No page geometry or scientific chart palettes changed. */
+:root { --bs-primary-rgb: 6,125,137; --bs-link-color:#067d89; --bs-link-hover-color:#056671; }
+body { background:#f5f7fa; color:#223747; }
+#app > .navbar { background:#fff !important; border-bottom-color:#dce5ec !important; box-shadow:0 2px 10px rgba(34,55,71,.035); }
+#app > .navbar .navbar-brand { color:#223747; }
+#app > .navbar .nav-link:hover { background:#edf6f7; color:#067d89; }
+#app > .navbar .nav-link.router-link-exact-active { color:#067d89; background:#edf6f7; }
+#app .sd-card { background:#fafcfd; border-right-color:#dce5ec; }
+#app .sd-tab { background:#fff; border-color:#dce5ec; color:#067d89; box-shadow:2px 0 6px rgba(34,55,71,.05); }
+.card { box-shadow:0 2px 10px rgba(34,55,71,.04),0 0 0 1px rgba(34,55,71,.06); }
+.card-header { background:#f6f9fb; border-bottom-color:#dce5ec; }
+.form-control,.form-select { border-color:#cfdae3; color:#223747; }
+.form-control:focus,.form-select:focus { border-color:#75afb7; box-shadow:0 0 0 .2rem rgba(6,125,137,.12); }
+.input-group-text { background:#f0f5f8; color:#607589; border-color:#cfdae3; }
+.btn-primary { --bs-btn-bg:#067d89; --bs-btn-border-color:#067d89; --bs-btn-hover-bg:#066773; --bs-btn-hover-border-color:#066773; --bs-btn-active-bg:#055963; --bs-btn-active-border-color:#055963; --bs-btn-disabled-bg:#067d89; --bs-btn-disabled-border-color:#067d89; --bs-btn-focus-shadow-rgb:6,125,137; }
+.btn-outline-primary { --bs-btn-color:#067d89; --bs-btn-border-color:#83b3bc; --bs-btn-hover-bg:#067d89; --bs-btn-hover-border-color:#067d89; --bs-btn-active-bg:#066773; --bs-btn-active-border-color:#066773; --bs-btn-disabled-color:#067d89; --bs-btn-disabled-border-color:#83b3bc; --bs-btn-focus-shadow-rgb:6,125,137; }
+.nav-tabs { --bs-nav-link-color:#607589; --bs-nav-link-hover-color:#067d89; --bs-nav-tabs-border-color:#dce5ec; --bs-nav-tabs-link-active-color:#067d89; }
+.table { --bs-table-border-color:#e2e9ef; --bs-table-hover-bg:#edf6f7; --bs-table-active-bg:#deeff2; }
+.table-light { --bs-table-bg:#f0f5f8; --bs-table-color:#455f73; --bs-table-border-color:#dce5ec; }
+.step-pill.active { background:#067d89; }

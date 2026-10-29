@@ -513,12 +513,12 @@ export function enrichBubbleOption(results: any[]): EChartsOption {
         return `<b>${d.termId}</b><br/>${d.description}<br/>GeneRatio ${d.value[0].toFixed(3)} · Count ${d.value[2]}<br/>p.adjust ${d.value[3].toExponential(2)}`
       },
     },
-    grid: { left: 220, right: 48, top: 16, bottom: 48 },
+    grid: { left: 12, right: 40, top: 24, bottom: 48, containLabel: true },
     xAxis: { type: 'value', name: 'GeneRatio', min: 0, nameLocation: 'middle', nameGap: 26, axisLine: { show: true, lineStyle: { color: '#9ca3af' } } },
     yAxis: {
       type: 'category',
       data: points.map((p) => p.description),
-      axisLabel: { fontSize: 11, margin: 14, formatter: (v: string) => truncate(v) },
+      axisLabel: { fontSize: 11, margin: 10, width: 170, overflow: 'truncate', color: '#455f73', formatter: (v: string) => truncate(v) },
       axisLine: { show: true, lineStyle: { color: '#9ca3af' } },
     },
     series: [{
