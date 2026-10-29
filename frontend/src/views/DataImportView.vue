@@ -144,15 +144,13 @@ function onSelectSample(name: string) {
             </label>
           </div>
           <div>
-            <label class="form-label small mb-1">{{ t('di.normalize') }}</label>
-            <select class="form-select form-select-sm" v-model="store.normalizeMethod">
-              <option value="vst">vst (DESeq2) — Raw count</option>
-              <option value="log2p1">log2(x+1) — Raw count (simple)</option>
-              <option value="log10p1">log10(x+1) — FPKM/TPM</option>
-              <option value="log10">log10(x) — Peak area</option>
-              <option value="log2">log2(x) — Protein</option>
-              <option value="log">ln(x)</option>
-              <option value="raw">raw</option>
+            <label class="form-label small mb-1">{{ t('di.dataType') }}</label>
+            <select class="form-select form-select-sm" v-model="store.dataType">
+              <option value="count">{{ t('di.dataTypeCount') }}</option>
+              <option value="expected_count">{{ t('di.dataTypeExpectedCount') }}</option>
+              <option value="normalized_count">{{ t('di.dataTypeNormalizedCount') }}</option>
+              <option value="peak_area">{{ t('di.dataTypePeakArea') }}</option>
+              <option value="protein_abundance">{{ t('di.dataTypeProteinAbundance') }}</option>
             </select>
           </div>
           <div>
@@ -173,6 +171,12 @@ function onSelectSample(name: string) {
           <div>
             <label class="form-label small mb-1">{{ t('param.cutoff') }}</label>
             <input class="form-control form-control-sm" type="number" v-model.number="store.cutoff" step="0.1" />
+          </div>
+          <div>
+            <label class="form-label small mb-1">{{ t('di.normalize') }}</label>
+            <select class="form-select form-select-sm" v-model="store.normalizeMethod">
+              <option v-for="o in store.normalizeOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+            </select>
           </div>
           <div>
             <label class="form-label small mb-1">{{ t('di.threads') }}</label>

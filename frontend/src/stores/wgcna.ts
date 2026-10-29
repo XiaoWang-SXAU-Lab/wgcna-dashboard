@@ -17,11 +17,59 @@ export const useWgcnaStore = defineStore('wgcna', () => {
   const demoLoaded = ref(false)
   const threads = ref(Math.max(1, (navigator.hardwareConcurrency || 4) - 2))
   const nKeep = ref(8000)
-  const normalizeMethod = ref('log10p1')
+  const dataType = ref<'count' | 'expected_count' | 'normalized_count' | 'peak_area' | 'protein_abundance'>('count')
+  const normalizeMethod = ref('vst')
   const filterMethod = ref('mad')
   const samplePercentage = ref(0)
   const cutoff = ref(1)
   const excludedSamples = ref<string[]>([])
+
+  // Normalization methods that make sense for the chosen data type (prevents
+  // e.g. applying DESeq2 VST to FPKM / peak-area data).
+  const normalizeOptions = computed<{ value: string; label: string }[]>(() => {
+    switch (dataType.value) {
+      case 'expected_count':
+        return [
+          { value: 'vst', label: 'vst (DESeq2) — Expected count' },
+          { value: 'log2p1', label: 'log2(x+1)' },
+          { value: 'raw', label: 'raw' },
+        ]
+      case 'normalized_count':
+        return [
+          { value: 'log2p1', label: 'log2(x+1) — FPKM/TPM' },
+          { value: 'log10p1', label: 'log10(x+1)' },
+          { value: 'log2', label: 'log2(x)' },
+          { value: 'raw', label: 'raw' },
+        ]
+      case 'peak_area':
+        return [
+          { value: 'log2', label: 'log2(x) — Peak area' },
+          { value: 'log10', label: 'log10(x)' },
+          { value: 'log', label: 'ln(x)' },
+          { value: 'raw', label: 'raw' },
+        ]
+      case 'protein_abundance':
+        return [
+          { value: 'log2', label: 'log2(x) — Protein abundance' },
+          { value: 'log', label: 'ln(x)' },
+          { value: 'raw', label: 'raw' },
+        ]
+      default: // count
+        return [
+          { value: 'vst', label: 'vst (DESeq2) — Raw count' },
+          { value: 'log2p1', label: 'log2(x+1) — Raw count (simple)' },
+          { value: 'raw', label: 'raw' },
+        ]
+    }
+  })
+
+  // Reset the normalization method when the data type changes and the current
+  // choice no longer applies (e.g. vst → peak_area).
+  watch(dataType, () => {
+    if (!normalizeOptions.value.some((o) => o.value === normalizeMethod.value)) {
+      normalizeMethod.value = normalizeOptions.value[0]?.value ?? 'raw'
+    }
+  })
   const rsquaredCut = ref(0.85)
   const sftNetworkType = ref('unsigned')
   const power = ref(6)
@@ -81,7 +129,7 @@ const maxHubs = ref(30)
 
   function params() {
     return {
-      filter: { normalize_method: normalizeMethod.value, n_keep: nKeep.value, filter_method: filterMethod.value, sample_percentage: samplePercentage.value / 100, cutoff: cutoff.value, exclude_samples: excludedSamples.value },
+      filter: { data_type: dataType.value, normalize_method: normalizeMethod.value, n_keep: nKeep.value, filter_method: filterMethod.value, sample_percentage: samplePercentage.value / 100, cutoff: cutoff.value, exclude_samples: excludedSamples.value },
       soft_threshold: { network_type: sftNetworkType.value, rsquared_cut: rsquaredCut.value },
       network: { power: power.value, network_type: netNetworkType.value, tom_type: tomType.value, tom_denom: tomDenom.value, min_module_size: minModuleSize.value, merge_cut_height: mergeCutHeight.value, deep_split: deepSplit.value, detect_cut_height: detectCutHeight.value },
       module_trait: { trait_source: traitSource.value, trait_column: traitColumn.value },
@@ -254,7 +302,7 @@ const maxHubs = ref(30)
   }
 
   return {
-    jobId, job, exprFile, traitFile, sampleInfoFile, annotationFile, gene2goFile, gene2keggFile, demoLoaded, threads, nKeep, normalizeMethod, filterMethod, samplePercentage, cutoff,
+    jobId, job, exprFile, traitFile, sampleInfoFile, annotationFile, gene2goFile, gene2keggFile, demoLoaded, threads, nKeep, dataType, normalizeMethod, normalizeOptions, filterMethod, samplePercentage, cutoff,
     rsquaredCut, sftNetworkType, power, netNetworkType, tomType, tomDenom, minModuleSize, mergeCutHeight, deepSplit, detectCutHeight,
     traitUploaded, traitSource, traitColumn, sampleInfo, sampleColumns, stepRunning, error,
     sft, modules, mtait, detail, hub, filterResult, created, selectedModule, selectedTrait, kmeCutoff, gsCutoff, weightThreshold, topNNeighbors, maxHubs,

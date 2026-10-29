@@ -139,17 +139,29 @@ func generateReportHTML(d reportData) string {
 	// ---- step 2: 第一步数据清洗 ----
 	b.WriteString(stepHead(d, 2, nav[1], d.L("低表达过滤与高变基因选择。", "Low-expression filtering and variable-gene selection.")))
 	p := d.Params
+	dataType := pstr(p, "filter", "data_type", "count")
 	norm := pstr(p, "filter", "normalize_method", "vst")
 	cutoff := pfloat(p, "filter", "cutoff", 10)
 	pct := pfloat(p, "filter", "sample_percentage", 0.5)
 	method := pstr(p, "filter", "filter_method", "mad")
 	nKeep := pint(p, "filter", "n_keep", 8000)
+	dataTypeLabel := map[string]string{
+		"count": d.L("Count（原始计数）", "Count (raw counts)"),
+		"expected_count": d.L("Expected count（期望计数）", "Expected count"),
+		"normalized_count": d.L("Normalized count（已归一化计数）", "Normalized count"),
+		"peak_area": d.L("Peak area（峰面积）", "Peak area"),
+		"protein_abundance": d.L("Protein abundance（蛋白丰度）", "Protein abundance"),
+	}[dataType]
+	if dataTypeLabel == "" {
+		dataTypeLabel = dataType
+	}
 	paramRows := [][]string{
-		{"Normalization", norm, d.L("数据标准化参数（VST = 方差稳定变换）", "Normalization (VST = variance-stabilizing transform)")},
+		{d.L("Data type", "Data type"), dataTypeLabel, d.L("输入表达矩阵的数据类型", "Input expression data type")},
 		{d.L("Genes to keep", "Genes to keep"), fmtInt(nKeep), d.L("数据清洗后保留的基因数量", "Genes kept after filtering")},
 		{d.L("Filter method", "Filter method"), method, d.L("选择中位数绝对离差（MAD）作为筛选标准", "Median absolute deviation used to rank genes")},
 		{d.L("Sample %", "Sample %"), fmtPercent(pct), d.L("低表达基因在样本中的比例阈值", "Sample-percentage threshold for low-expression removal")},
 		{"cutoff", fmtNum(cutoff), d.L("表达量小于该阈值被认为噪音", "Expression below this is treated as noise")},
+		{"Normalization", norm, d.L("低表达过滤之后应用的归一化方法", "Normalization applied after low-expression filtering")},
 	}
 	b.WriteString(tableHTML([]string{d.L("参数名称", "Parameter"), d.L("使用参数", "Value"), d.L("参数解释", "Meaning")}, paramRows))
 	b.WriteString(filterStory(d))
