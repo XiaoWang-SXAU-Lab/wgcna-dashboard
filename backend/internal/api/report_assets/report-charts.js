@@ -23,6 +23,7 @@ var reportCharts = (() => {
   __export(reportCharts_exports, {
     geneDendrogramOption: () => geneDendrogramOption,
     gsMmScatterOption: () => gsMmScatterOption,
+    hubNetworkOption: () => hubNetworkOption,
     meanConnectivityOption: () => meanConnectivityOption,
     moduleTraitHeatmapOption: () => moduleTraitHeatmapOption,
     sampleTreeOption: () => sampleTreeOption,
@@ -693,6 +694,49 @@ scale R\xB2=${adj_r2.toFixed(2)}, slope=${slope.toFixed(2)}`,
         },
         { type: "line", data: line, lineStyle: { color: "#e11d48", width: 2 }, symbol: "none", silent: true, z: 10 }
       ]
+    };
+  }
+  function hubNetworkOption(nodes, edges, nodeScale = 1, edgeWidth = 1, edgeColor = "#9aa5b1") {
+    const data = nodes.map((n) => ({
+      id: n.id,
+      name: n.id,
+      symbolSize: (n.is_hub ? 20 : 9) * nodeScale,
+      itemStyle: {
+        color: n.color,
+        borderColor: n.is_hub ? "#111111" : n.color,
+        borderWidth: n.is_hub ? 2 : 0.5,
+        opacity: 0.95
+      },
+      value: n.kme,
+      module: n.color,
+      isHub: !!n.is_hub
+    }));
+    const links = edges.map((e) => ({
+      source: e.source,
+      target: e.target,
+      lineStyle: { width: edgeWidth, color: edgeColor, opacity: 0.5 }
+    }));
+    return {
+      tooltip: {
+        formatter: (p) => {
+          var _a, _b;
+          const d = p.data;
+          if (!d || p.dataType === "edge") return "";
+          return `<b>${d.id}</b><br/>module: ${d.module}<br/>|kME|: ${(_b = (_a = d.value) == null ? void 0 : _a.toFixed(3)) != null ? _b : "\u2014"}${d.isHub ? "<br/>hub" : ""}`;
+        }
+      },
+      series: [{
+        type: "graph",
+        layout: "force",
+        roam: true,
+        data,
+        links,
+        categories: Array.from(new Set(nodes.map((n) => n.color))).map((c) => ({ name: c, itemStyle: { color: c } })),
+        force: { repulsion: 260, gravity: 0.06, edgeLength: 70, layoutAnimation: true },
+        label: { show: false },
+        emphasis: { focus: "adjacency", label: { show: true, fontSize: 8, color: "#334" } },
+        lineStyle: { color: edgeColor, curveness: 0 }
+      }]
     };
   }
   return __toCommonJS(reportCharts_exports);

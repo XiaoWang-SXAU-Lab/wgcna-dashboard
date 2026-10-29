@@ -37,7 +37,7 @@ const border = ref(true)
 const heatTitle = ref('')
 const width = ref(10)
 const height = ref(8)
-const dpi = ref(150)
+const dpi = ref(300)
 const format = ref<'pdf' | 'svg' | 'png'>('pdf')
 
 const enrichX = ref<'GeneRatio' | 'Count'>('GeneRatio')

@@ -108,7 +108,7 @@ func (h *Handler) doReportExport(id, base, enrichType, lang string, st *reportSt
 	}
 	defer os.RemoveAll(snapshot)
 	// A report never changes the interactive job's selections or progress.
-	for _, file := range []string{"params.json", "step1_filtered.tsv", "step3_modules.json"} {
+	for _, file := range []string{"params.json", "step1_filtered.tsv", "step3_modules.json", "network_nodes.tsv", "network_edges.tsv"} {
 		if err := checkedCopy(filepath.Join(jobDir, file), filepath.Join(snapshot, file)); err != nil {
 			fail(err)
 			return
@@ -224,7 +224,7 @@ func (h *Handler) doReportExport(id, base, enrichType, lang string, st *reportSt
 		if prepared, err := prepareGeneHeatmapJSON(snapshot, detail, colOrder); err == nil {
 			jsonPath = prepared
 		}
-		pl := rendered(plot.RenderGeneHeatmap(jsonPath, "png", plot.PlotParams{Width: 9, Height: 8, Dpi: 150, Legend: "right", ClusterCols: "1"}))
+		pl := rendered(plot.RenderGeneHeatmap(jsonPath, "png", plot.PlotParams{Width: 9, Height: 8, Dpi: 300, Legend: "right", ClusterCols: "1"}))
 		if jsonPath != detail {
 			os.Remove(jsonPath)
 		}

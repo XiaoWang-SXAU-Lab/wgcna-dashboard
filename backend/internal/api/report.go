@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -506,13 +507,14 @@ func modulesData(jobDir string) ([]byte, error) {
 func pairPanelsData(jobDir string) ([]byte, error) {
 	pairs := significantPairs(jobDir)
 	type panel struct {
-		Module string    `json:"module"`
-		Trait  string    `json:"trait"`
-		Cor    float64   `json:"cor"`
-		P      float64   `json:"p"`
-		Genes  []string  `json:"genes"`
-		MM     []float64 `json:"mm"`
-		GS     []float64 `json:"gs"`
+		Module string          `json:"module"`
+		Trait  string          `json:"trait"`
+		Cor    float64         `json:"cor"`
+		P      float64         `json:"p"`
+		Genes  []string        `json:"genes"`
+		MM     []float64       `json:"mm"`
+		GS     []float64       `json:"gs"`
+		Hub    json.RawMessage `json:"hub"`
 	}
 	out := make([]panel, 0, len(pairs))
 	for _, p := range pairs {
@@ -525,7 +527,11 @@ func pairPanelsData(jobDir string) ([]byte, error) {
 		if err != nil || json.Unmarshal(b, &d) != nil {
 			continue
 		}
-		out = append(out, panel{Module: p.Module, Trait: p.Trait, Cor: p.Cor, P: p.P, Genes: d.Genes, MM: d.MM, GS: d.GS})
+		pl := panel{Module: p.Module, Trait: p.Trait, Cor: p.Cor, P: p.P, Genes: d.Genes, MM: d.MM, GS: d.GS}
+		if hub, err := hubNetworkData(jobDir, p.Module); err == nil {
+			pl.Hub = hub
+		}
+		out = append(out, pl)
 	}
 	return json.Marshal(out)
 }
@@ -765,4 +771,89 @@ func fileSha256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// hubNetworkData builds the hub network for a module: top hub genes by |GS|×|MM|
+// plus their top intra-module neighbors (by TOM weight).
+func hubNetworkData(jobDir, module string) ([]byte, error) {
+	var d struct {
+		Genes []string  `json:"genes"`
+		GS    []float64 `json:"gs"`
+		MM    []float64 `json:"mm"`
+	}
+	b, err := os.ReadFile(filepath.Join(jobDir, "step5_detail_"+module+".json"))
+	if err != nil {
+		return nil, err
+	}
+	if json.Unmarshal(b, &d) != nil {
+		return nil, fmt.Errorf("bad module detail")
+	}
+
+	type sc struct {
+		gene         string
+		score, mm, gs float64
+	}
+	scored := make([]sc, 0, len(d.Genes))
+	for i, g := range d.Genes {
+		if i >= len(d.MM) || i >= len(d.GS) {
+			continue
+		}
+		mm, gs := math.Abs(d.MM[i]), math.Abs(d.GS[i])
+		scored = append(scored, sc{g, mm * gs, mm, gs})
+	}
+	sort.Slice(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
+	const maxHubs = 20
+	if len(scored) > maxHubs {
+		scored = scored[:maxHubs]
+	}
+	hubSet := map[string]bool{}
+	gsByGene := map[string]float64{}
+	for _, s := range scored {
+		hubSet[s.gene] = true
+		gsByGene[s.gene] = s.gs
+	}
+
+	idx, err := getNetworkIndex(jobDir)
+	if err != nil {
+		return nil, err
+	}
+
+	kept := map[string]bool{}
+	nodeSet := map[string]bool{}
+	edgesOut := []map[string]any{}
+	for _, s := range scored {
+		nodeSet[s.gene] = true
+		edges := idx.intraByGene[s.gene]
+		sort.Slice(edges, func(i, j int) bool { return edges[i].Weight > edges[j].Weight })
+		const topN = 15
+		for k := 0; k < topN && k < len(edges); k++ {
+			e := edges[k]
+			other := e.Target
+			if other == s.gene {
+				other = e.Source
+			}
+			nodeSet[other] = true
+			a, bb := s.gene, other
+			if a > bb {
+				a, bb = bb, a
+			}
+			key := a + "\x00" + bb
+			if !kept[key] {
+				kept[key] = true
+				edgesOut = append(edgesOut, map[string]any{"source": s.gene, "target": other, "weight": e.Weight})
+			}
+		}
+	}
+
+	nodes := []map[string]any{}
+	for g := range nodeSet {
+		color, kme, degree := "grey", 0.0, 0
+		if gi, ok := idx.geneIdx[g]; ok && gi < len(idx.nodes) {
+			color = idx.nodes[gi].Color
+			kme = idx.nodes[gi].Kme
+			degree = idx.nodes[gi].Degree
+		}
+		nodes = append(nodes, map[string]any{"id": g, "color": color, "kme": kme, "degree": degree, "gs": gsByGene[g], "is_hub": hubSet[g]})
+	}
+	return json.Marshal(map[string]any{"module": module, "nodes": nodes, "edges": edgesOut})
 }

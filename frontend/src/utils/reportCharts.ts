@@ -436,3 +436,47 @@ export function gsMmScatterOption(mm: number[], gs: number[], genes: string[], m
     ],
   }
 }
+
+// ---- Hub network graph (force layout) ----
+export function hubNetworkOption(nodes: any[], edges: any[], nodeScale = 1, edgeWidth = 1, edgeColor = '#9aa5b1'): EChartsOption {
+  const data = nodes.map((n) => ({
+    id: n.id,
+    name: n.id,
+    symbolSize: (n.is_hub ? 20 : 9) * nodeScale,
+    itemStyle: {
+      color: n.color,
+      borderColor: n.is_hub ? '#111111' : n.color,
+      borderWidth: n.is_hub ? 2 : 0.5,
+      opacity: 0.95,
+    },
+    value: n.kme,
+    module: n.color,
+    isHub: !!n.is_hub,
+  }))
+  const links = edges.map((e) => ({
+    source: e.source,
+    target: e.target,
+    lineStyle: { width: edgeWidth, color: edgeColor, opacity: 0.5 },
+  }))
+  return {
+    tooltip: {
+      formatter: (p: any) => {
+        const d = p.data as any
+        if (!d || p.dataType === 'edge') return ''
+        return `<b>${d.id}</b><br/>module: ${d.module}<br/>|kME|: ${d.value?.toFixed(3) ?? '—'}${d.isHub ? '<br/>hub' : ''}`
+      },
+    },
+    series: [{
+      type: 'graph',
+      layout: 'force',
+      roam: true,
+      data,
+      links,
+      categories: Array.from(new Set(nodes.map((n: any) => n.color))).map((c) => ({ name: c as string, itemStyle: { color: c as string } })),
+      force: { repulsion: 260, gravity: 0.06, edgeLength: 70, layoutAnimation: true },
+      label: { show: false },
+      emphasis: { focus: 'adjacency', label: { show: true, fontSize: 8, color: '#334' } },
+      lineStyle: { color: edgeColor, curveness: 0 },
+    }],
+  }
+}
