@@ -55,6 +55,7 @@ type reportData struct {
 	ModulesJSON    string // raw {genes, colors, module_sizes, dendrogram} for the network section
 	ModuleTraitJSON string // raw module-trait data (modules/traits/cor/p/eigengenes/genes/kme + trait_source/column)
 	PairPanelsJSON  string // significant module–trait pairs with genes/MM/GS for the tab panels
+	HeatmapDataURLs map[string]string // key "module_trait" -> base64 data URL for the z-score heatmap
 
 	// input-file summary (project introduction)
 	RawSamples     int
@@ -787,7 +788,12 @@ func pairPanelsHTML(d reportData) string {
 		}
 		b.WriteString(`<div class="mt-panel" data-idx="` + fmtInt(i) + `"` + style + `>`)
 		b.WriteString(`<div class="row g-3"><div class="col-md-6"><div id="gsmm-` + fmtInt(i) + `" style="height:420px"></div></div>`)
-		b.WriteString(`<div class="col-md-6"><img src="../result/05_module_trait/panels/` + safeName(p.Module) + `_` + safeName(p.Trait) + `/heatmap.png" alt="z-score eigengene" style="max-width:100%;border:1px solid var(--line)"></div></div>`)
+		key := safeName(p.Module) + "_" + safeName(p.Trait)
+		src := "../result/05_module_trait/panels/" + key + "/heatmap.png"
+		if du, ok := d.HeatmapDataURLs[key]; ok && du != "" {
+			src = du
+		}
+		b.WriteString(`<div class="col-md-6"><img src="` + src + `" alt="z-score eigengene" style="max-width:100%;border:1px solid var(--line)"></div></div>`)
 		b.WriteString(`</div>`)
 	}
 	b.WriteString(`<script type="application/json" id="mt-pairs-data">` + d.PairPanelsJSON + `</script>`)
