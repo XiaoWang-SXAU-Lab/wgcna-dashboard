@@ -34,6 +34,7 @@ title         <- get_arg("--title", NULL)
 if (is.null(json_path) || is.null(out_path)) stop("usage: render_geneheatmap.R --json <f> --out <f>")
 
 d <- fromJSON(json_path, simplifyVector = TRUE)
+d_raw <- fromJSON(json_path, simplifyVector = FALSE)
 mod <- d$module
 if (is.null(title)) title <- paste0("Module ", mod, " gene expression")
 genes <- d$genes
@@ -51,9 +52,22 @@ colnames(z) <- samples
 
 col_fun <- colorRamp2(c(-2, 0, 2), c(low, mid, high))
 
-# eigengene barplot (top annotation)
+# sample-info annotation color blocks (top)
+sample_ann <- d_raw$sample_annotations
+top_ha <- NULL
+if (!is.null(sample_ann) && length(sample_ann) > 0) {
+  df <- as.data.frame(lapply(sample_ann, function(a) factor(unlist(a$values))),
+                      stringsAsFactors = FALSE)
+  names(df) <- vapply(sample_ann, function(a) a$name, character(1))
+  top_ha <- HeatmapAnnotation(
+    df = df, which = "column", show_annotation_name = FALSE,
+    annotation_name_gp = gpar(fontsize = 8), gp = gpar(col = "white")
+  )
+}
+
+# eigengene barplot (bottom annotation)
 bar_fill <- if (mod %in% colors()) mod else "#2563eb"
-top_ha <- columnAnnotation(
+bottom_ha <- columnAnnotation(
   Eigengene = anno_barplot(eg, gp = gpar(fill = bar_fill), border = FALSE),
   show_annotation_name = FALSE
 )
@@ -71,6 +85,7 @@ ht <- Heatmap(
   show_column_names = show_colnames == 1,
   column_names_rot = 45,
   top_annotation = top_ha,
+  bottom_annotation = bottom_ha,
   heatmap_legend_param = list(
     title = "Z-score",
     direction = leg_direction,

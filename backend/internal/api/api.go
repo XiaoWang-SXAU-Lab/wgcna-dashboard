@@ -825,6 +825,59 @@ func (h *Handler) plotGsmm(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, out)
 }
 
+// prepareGeneHeatmapJSON sorts samples by id, reorders the expression columns
+// and eigengene values, and attaches all sample_info columns as annotations, so
+// the geneheatmap R script can draw the color blocks + eigengene barplot.
+func prepareGeneHeatmapJSON(jobDir, detailPath string) (string, error) {
+	b, err := os.ReadFile(detailPath)
+	if err != nil {
+		return "", err
+	}
+	var d struct {
+		Samples    []string    `json:"samples"`
+		Expression [][]float64 `json:"expression"`
+		Eigengene  []float64   `json:"eigengene"`
+	}
+	if err := json.Unmarshal(b, &d); err != nil {
+		return "", err
+	}
+	idx := make([]int, len(d.Samples))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool { return d.Samples[idx[a]] < d.Samples[idx[b]] })
+	samples := permute(d.Samples, idx)
+	expr := make([][]float64, len(d.Expression))
+	for i, row := range d.Expression {
+		expr[i] = permute(row, idx)
+	}
+	eg := permute(d.Eigengene, idx)
+
+	meta, colOrder := readSampleMeta(jobDir)
+	ann := buildSampleAnnotations(samples, meta, colOrder)
+
+	var out map[string]any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return "", err
+	}
+	out["samples"] = samples
+	out["expression"] = expr
+	out["eigengene"] = eg
+	out["sample_annotations"] = ann
+
+	tmp, err := os.CreateTemp("", "geneheatmap-*.json")
+	if err != nil {
+		return "", err
+	}
+	if err := json.NewEncoder(tmp).Encode(out); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	tmp.Close()
+	return tmp.Name(), nil
+}
+
 // plotGeneHeatmap renders the module gene heatmap via R (PDF/SVG/PNG).
 func (h *Handler) plotGeneHeatmap(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -851,6 +904,10 @@ func (h *Handler) plotGeneHeatmap(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(jsonPath); err != nil {
 		http.Error(w, "module detail not available", http.StatusNotFound)
 		return
+	}
+	if prepared, err := prepareGeneHeatmapJSON(h.jobs.Dir(), jsonPath); err == nil {
+		jsonPath = prepared
+		defer os.Remove(prepared)
 	}
 	out, ctype, err := plot.RenderGeneHeatmap(jsonPath, mode, params)
 	if err != nil {
