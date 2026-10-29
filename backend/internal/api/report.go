@@ -290,6 +290,10 @@ func buildReportData(jobDir, base string, modules []string, enrichType, lang str
 	if m, err := moduleTraitData(jobDir); err == nil {
 		d.ModuleTraitJSON = string(m)
 	}
+	// significant module–trait pair panels
+	if m, err := pairPanelsData(jobDir); err == nil {
+		d.PairPanelsJSON = string(m)
+	}
 
 	return d
 }
@@ -495,6 +499,35 @@ func sftData(jobDir string) ([]byte, error) {
 // dendrogram) for the network-construction report section.
 func modulesData(jobDir string) ([]byte, error) {
 	return os.ReadFile(filepath.Join(jobDir, "step3_modules.json"))
+}
+
+// pairPanelsData builds the significant module–trait pair panels: one entry per
+// pair (|cor|>0.65, p<0.05) with the module detail's genes/MM/GS.
+func pairPanelsData(jobDir string) ([]byte, error) {
+	pairs := significantPairs(jobDir)
+	type panel struct {
+		Module string    `json:"module"`
+		Trait  string    `json:"trait"`
+		Cor    float64   `json:"cor"`
+		P      float64   `json:"p"`
+		Genes  []string  `json:"genes"`
+		MM     []float64 `json:"mm"`
+		GS     []float64 `json:"gs"`
+	}
+	out := make([]panel, 0, len(pairs))
+	for _, p := range pairs {
+		var d struct {
+			Genes []string  `json:"genes"`
+			MM    []float64 `json:"mm"`
+			GS    []float64 `json:"gs"`
+		}
+		b, err := os.ReadFile(filepath.Join(jobDir, "step5_detail_"+p.Module+".json"))
+		if err != nil || json.Unmarshal(b, &d) != nil {
+			continue
+		}
+		out = append(out, panel{Module: p.Module, Trait: p.Trait, Cor: p.Cor, P: p.P, Genes: d.Genes, MM: d.MM, GS: d.GS})
+	}
+	return json.Marshal(out)
 }
 
 // moduleTraitData reads the module–trait result and merges the trait source +

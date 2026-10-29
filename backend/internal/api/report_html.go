@@ -54,6 +54,7 @@ type reportData struct {
 	SftJSON        string // raw soft-threshold data for the interactive SFT figures
 	ModulesJSON    string // raw {genes, colors, module_sizes, dendrogram} for the network section
 	ModuleTraitJSON string // raw module-trait data (modules/traits/cor/p/eigengenes/genes/kme + trait_source/column)
+	PairPanelsJSON  string // significant module–trait pairs with genes/MM/GS for the tab panels
 
 	// input-file summary (project introduction)
 	RawSamples     int
@@ -238,6 +239,7 @@ func generateReportHTML(d reportData) string {
 		b.WriteString(moduleTraitTableHTML(d))
 		b.WriteString(`<div id="mtrait-heatmap" style="height:460px"></div><script type="application/json" id="mtrait-data">` + d.ModuleTraitJSON + `</script>`)
 		b.WriteString(significantCorrHTML(d))
+		b.WriteString(pairPanelsHTML(d))
 		b.WriteString(mmTableHTML(d))
 		b.WriteString(`</section>`)
 	} else {
@@ -750,4 +752,57 @@ func mmTableHTML(d reportData) string {
 		rows = append(rows, []string{g, modName, mm})
 	}
 	return `<h3>` + d.L("模块隶属度（MM / kME）", "Module membership (MM / kME)") + `</h3>` + tableHTML(head, rows)
+}
+
+// pairPanelsHTML renders the significant module–trait pair tab panels (GS×MM
+// scatter + z-score/eigengene heatmap, with the hub network as a follow-up).
+func pairPanelsHTML(d reportData) string {
+	var pairs []struct {
+		Module string    `json:"module"`
+		Trait  string    `json:"trait"`
+		Cor    float64   `json:"cor"`
+		P      float64   `json:"p"`
+		Genes  []string  `json:"genes"`
+		MM     []float64 `json:"mm"`
+		GS     []float64 `json:"gs"`
+	}
+	if json.Unmarshal([]byte(d.PairPanelsJSON), &pairs) != nil || len(pairs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<h3>` + d.L("显著模块-表型对（|cor| > 0.65，p < 0.05）", "Significant module–trait pairs (|cor| > 0.65, p < 0.05)") + `</h3>`)
+	b.WriteString(`<div class="mt-tabs" id="mt-tabs">`)
+	for i, p := range pairs {
+		active := ""
+		if i == 0 {
+			active = " active"
+		}
+		b.WriteString(`<button type="button" class="mt-tab` + active + `" data-idx="` + fmtInt(i) + `">` + html.EscapeString(p.Module) + `-` + html.EscapeString(p.Trait) + `</button>`)
+	}
+	b.WriteString(`</div>`)
+	for i, p := range pairs {
+		style := ` style="display:none"`
+		if i == 0 {
+			style = ""
+		}
+		b.WriteString(`<div class="mt-panel" data-idx="` + fmtInt(i) + `"` + style + `>`)
+		b.WriteString(`<div class="row g-3"><div class="col-md-6"><div id="gsmm-` + fmtInt(i) + `" style="height:420px"></div></div>`)
+		b.WriteString(`<div class="col-md-6"><img src="../result/05_module_trait/panels/` + safeName(p.Module) + `_` + safeName(p.Trait) + `/heatmap.png" alt="z-score eigengene" style="max-width:100%;border:1px solid var(--line)"></div></div>`)
+		b.WriteString(`</div>`)
+	}
+	b.WriteString(`<script type="application/json" id="mt-pairs-data">` + d.PairPanelsJSON + `</script>`)
+	b.WriteString(`<script>(function(){var el=document.getElementById('mt-pairs-data');if(!el)return;var pairs=JSON.parse(el.textContent);pairs.forEach(function(p,i){var c=document.getElementById('gsmm-'+i);if(c){var ch=echarts.init(c);ch.setOption(reportCharts.gsMmScatterOption(p.mm,p.gs,p.genes,p.module,p.trait,'` + d.L("GS vs MM", "GS vs MM") + `'));window.addEventListener('resize',function(){ch.resize()})}});var tabs=document.querySelectorAll('#mt-tabs .mt-tab');tabs.forEach(function(t){t.onclick=function(){var idx=t.getAttribute('data-idx');tabs.forEach(function(x){x.classList.remove('active')});t.classList.add('active');document.querySelectorAll('.mt-panel').forEach(function(pan){pan.style.display=pan.getAttribute('data-idx')===idx?'':'none'})}})})();</script>`)
+	return b.String()
+}
+
+func safeName(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }

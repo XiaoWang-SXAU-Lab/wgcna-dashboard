@@ -208,6 +208,15 @@ func (h *Handler) doReportExport(id, base, enrichType, lang string, st *reportSt
 			save("08_clustering/cluster_overview.png", rendered(plot.RenderModuleOverview(data, "png", plot.PlotParams{Width: 18, Height: 13})))
 		}
 	}
+	// render z-score + eigengene heatmap per significant pair
+	for _, p := range significantPairs(snapshot) {
+		detail := filepath.Join(snapshot, "step5_detail_"+p.Module+".json")
+		if _, err := os.Stat(detail); err != nil {
+			continue
+		}
+		rel := "05_module_trait/panels/" + safeName(p.Module) + "_" + safeName(p.Trait) + "/heatmap.png"
+		save(rel, rendered(plot.RenderGeneHeatmap(detail, "png", plot.PlotParams{Width: 9, Height: 8, Dpi: 150, Legend: "right"})))
+	}
 	// Preserve the actual numerical results, not just figures.
 	for file, dest := range map[string]string{"step1_filter.json": "02_filter/filter.json", "step2_sft.json": "03_soft_threshold/sft.json", "step3_modules.json": "04_network/modules.json", "step4_mtrait.json": "05_module_trait/module_trait.json", "step6_hub.json": "07_hub/hub.json", "overview_clusters.json": "08_clustering/clusters.json", "overview_elbow.json": "08_clustering/elbow.json", "step5_detail_all.json": "06_module_detail/index.json"} {
 		if _, err := os.Stat(filepath.Join(snapshot, file)); err == nil {

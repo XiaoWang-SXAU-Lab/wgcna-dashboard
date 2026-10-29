@@ -194,6 +194,35 @@ func significantModules(dir string) []keyModule {
 	return result
 }
 
+// significantPairs returns every module–trait pair with |cor| > 0.65 and
+// p < 0.05 (one entry per pair, for the module–trait tab panels).
+func significantPairs(dir string) []keyModule {
+	var mt struct {
+		Modules, Traits []string
+		Cor, P          [][]float64
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "step4_mtrait.json"))
+	if err != nil || json.Unmarshal(b, &mt) != nil {
+		return nil
+	}
+	result := []keyModule{}
+	for mi, m := range mt.Modules {
+		if m == "grey" || !reportNameOK(m) {
+			continue
+		}
+		for ti := range mt.Traits {
+			if mi >= len(mt.P) || ti >= len(mt.P[mi]) || mi >= len(mt.Cor) || ti >= len(mt.Cor[mi]) {
+				continue
+			}
+			p, c := mt.P[mi][ti], mt.Cor[mi][ti]
+			if !math.IsNaN(p) && p < 0.05 && !math.IsNaN(c) && math.Abs(c) > 0.65 {
+				result = append(result, keyModule{m, mt.Traits[ti], c, p})
+			}
+		}
+	}
+	return result
+}
+
 type reportFigureTask struct {
 	Key         string          `json:"key"`
 	Kind        string          `json:"kind"`
