@@ -482,30 +482,18 @@ func readSampleMeta(jobDir string) (map[string]map[string]string, []string) {
 	return meta, colOrder
 }
 
-// computeSampleOrder returns indices that group samples by groupCol (stable),
-// or sort by sample id when groupCol is empty.
+// computeSampleOrder returns indices that sort samples by sample id (stable).
+// Sample-info metadata is kept as annotation bands, not used for grouping.
 func computeSampleOrder(samples []string, meta map[string]map[string]string, groupCol string) []int {
 	idx := make([]int, len(samples))
 	for i := range idx {
 		idx[i] = i
 	}
-	if groupCol != "" {
-		sort.SliceStable(idx, func(a, b int) bool {
-			ga := ""
-			gb := ""
-			if meta != nil {
-				ga = meta[samples[idx[a]]][groupCol]
-				gb = meta[samples[idx[b]]][groupCol]
-			}
-			return ga < gb
-		})
-	} else {
-		sort.SliceStable(idx, func(a, b int) bool { return samples[idx[a]] < samples[idx[b]] })
-	}
+	sort.SliceStable(idx, func(a, b int) bool { return samples[idx[a]] < samples[idx[b]] })
 	return idx
 }
 
-// buildSampleAnnotations returns the first up-to-3 metadata columns (excluding
+// buildSampleAnnotations returns every sample-info metadata column (excluding
 // sample id/name) as {name, values-per-sample} annotations for the x-axis.
 func buildSampleAnnotations(samples []string, meta map[string]map[string]string, colOrder []string) []map[string]any {
 	var ann []map[string]any
@@ -524,9 +512,6 @@ func buildSampleAnnotations(samples []string, meta map[string]map[string]string,
 			continue
 		}
 		ann = append(ann, map[string]any{"name": col, "values": values})
-		if len(ann) >= 3 {
-			break
-		}
 	}
 	return ann
 }

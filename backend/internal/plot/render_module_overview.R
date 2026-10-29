@@ -58,8 +58,7 @@ module_factor <- factor(modules, levels = module_order)
 col_fun <- colorRamp2(c(-2, 0, 2), c(low, mid, high))
 n_samples <- length(samples)
 
-# ---- sample annotations (all selected metadata columns as color blocks) ----
-sample_group <- NULL
+# ---- sample annotations (all sample-info metadata columns as color blocks) ----
 column_split <- NULL
 top_anno <- NULL
 if (!is.null(sample_ann) && length(sample_ann) > 0) {
@@ -70,8 +69,6 @@ if (!is.null(sample_ann) && length(sample_ann) > 0) {
     df = df, which = "column", show_annotation_name = FALSE,
     annotation_name_gp = gpar(fontsize = font_size), gp = gpar(col = "white")
   )
-  sample_group <- setNames(unlist(sample_ann[[1]]$values), samples)
-  column_split <- factor(sample_group, levels = unique(sample_group))
 }
 
 # ---- left annotation: median-expression line per module (visCluster panel_fun) ----

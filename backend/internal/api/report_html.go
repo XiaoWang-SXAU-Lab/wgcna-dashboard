@@ -589,16 +589,38 @@ func moduleBadgesHTML(d reportData) string {
 	}
 	rows := make([]row, 0, len(mod.ModuleSizes))
 	for name, count := range mod.ModuleSizes {
+		if name == "grey" || name == "grey60" {
+			continue
+		}
 		rows = append(rows, row{name, count})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].count > rows[j].count })
 	var b strings.Builder
 	b.WriteString(`<div class="d-flex flex-wrap gap-2 my-3">`)
 	for _, r := range rows {
-		b.WriteString(`<span class="badge" style="background-color:` + wgcnaHex(r.name) + `;color:#fff;border:1px solid rgba(0,0,0,.15)">` + html.EscapeString(r.name) + ` ` + fmtInt(r.count) + `</span>`)
+		hex := wgcnaHex(r.name)
+		b.WriteString(`<span style="display:inline-flex;align-items:stretch;border-radius:4px;overflow:hidden;font-size:12px;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.12)">` +
+			`<span style="background:` + hex + `;color:` + contrastText(hex) + `;padding:5px 9px;font-weight:600">` + html.EscapeString(r.name) + `</span>` +
+			`<span style="background:rgba(0,0,0,.30);color:#fff;padding:5px 9px">` + fmtInt(r.count) + `</span>` +
+			`</span>`)
 	}
 	b.WriteString(`</div>`)
 	return b.String()
+}
+
+// contrastText picks white or near-black text for a given background hex, so
+// module names stay readable on light colors (yellow, pink, grey).
+func contrastText(hex string) string {
+	var r, g, bb int
+	if _, err := fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &bb); err != nil {
+		return "#fff"
+	}
+	// perceived luminance (sRGB)
+	lum := 0.299*float64(r) + 0.587*float64(g) + 0.114*float64(bb)
+	if lum > 160 {
+		return "#1a1a1a"
+	}
+	return "#fff"
 }
 
 // geneModuleTableHTML renders the Gene → Module table (scrollable).
@@ -615,6 +637,9 @@ func geneModuleTableHTML(d reportData) string {
 		c := ""
 		if i < len(mod.Colors) {
 			c = mod.Colors[i]
+		}
+		if c == "grey" || c == "grey60" {
+			continue
 		}
 		rows = append(rows, []string{g, c})
 	}
@@ -712,6 +737,9 @@ func mmTableHTML(d reportData) string {
 		modName := ""
 		if i < len(mod.Colors) {
 			modName = mod.Colors[i]
+		}
+		if modName == "grey" || modName == "grey60" {
+			continue
 		}
 		mm := ""
 		if i < len(mt.Kme) {
