@@ -211,6 +211,7 @@ func (h *Handler) doReportExport(id, base, enrichType, lang string, st *reportSt
 	}
 	// render z-score + eigengene heatmap per significant pair
 	heatmapDataURLs := map[string]string{}
+	_, colOrder := readSampleMeta(snapshot)
 	for _, p := range significantPairs(snapshot) {
 		detail := filepath.Join(snapshot, "step5_detail_"+p.Module+".json")
 		if _, err := os.Stat(detail); err != nil {
@@ -218,7 +219,15 @@ func (h *Handler) doReportExport(id, base, enrichType, lang string, st *reportSt
 		}
 		key := safeName(p.Module) + "_" + safeName(p.Trait)
 		rel := "05_module_trait/panels/" + key + "/heatmap.png"
-		pl := rendered(plot.RenderGeneHeatmap(detail, "png", plot.PlotParams{Width: 9, Height: 8, Dpi: 150, Legend: "right"}))
+		// sort samples by id + attach sample_info annotations (same as the App)
+		jsonPath := detail
+		if prepared, err := prepareGeneHeatmapJSON(snapshot, detail, colOrder); err == nil {
+			jsonPath = prepared
+		}
+		pl := rendered(plot.RenderGeneHeatmap(jsonPath, "png", plot.PlotParams{Width: 9, Height: 8, Dpi: 150, Legend: "right", ClusterCols: "1"}))
+		if jsonPath != detail {
+			os.Remove(jsonPath)
+		}
 		if pl.err == nil {
 			if b, err := os.ReadFile(pl.path); err == nil {
 				heatmapDataURLs[key] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(b)
