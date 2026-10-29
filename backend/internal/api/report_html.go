@@ -16,6 +16,9 @@ var reportCSS []byte
 //go:embed report_assets/design.js
 var reportJS []byte
 
+//go:embed report_assets/sample_tree.js
+var sampleTreeJS []byte
+
 // reportData carries the real analysis facts used to build the report.
 type reportData struct {
 	KeyModules    []keyModule
@@ -44,6 +47,7 @@ type reportData struct {
 	HubGenes      []reportHubGene
 	Bridges       []netNode
 	ModuleTraits  map[string]string
+	SampleTreeJSON string // raw {samples, tree, bands} for the interactive sample tree
 }
 
 type reportHubGene struct {
@@ -134,8 +138,12 @@ func generateReportHTML(d reportData) string {
 	b.WriteString(stepHead(d, 3, nav[2], d.L("明确区分样本删除、低表达过滤和高变基因选择。", "Separate sample exclusion, low-expression filtering and variable-gene selection.")))
 	b.WriteString(filterStory(d))
 	_ = d.L("", "")
-	sampleTreeCap := d.L("根据这 "+fmtInt(d.Genes)+" 个基因的表达矩阵，样本聚类结果如下（色带为所选性状列）。", "Sample clustering based on the "+fmtInt(d.Genes)+"-gene matrix (annotation band = the selected trait column).")
-	b.WriteString(`<figure><img src="../result/02_filter/sample_tree.png" alt="sample tree"><figcaption><span><b>` + d.L("图 1.", "Figure 1.") + `</b> ` + sampleTreeCap + `</span></figcaption></figure>`)
+	sampleTreeCap := d.L("根据这 "+fmtInt(d.Genes)+" 个基因的表达矩阵，样本聚类结果如下。点击上方 sample_info 字段（如 group）可切换对应的注释色带。", "Sample clustering based on the "+fmtInt(d.Genes)+"-gene matrix. Click a sample_info field above (e.g. group) to toggle its annotation band.")
+	if d.SampleTreeJSON != "" {
+		b.WriteString(`<figure><div id="sample-tree-controls" class="st-controls"></div><div id="sample-tree" style="height:560px;min-height:320px"></div><script type="application/json" id="sample-tree-data">` + d.SampleTreeJSON + `</script><figcaption><span><b>` + d.L("图 1.", "Figure 1.") + `</b> ` + sampleTreeCap + `</span></figcaption></figure>`)
+	} else {
+		b.WriteString(`<figure><img src="../result/02_filter/sample_tree.png" alt="sample tree"><figcaption><span><b>` + d.L("图 1.", "Figure 1.") + `</b> ` + sampleTreeCap + `</span></figcaption></figure>`)
+	}
 	b.WriteString(`</section>`)
 
 	// ---- step 4: 软阈值 ----

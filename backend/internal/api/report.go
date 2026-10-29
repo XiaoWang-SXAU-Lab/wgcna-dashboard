@@ -272,6 +272,11 @@ func buildReportData(jobDir, base string, modules []string, enrichType, lang str
 		}
 	}
 
+	// interactive sample-tree data (samples + dendrogram + all sample_info bands)
+	if st, err := sampleTreeData(jobDir); err == nil {
+		d.SampleTreeJSON = string(st)
+	}
+
 	return d
 }
 
@@ -281,6 +286,9 @@ func writeReport(reportDir string, d reportData) error {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(reportDir, "design.js"), reportJS, 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(reportDir, "sample_tree.js"), sampleTreeJS, 0o644); err != nil {
 		return err
 	}
 
@@ -293,7 +301,11 @@ func writeReport(reportDir string, d reportData) error {
 	if d.Lang == "en" {
 		title = "rsWGCNA Analysis report"
 	}
-	html := "<!doctype html><html lang='" + langAttr + "'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>" + title + "</title><link rel='stylesheet' href='design.css'></head><body>" + body + "<script src='design.js'></script></body></html>"
+	echartsCDN := ""
+	if d.SampleTreeJSON != "" {
+		echartsCDN = `<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>`
+	}
+	html := "<!doctype html><html lang='" + langAttr + "'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>" + title + "</title><link rel='stylesheet' href='design.css'>" + echartsCDN + "</head><body>" + body + "<script src='sample_tree.js'></script><script src='design.js'></script></body></html>"
 	if err := os.WriteFile(filepath.Join(reportDir, "index.html"), []byte(html), 0o644); err != nil {
 		return err
 	}
@@ -311,7 +323,7 @@ func absFloat(v float64) float64 {
 }
 
 // sampleTreeData builds the sample-tree render payload from step1_filter.json
-// and sample_info.tsv, using the trait column as the annotation band.
+// and sample_info.tsv, exposing every sample_info column as an annotation band.
 func sampleTreeData(jobDir string) ([]byte, error) {
 	var filter struct {
 		Samples []string `json:"samples"`
@@ -328,33 +340,39 @@ func sampleTreeData(jobDir string) ([]byte, error) {
 	if err := json.Unmarshal(b, &filter); err != nil {
 		return nil, err
 	}
+	return json.Marshal(map[string]any{"samples": filter.Samples, "tree": filter.Tree, "bands": sampleInfoBands(jobDir)})
+}
 
+// sampleInfoBands returns every sample_info column (except sample_id /
+// sample_name) as {name, values-per-sample}, in the file's column order.
+func sampleInfoBands(jobDir string) []map[string]any {
+	raw, err := os.ReadFile(filepath.Join(jobDir, "sample_info.tsv"))
+	if err != nil {
+		return nil
+	}
+	r := csv.NewReader(strings.NewReader(string(raw)))
+	r.Comma = '\t'
+	r.FieldsPerRecord = -1
+	header, err := r.Read()
+	if err != nil {
+		return nil
+	}
+	infos, err := enrich.ParseSampleInfo(raw)
+	if err != nil {
+		return nil
+	}
 	var bands []map[string]any
-	// trait column from params.json
-	if pb, err := os.ReadFile(filepath.Join(jobDir, "params.json")); err == nil {
-		var p map[string]any
-		if json.Unmarshal(pb, &p) == nil {
-			if mt, ok := p["module_trait"].(map[string]any); ok {
-				if tc, ok := mt["trait_column"].(string); ok && tc != "" {
-					bands = append(bands, map[string]any{"name": tc, "values": map[string]string{}})
-				}
-			}
+	for _, col := range header[1:] {
+		if col == "sample_id" || col == "sample_name" {
+			continue
 		}
-	}
-	if len(bands) > 0 {
-		if raw, err := os.ReadFile(filepath.Join(jobDir, "sample_info.tsv")); err == nil {
-			if infos, err := enrich.ParseSampleInfo(raw); err == nil {
-				attr := bands[0]["name"].(string)
-				values := map[string]string{}
-				for _, s := range infos {
-					values[s.SampleID] = s.Attrs[attr]
-				}
-				bands[0]["values"] = values
-			}
+		values := map[string]string{}
+		for _, s := range infos {
+			values[s.SampleID] = s.Attrs[col]
 		}
+		bands = append(bands, map[string]any{"name": col, "values": values})
 	}
-
-	return json.Marshal(map[string]any{"samples": filter.Samples, "tree": filter.Tree, "bands": bands})
+	return bands
 }
 
 // writeProvenance writes a minimal provenance folder (final params + environment).
