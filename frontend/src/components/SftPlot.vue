@@ -4,44 +4,14 @@ import type { EChartsOption } from 'echarts'
 import type { SftResult } from '../api/client'
 import ResizableChart from './ResizableChart.vue'
 import { t } from '../utils/i18n'
+import { meanConnectivityOption, scaleIndependenceOption } from '../utils/reportCharts'
 
 const props = defineProps<{ data: SftResult; rsquaredCut?: number }>()
 const lineColor = ref('#5470c6')
 const rsqCut = computed(() => props.rsquaredCut ?? 0.85)
-const powers = computed(() => props.data.fit_indices.map((f) => f.power))
 
-const scaleIndependence = computed<EChartsOption>(() => ({
-  title: { text: t('sft.scaleTitle'), left: 'center', textStyle: { fontSize: 14 } },
-  tooltip: { trigger: 'axis' },
-  toolbox: { right: 10, top: 10, feature: { saveAsImage: { title: t('comp.downloadPng'), name: 'scale_independence', pixelRatio: 2, backgroundColor: '#ffffff' } } },
-  xAxis: { type: 'category', name: 'Soft Threshold (power)', nameLocation: 'middle', nameGap: 32, data: powers.value },
-  yAxis: { type: 'value', name: 'Scale Free Topology Model Fit, signed R²', nameLocation: 'middle', nameRotate: 90, nameGap: 55 },
-  series: [{
-    type: 'line',
-    data: props.data.fit_indices.map((f) => +f.rsq.toFixed(3)),
-    symbolSize: 8,
-    lineStyle: { width: 2, color: lineColor.value },
-    markLine: {
-      data: [{ yAxis: rsqCut.value, label: { formatter: 'R² = ' + rsqCut.value } }],
-      lineStyle: { color: '#e11d48', type: 'dashed' },
-    },
-  }],
-}))
-
-const meanConnectivity = computed<EChartsOption>(() => ({
-  title: { text: t('sft.connTitle'), left: 'center', textStyle: { fontSize: 14 } },
-  tooltip: { trigger: 'axis' },
-  toolbox: { right: 10, top: 10, feature: { saveAsImage: { title: t('comp.downloadPng'), name: 'mean_connectivity', pixelRatio: 2, backgroundColor: '#ffffff' } } },
-  xAxis: { type: 'category', name: 'Soft Threshold (power)', nameLocation: 'middle', nameGap: 32, data: powers.value },
-  yAxis: { type: 'value', name: 'Mean Connectivity', nameLocation: 'middle', nameRotate: 90, nameGap: 55 },
-  series: [{
-    type: 'line',
-    data: props.data.fit_indices.map((f) => +f.mean_k.toFixed(3)),
-    symbolSize: 8,
-    lineStyle: { width: 2, color: lineColor.value },
-    areaStyle: { opacity: 0.08 },
-  }],
-}))
+const scaleIndependence = computed<EChartsOption>(() => scaleIndependenceOption(props.data.fit_indices, rsqCut.value, t('sft.scaleTitle'), lineColor.value, 'scale_independence', t('comp.downloadPng')))
+const meanConnectivity = computed<EChartsOption>(() => meanConnectivityOption(props.data.fit_indices, t('sft.connTitle'), lineColor.value, 'mean_connectivity', t('comp.downloadPng')))
 </script>
 
 <template>

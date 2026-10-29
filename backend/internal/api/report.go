@@ -278,6 +278,10 @@ func buildReportData(jobDir, base string, modules []string, enrichType, lang str
 	}
 	// project-introduction input-file summary
 	populateInputs(&d, jobDir)
+	// soft-threshold data (fit indices + scale-free check)
+	if st, err := sftData(jobDir); err == nil {
+		d.SftJSON = string(st)
+	}
 
 	return d
 }
@@ -290,7 +294,7 @@ func writeReport(reportDir string, d reportData) error {
 	if err := os.WriteFile(filepath.Join(reportDir, "design.js"), reportJS, 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(reportDir, "sample_tree.js"), sampleTreeJS, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(reportDir, "report-charts.js"), reportChartsJS, 0o644); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(reportDir, "echarts.min.js"), echartsJS, 0o644); err != nil {
@@ -306,11 +310,11 @@ func writeReport(reportDir string, d reportData) error {
 	if d.Lang == "en" {
 		title = "rsWGCNA Analysis report"
 	}
-	echartsScript := ""
-	if d.SampleTreeJSON != "" {
-		echartsScript = `<script src="echarts.min.js"></script>`
+	chartsScript := ""
+	if d.SampleTreeJSON != "" || d.SftJSON != "" {
+		chartsScript = `<script src="echarts.min.js"></script><script src="report-charts.js"></script>`
 	}
-	html := "<!doctype html><html lang='" + langAttr + "'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>" + title + "</title><link rel='stylesheet' href='design.css'>" + echartsScript + "</head><body>" + body + "<script src='sample_tree.js'></script><script src='design.js'></script></body></html>"
+	html := "<!doctype html><html lang='" + langAttr + "'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>" + title + "</title><link rel='stylesheet' href='design.css'>" + chartsScript + "</head><body>" + body + "<script src='design.js'></script></body></html>"
 	if err := os.WriteFile(filepath.Join(reportDir, "index.html"), []byte(html), 0o644); err != nil {
 		return err
 	}
@@ -454,6 +458,29 @@ func countGeneAnno(path string) (genes, entries int) {
 		}
 	}
 	return genes, entries
+}
+
+// sftData reads the soft-threshold result and merges the R² cutoff from params.
+func sftData(jobDir string) ([]byte, error) {
+	b, err := os.ReadFile(filepath.Join(jobDir, "step2_sft.json"))
+	if err != nil {
+		return nil, err
+	}
+	var sft map[string]any
+	if err := json.Unmarshal(b, &sft); err != nil {
+		return nil, err
+	}
+	if pb, err := os.ReadFile(filepath.Join(jobDir, "params.json")); err == nil {
+		var p map[string]any
+		if json.Unmarshal(pb, &p) == nil {
+			if st, ok := p["soft_threshold"].(map[string]any); ok {
+				if rc, ok := st["rsquared_cut"].(float64); ok {
+					sft["rsquared_cut"] = rc
+				}
+			}
+		}
+	}
+	return json.Marshal(sft)
 }
 
 // writeProvenance writes a minimal provenance folder (final params + environment).

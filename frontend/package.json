@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:report-charts": "node scripts/build-report-charts.mjs"
   },
   "dependencies": {
     "ag-grid-community": "^33.0.0",
@@ -28,6 +29,7 @@
     "@vitejs/plugin-vue": "^5.2.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
-    "vue-tsc": "^2.2.0"
+    "vue-tsc": "^2.2.0",
+    "esbuild": "^0.25.12"
   }
 }

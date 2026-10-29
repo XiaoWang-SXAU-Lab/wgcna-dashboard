@@ -16,8 +16,8 @@ var reportCSS []byte
 //go:embed report_assets/design.js
 var reportJS []byte
 
-//go:embed report_assets/sample_tree.js
-var sampleTreeJS []byte
+//go:embed report_assets/report-charts.js
+var reportChartsJS []byte
 
 //go:embed report_assets/echarts.min.js
 var echartsJS []byte
@@ -51,6 +51,7 @@ type reportData struct {
 	Bridges       []netNode
 	ModuleTraits  map[string]string
 	SampleTreeJSON string // raw {samples, tree, bands} for the interactive sample tree
+	SftJSON        string // raw soft-threshold data for the interactive SFT figures
 
 	// input-file summary (project introduction)
 	RawSamples     int
@@ -93,6 +94,7 @@ func generateReportHTML(d reportData) string {
 	nav := []string{
 		d.L("项目介绍", "Project introduction"),
 		d.L("第一步 · 数据清洗", "Step 1 · Data cleaning"),
+		d.L("软阈值筛选", "Soft-threshold selection"),
 		d.L("后续章节", "Further sections"),
 	}
 	b.WriteString(`<aside class="rail"><a class="brand">rs<em>WGCNA</em><span style="font-size:10px;letter-spacing:0;margin-left:8px">REPORT</span></a><div class="eyebrow">` + d.L("分析记录", "Analysis record") + `</div><nav>`)
@@ -171,10 +173,35 @@ func generateReportHTML(d reportData) string {
 	}
 	b.WriteString(`</section>`)
 
+	// ---- step 3: 软阈值筛选 ----
+	if d.SftJSON != "" {
+		b.WriteString(stepHead(d, 3, nav[2], d.L("软阈值搜索与无标度拓扑检验。", "Soft-threshold search and scale-free topology check.")))
+		nt := pstr(d.Params, "soft_threshold", "network_type", "unsigned")
+		rsqCut := pfloat(d.Params, "soft_threshold", "rsquared_cut", 0.85)
+		power := pfloat(d.Params, "network", "power", 6)
+		sftRows := [][]string{
+			{d.L("Network type", "Network type"), nt, d.L("网络类型（signed / unsigned / signed hybrid）", "Network type (signed / unsigned / signed hybrid)")},
+			{d.L("R² cutoff", "R² cutoff"), fmtNum(rsqCut), d.L("无标度拟合阈值", "Scale-free fit threshold")},
+			{d.L("Power", "Power"), fmtNum(power), d.L("最终采用的软阈值", "Final soft-threshold power")},
+		}
+		b.WriteString(tableHTML([]string{d.L("参数名称", "Parameter"), d.L("使用参数", "Value"), d.L("参数解释", "Meaning")}, sftRows))
+		b.WriteString(sftStory(d))
+		b.WriteString(`<div class="row g-3"><div class="col-md-6"><div id="sft-rsq" style="height:380px"></div></div><div class="col-md-6"><div id="sft-mean-k" style="height:380px"></div></div><div class="col-md-6"><div id="sft-hist" style="height:380px"></div></div><div class="col-md-6"><div id="sft-topology" style="height:380px"></div></div></div><script type="application/json" id="sft-data">` + d.SftJSON + `</script>`)
+		b.WriteString(sftConclusion(d))
+		b.WriteString(`</section>`)
+	} else {
+		b.WriteString(stepHead(d, 3, nav[2], d.L("软阈值筛选。", "Soft-threshold selection.")))
+		b.WriteString(`<div class="notice">` + d.L("未执行软阈值筛选，无法生成此章节。", "Soft-threshold selection was not run.") + `</div>`)
+		b.WriteString(`</section>`)
+	}
+
 	// ---- placeholder ----
-	b.WriteString(stepHead(d, 3, nav[2], d.L("后续章节（软阈值、网络构建、模块解析等）将陆续补充。", "Further sections (soft threshold, network construction, module analysis, …) will be added.")))
+	b.WriteString(stepHead(d, 4, nav[3], d.L("后续章节（网络构建、模块解析等）将陆续补充。", "Further sections (network construction, module analysis, …) will be added.")))
 	b.WriteString(`<p class="step-intro">` + d.L("此处留白，等待后续章节。", "Placeholder for upcoming sections.") + `</p>`)
 	b.WriteString(`</section>`)
+
+	// ---- inline chart init (calls the shared reportCharts bundle) ----
+	b.WriteString(reportChartsInlineJS(d))
 
 	return b.String()
 }
@@ -385,4 +412,86 @@ func fmtNum(v float64) string {
 
 func fmtInt(v int) string {
 	return fmt.Sprintf("%d", v)
+}
+
+// sftStory generates the plain-language soft-threshold narrative.
+func sftStory(d reportData) string {
+	nt := pstr(d.Params, "soft_threshold", "network_type", "unsigned")
+	rsqCut := pfloat(d.Params, "soft_threshold", "rsquared_cut", 0.85)
+	power := pfloat(d.Params, "network", "power", 6)
+	powerEstimate := power
+	powerSource := "estimate"
+	var pe map[string]any
+	if json.Unmarshal([]byte(d.SftJSON), &pe) == nil {
+		if v, ok := pe["power_estimate"].(float64); ok && v > 0 {
+			powerEstimate = v
+		}
+		if s, ok := pe["power_source"].(string); ok {
+			powerSource = s
+		}
+	}
+	if powerSource == "experience" {
+		return `<div class="story"><p>` + d.L(
+			"本次分析使用 "+nt+" 网络。分析结果表明，没有任何 soft threshold 的 R² 超过阈值线 "+fmtNum(rsqCut)+"，因此使用 WGCNA 经验推荐 power = "+fmtNum(powerEstimate)+"。",
+			"This analysis used a "+nt+" network. No soft threshold reached the R² cutoff of "+fmtNum(rsqCut)+", so the WGCNA experience-recommended power = "+fmtNum(powerEstimate)+" was used.",
+		) + `</p></div>`
+	}
+	return `<div class="story"><p>` + d.L(
+		"本次分析使用 "+nt+" 网络。当 power = "+fmtNum(powerEstimate)+" 时 R² 超过阈值线 "+fmtNum(rsqCut)+"，因此推荐 power = "+fmtNum(powerEstimate)+"。",
+		"This analysis used a "+nt+" network. At power = "+fmtNum(powerEstimate)+", R² exceeded the cutoff "+fmtNum(rsqCut)+", so power = "+fmtNum(powerEstimate)+" is recommended.",
+	) + `</p></div>`
+}
+
+// sftConclusion evaluates the scale-free topology at the chosen power from the
+// log-log fit R² and slope.
+func sftConclusion(d reportData) string {
+	var sc struct {
+		Power float64
+		Slope float64
+		AdjR2 float64
+	}
+	var pe map[string]any
+	if json.Unmarshal([]byte(d.SftJSON), &pe) != nil {
+		return ""
+	}
+	if sfc, ok := pe["scale_free_check"].(map[string]any); ok {
+		if v, ok := sfc["power"].(float64); ok {
+			sc.Power = v
+		}
+		if v, ok := sfc["slope"].(float64); ok {
+			sc.Slope = v
+		}
+		if v, ok := sfc["adj_r2"].(float64); ok {
+			sc.AdjR2 = v
+		}
+	}
+	if sc.Slope == 0 {
+		return ""
+	}
+	gamma := -sc.Slope
+	var verdict string
+	if sc.AdjR2 >= 0.8 && gamma >= 0.5 && gamma <= 3 {
+		verdict = d.L("拟合良好、斜率处于生物学网络的典型范围（γ ≈ 1–3），说明该网络近似服从无标度分布，拓扑结构合理。", "the fit is strong and the slope is in the typical range for biological networks (γ ≈ 1–3), indicating the network approximately follows a scale-free distribution with a reasonable topology.")
+	} else if sc.AdjR2 >= 0.5 {
+		verdict = d.L("拟合可接受但 R² 或斜率偏离理想范围，无标度趋势近似成立，建议结合下游模块结果判断。", "the fit is acceptable but R² or the slope is outside the ideal range; the scale-free trend holds only approximately, so interpret it alongside downstream module results.")
+	} else {
+		verdict = d.L("拟合较弱，网络拓扑可能不完全符合无标度假设，建议增大 power 或检查数据。", "the fit is weak; the topology may not fully satisfy the scale-free assumption — consider a higher power or checking the data.")
+	}
+	return `<div class="story"><p>` + d.L(
+		fmt.Sprintf("无标度拓扑检验：当 power = %s 时，log10(p(k)) 与 log10(k) 的拟合 scale R² = %s、slope = %s（γ ≈ %s）。", fmtNum(sc.Power), fmt.Sprintf("%.2f", sc.AdjR2), fmt.Sprintf("%.2f", sc.Slope), fmt.Sprintf("%.2f", gamma)),
+		fmt.Sprintf("Scale-free topology check: at power = %s, the log10(p(k))–log10(k) fit has scale R² = %s and slope = %s (γ ≈ %s).", fmtNum(sc.Power), fmt.Sprintf("%.2f", sc.AdjR2), fmt.Sprintf("%.2f", sc.Slope), fmt.Sprintf("%.2f", gamma)),
+	) + verdict + `</p></div>`
+}
+
+// reportChartsInlineJS emits the inline <script> that initialises every chart by
+// calling the shared reportCharts bundle (same functions the App uses).
+func reportChartsInlineJS(d reportData) string {
+	var b strings.Builder
+	b.WriteString(`<script>(function(){`)
+	// sample tree
+	b.WriteString(`var stEl=document.getElementById('sample-tree-data');if(stEl){var st=JSON.parse(stEl.textContent);var stChart=echarts.init(document.getElementById('sample-tree'));var shown=st.bands.map(function(){return true});function renderST(){var active=st.bands.filter(function(_,i){return shown[i]}).map(function(b){return {name:b.name,values:b.values}});stChart.setOption(reportCharts.sampleTreeOption(st.samples,st.tree,active),true)}renderST();var ctrl=document.getElementById('sample-tree-controls');if(ctrl&&st.bands.length){function renderCtrl(){ctrl.innerHTML='';st.bands.forEach(function(band,i){var b=document.createElement('button');b.type='button';b.textContent=band.name;b.className='st-key'+(shown[i]?' on':'');b.onclick=function(){shown[i]=!shown[i];renderST();renderCtrl()};ctrl.appendChild(b)})}renderCtrl()}window.addEventListener('resize',function(){stChart.resize()})}`)
+	// sft
+	b.WriteString(`var sftEl=document.getElementById('sft-data');if(sftEl){var sft=JSON.parse(sftEl.textContent);var c1=echarts.init(document.getElementById('sft-rsq'));c1.setOption(reportCharts.scaleIndependenceOption(sft.fit_indices,sft.rsquared_cut,'` + d.L("无标度独立性", "Scale independence") + `'));var c2=echarts.init(document.getElementById('sft-mean-k'));c2.setOption(reportCharts.meanConnectivityOption(sft.fit_indices,'` + d.L("平均连通性", "Mean connectivity") + `'));var c3=null,c4=null;if(sft.scale_free_check){c3=echarts.init(document.getElementById('sft-hist'));c3.setOption(reportCharts.sftHistogramOption(sft.scale_free_check,'` + d.L("连通性直方图", "Connectivity histogram") + `','` + d.L("频数", "Frequency") + `'));c4=echarts.init(document.getElementById('sft-topology'));c4.setOption(reportCharts.sftLogLogOption(sft.scale_free_check,'` + d.L("无标度拓扑检验", "Scale-free topology check") + `'))}window.addEventListener('resize',function(){[c1,c2,c3,c4].forEach(function(c){c&&c.resize()})})}`)
+	b.WriteString(`})();</script>`)
+	return b.String()
 }
