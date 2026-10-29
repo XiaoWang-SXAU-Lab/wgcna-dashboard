@@ -828,7 +828,7 @@ func (h *Handler) plotGsmm(w http.ResponseWriter, r *http.Request) {
 // prepareGeneHeatmapJSON sorts samples by id, reorders the expression columns
 // and eigengene values, and attaches all sample_info columns as annotations, so
 // the geneheatmap R script can draw the color blocks + eigengene barplot.
-func prepareGeneHeatmapJSON(jobDir, detailPath string) (string, error) {
+func prepareGeneHeatmapJSON(jobDir, detailPath string, annCols []string) (string, error) {
 	b, err := os.ReadFile(detailPath)
 	if err != nil {
 		return "", err
@@ -855,6 +855,19 @@ func prepareGeneHeatmapJSON(jobDir, detailPath string) (string, error) {
 
 	meta, colOrder := readSampleMeta(jobDir)
 	ann := buildSampleAnnotations(samples, meta, colOrder)
+	if len(annCols) > 0 {
+		keep := map[string]bool{}
+		for _, c := range annCols {
+			keep[c] = true
+		}
+		var filtered []map[string]any
+		for _, a := range ann {
+			if name, ok := a["name"].(string); ok && keep[name] {
+				filtered = append(filtered, a)
+			}
+		}
+		ann = filtered
+	}
 
 	var out map[string]any
 	if err := json.Unmarshal(b, &out); err != nil {
@@ -905,7 +918,11 @@ func (h *Handler) plotGeneHeatmap(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "module detail not available", http.StatusNotFound)
 		return
 	}
-	if prepared, err := prepareGeneHeatmapJSON(h.jobs.Dir(), jsonPath); err == nil {
+	annCols := strings.Split(r.URL.Query().Get("ann"), ",")
+	if len(annCols) == 1 && annCols[0] == "" {
+		annCols = nil
+	}
+	if prepared, err := prepareGeneHeatmapJSON(filepath.Join(h.jobs.Dir(), id), jsonPath, annCols); err == nil {
 		jsonPath = prepared
 		defer os.Remove(prepared)
 	}

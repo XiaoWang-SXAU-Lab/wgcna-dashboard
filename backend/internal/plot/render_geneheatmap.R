@@ -59,8 +59,16 @@ if (!is.null(sample_ann) && length(sample_ann) > 0) {
   df <- as.data.frame(lapply(sample_ann, function(a) factor(unlist(a$values))),
                       stringsAsFactors = FALSE)
   names(df) <- vapply(sample_ann, function(a) a$name, character(1))
+  # explicit color per category (col = list(colname = c(value = color, ...)))
+  pal <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b",
+           "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#aec7e8", "#ffbb78")
+  ann_cols <- list()
+  for (a in sample_ann) {
+    vals <- unique(unlist(a$values))
+    ann_cols[[a$name]] <- setNames(colorRampPalette(pal)(length(vals)), vals)
+  }
   top_ha <- HeatmapAnnotation(
-    df = df, which = "column", show_annotation_name = FALSE,
+    df = df, col = ann_cols, which = "column", show_annotation_name = FALSE,
     annotation_name_gp = gpar(fontsize = 8), gp = gpar(col = "white")
   )
 }

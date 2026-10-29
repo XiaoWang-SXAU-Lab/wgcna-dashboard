@@ -10,8 +10,13 @@ const store = useWgcnaStore()
 
 const isSimple = computed(() => props.kind === 'dendrogram')
 const isHeatmap = computed(() => props.kind === 'mtrait' || props.kind === 'eigengene' || props.kind === 'geneheatmap')
+const isGeneHeatmap = computed(() => props.kind === 'geneheatmap')
 const isSampleTree = computed(() => props.kind === 'sample-tree')
 const isEnrich = computed(() => props.kind === 'enrich')
+
+// sample_info annotation columns (excluding id/name) for the geneheatmap export
+const selectedAnns = ref<string[]>([])
+const annColumns = computed(() => store.sampleColumns.filter((c) => c !== 'sample_id' && c !== 'sample_name'))
 
 const size = ref(2.4)
 const color = ref('#5470c6')
@@ -89,6 +94,7 @@ function baseParams(mode: string): Record<string, string | number> {
     p.cell_fontsize = cellFontSize.value
     p.border = border.value ? '1' : '0'
     if (heatTitle.value) p.title = heatTitle.value
+    if (isGeneHeatmap.value && selectedAnns.value.length) p.ann = selectedAnns.value.join(',')
   } else if (isSampleTree.value) {
     p.base_size = preview.value.baseSize
     p.line_color = preview.value.lineColor
@@ -193,6 +199,15 @@ function download() {
                   <input type="text" class="form-control form-control-sm" v-model="heatTitle" />
                 </div>
               </div>
+              <template v-if="isGeneHeatmap">
+                <div>
+                  <label class="form-label small mb-1">{{ t('plot.annotateColumns') }}</label>
+                  <select class="form-select form-select-sm" multiple size="4" v-model="selectedAnns" :disabled="annColumns.length === 0">
+                    <option v-for="c in annColumns" :key="c" :value="c">{{ c }}</option>
+                  </select>
+                  <div class="small text-muted mt-1">{{ annColumns.length === 0 ? t('plot.noSampleInfo') : t('plot.annotateHint') }}</div>
+                </div>
+              </template>
             </template>
             <template v-if="isSampleTree">
               <div>
