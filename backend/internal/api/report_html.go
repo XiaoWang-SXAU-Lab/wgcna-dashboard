@@ -52,6 +52,8 @@ type reportData struct {
 	ModuleTraits  map[string]string
 	SampleTreeJSON string // raw {samples, tree, bands} for the interactive sample tree
 	SftJSON        string // raw soft-threshold data for the interactive SFT figures
+	ModulesJSON    string // raw {genes, colors, module_sizes, dendrogram} for the network section
+	ModuleTraitJSON string // raw module-trait data (modules/traits/cor/p/eigengenes/genes/kme + trait_source/column)
 
 	// input-file summary (project introduction)
 	RawSamples     int
@@ -95,6 +97,8 @@ func generateReportHTML(d reportData) string {
 		d.L("项目介绍", "Project introduction"),
 		d.L("第一步 · 数据清洗", "Step 1 · Data cleaning"),
 		d.L("软阈值筛选", "Soft-threshold selection"),
+		d.L("网络构建与模块划分", "Network construction & modules"),
+		d.L("模块-性状", "Module–trait"),
 		d.L("后续章节", "Further sections"),
 	}
 	b.WriteString(`<aside class="rail"><a class="brand">rs<em>WGCNA</em><span style="font-size:10px;letter-spacing:0;margin-left:8px">REPORT</span></a><div class="eyebrow">` + d.L("分析记录", "Analysis record") + `</div><nav>`)
@@ -195,8 +199,55 @@ func generateReportHTML(d reportData) string {
 		b.WriteString(`</section>`)
 	}
 
+	// ---- step 4: 网络构建模块划分 ----
+	if d.ModulesJSON != "" {
+		b.WriteString(stepHead(d, 4, nav[3], d.L("网络构建与模块划分。", "Network construction and module assignment.")))
+		power := pfloat(d.Params, "network", "power", 6)
+		nt := pstr(d.Params, "network", "network_type", "unsigned")
+		tomType := pstr(d.Params, "network", "tom_type", "signed")
+		tomDenom := pstr(d.Params, "network", "tom_denom", "min")
+		minSize := pint(d.Params, "network", "min_module_size", 30)
+		mergeCut := pfloat(d.Params, "network", "merge_cut_height", 0.25)
+		deepSplit := pint(d.Params, "network", "deep_split", 2)
+		detectCut := pfloat(d.Params, "network", "detect_cut_height", 0.995)
+		netRows := [][]string{
+			{"Network type", nt, d.L("网络类型（signed / unsigned / signed hybrid）", "Network type (signed / unsigned / signed hybrid)")},
+			{"Power", fmtNum(power), d.L("软阈值幂次", "Soft-threshold power")},
+			{"TOM type", tomType, d.L("拓扑重叠矩阵类型", "Topological overlap matrix type")},
+			{"TOM denominator", tomDenom, d.L("TOM 分母（min / mean）", "TOM denominator (min / mean)")},
+			{d.L("Min module size", "Min module size"), fmtInt(minSize), d.L("最小模块基因数", "Minimum module size")},
+			{d.L("Merge cut height", "Merge cut height"), fmtNum(mergeCut), d.L("模块合并距离阈值", "Module merge distance threshold")},
+			{d.L("Deep split", "Deep split"), fmtInt(deepSplit), d.L("动态树切割灵敏度", "Dynamic tree-cut sensitivity")},
+			{d.L("Detect cut height", "Detect cut height"), fmtNum(detectCut), d.L("模块检测切割高度", "Module detection cut height")},
+		}
+		b.WriteString(tableHTML([]string{d.L("参数名称", "Parameter"), d.L("使用参数", "Value"), d.L("参数解释", "Meaning")}, netRows))
+		b.WriteString(moduleBadgesHTML(d))
+		b.WriteString(`<div id="gene-dendrogram" style="height:520px"></div><script type="application/json" id="modules-data">` + d.ModulesJSON + `</script>`)
+		b.WriteString(geneModuleTableHTML(d))
+		b.WriteString(`</section>`)
+	} else {
+		b.WriteString(stepHead(d, 4, nav[3], d.L("网络构建与模块划分。", "Network construction and modules.")))
+		b.WriteString(`<div class="notice">` + d.L("未执行网络构建，无法生成此章节。", "Network construction was not run.") + `</div>`)
+		b.WriteString(`</section>`)
+	}
+
+	// ---- step 5: 模块-性状 ----
+	if d.ModuleTraitJSON != "" {
+		b.WriteString(stepHead(d, 5, nav[4], d.L("模块与表型性状的相关性。", "Module–trait correlations.")))
+		b.WriteString(moduleTraitStatement(d))
+		b.WriteString(moduleTraitTableHTML(d))
+		b.WriteString(`<div id="mtrait-heatmap" style="height:460px"></div><script type="application/json" id="mtrait-data">` + d.ModuleTraitJSON + `</script>`)
+		b.WriteString(significantCorrHTML(d))
+		b.WriteString(mmTableHTML(d))
+		b.WriteString(`</section>`)
+	} else {
+		b.WriteString(stepHead(d, 5, nav[4], d.L("模块-性状。", "Module–trait.")))
+		b.WriteString(`<div class="notice">` + d.L("未执行模块-性状分析，无法生成此章节。", "Module–trait analysis was not run.") + `</div>`)
+		b.WriteString(`</section>`)
+	}
+
 	// ---- placeholder ----
-	b.WriteString(stepHead(d, 4, nav[3], d.L("后续章节（网络构建、模块解析等）将陆续补充。", "Further sections (network construction, module analysis, …) will be added.")))
+	b.WriteString(stepHead(d, 6, nav[5], d.L("后续章节（模块解析、Hub 基因等）将陆续补充。", "Further sections (module analysis, Hub genes, …) will be added.")))
 	b.WriteString(`<p class="step-intro">` + d.L("此处留白，等待后续章节。", "Placeholder for upcoming sections.") + `</p>`)
 	b.WriteString(`</section>`)
 
@@ -492,6 +543,183 @@ func reportChartsInlineJS(d reportData) string {
 	b.WriteString(`var stEl=document.getElementById('sample-tree-data');if(stEl){var st=JSON.parse(stEl.textContent);var stChart=echarts.init(document.getElementById('sample-tree'));var shown=st.bands.map(function(){return true});function renderST(){var active=st.bands.filter(function(_,i){return shown[i]}).map(function(b){return {name:b.name,values:b.values}});stChart.setOption(reportCharts.sampleTreeOption(st.samples,st.tree,active),true)}renderST();var ctrl=document.getElementById('sample-tree-controls');if(ctrl&&st.bands.length){function renderCtrl(){ctrl.innerHTML='';st.bands.forEach(function(band,i){var b=document.createElement('button');b.type='button';b.textContent=band.name;b.className='st-key'+(shown[i]?' on':'');b.onclick=function(){shown[i]=!shown[i];renderST();renderCtrl()};ctrl.appendChild(b)})}renderCtrl()}window.addEventListener('resize',function(){stChart.resize()})}`)
 	// sft
 	b.WriteString(`var sftEl=document.getElementById('sft-data');if(sftEl){var sft=JSON.parse(sftEl.textContent);var c1=echarts.init(document.getElementById('sft-rsq'));c1.setOption(reportCharts.scaleIndependenceOption(sft.fit_indices,sft.rsquared_cut,'` + d.L("无标度独立性", "Scale independence") + `'));var c2=echarts.init(document.getElementById('sft-mean-k'));c2.setOption(reportCharts.meanConnectivityOption(sft.fit_indices,'` + d.L("平均连通性", "Mean connectivity") + `'));var c3=null,c4=null;if(sft.scale_free_check){c3=echarts.init(document.getElementById('sft-hist'));c3.setOption(reportCharts.sftHistogramOption(sft.scale_free_check,'` + d.L("连通性直方图", "Connectivity histogram") + `','` + d.L("频数", "Frequency") + `'));c4=echarts.init(document.getElementById('sft-topology'));c4.setOption(reportCharts.sftLogLogOption(sft.scale_free_check,'` + d.L("无标度拓扑检验", "Scale-free topology check") + `'))}window.addEventListener('resize',function(){[c1,c2,c3,c4].forEach(function(c){c&&c.resize()})})}`)
+	// gene dendrogram (network/module)
+	b.WriteString(`var modEl=document.getElementById('modules-data');if(modEl){var mod=JSON.parse(modEl.textContent);var gd=echarts.init(document.getElementById('gene-dendrogram'));gd.setOption(reportCharts.geneDendrogramOption(mod.genes,mod.colors,mod.dendrogram));window.addEventListener('resize',function(){gd.resize()})}`)
+	// module-trait heatmap
+	b.WriteString(`var mtEl=document.getElementById('mtrait-data');if(mtEl){var mt=JSON.parse(mtEl.textContent);var mh=echarts.init(document.getElementById('mtrait-heatmap'));mh.setOption(reportCharts.moduleTraitHeatmapOption(mt.modules,mt.traits,mt.cor,mt.p));window.addEventListener('resize',function(){mh.resize()})}`)
 	b.WriteString(`})();</script>`)
 	return b.String()
+}
+
+// wgcnaHex returns the hex color for a WGCNA module name (matches the App's
+// MODULE_COLORS map), falling back to a neutral grey.
+func wgcnaHex(name string) string {
+	m := map[string]string{
+		"turquoise": "#1f9e89", "blue": "#3182bd", "brown": "#8c510a", "yellow": "#e6ab02",
+		"green": "#66a61e", "red": "#e41a1c", "black": "#252525", "pink": "#f781bf",
+		"magenta": "#984ea3", "purple": "#6a51a3", "greenyellow": "#a6d854", "tan": "#b89b74",
+		"salmon": "#fa8072", "cyan": "#00ced1", "midnightblue": "#191970", "grey": "#999999",
+		"grey60": "#999999", "lightgreen": "#90ee90", "lightyellow": "#ffffe0", "royalblue": "#4169e1",
+		"darkred": "#8b0000", "darkgreen": "#006400", "darkturquoise": "#00ced1", "darkgrey": "#a9a9a9",
+		"orange": "#ffa500", "darkorange": "#ff8c00", "skyblue": "#87ceeb", "saddlebrown": "#8b4513",
+		"steelblue": "#4682b4", "paleturquoise": "#afeeee", "violet": "#ee82ee", "darkolivegreen": "#556b2f",
+		"darkmagenta": "#8b008b", "sienna3": "#cd5c5c", "yellowgreen": "#9acd32", "skyblue3": "#6ca6cd",
+		"plum1": "#ffbbff", "orangered4": "#801700", "mediumpurple3": "#8968cd", "lightsteelblue1": "#cae1ff",
+		"lightcyan1": "#e0ffff", "ivory": "#fffff0", "floralwhite": "#fffaf0", "darkorange2": "#ee7600",
+		"brown4": "#8b2323", "bisque4": "#8b7d6b", "darkslateblue": "#483d8b", "plum2": "#eeaeee",
+		"thistle2": "#eed2ee", "lightcyan": "#e0ffff", "white": "#ffffff",
+	}
+	if v, ok := m[name]; ok {
+		return v
+	}
+	return "#cccccc"
+}
+
+// moduleBadgesHTML renders the module–gene-count badges (colored dot + name + count).
+func moduleBadgesHTML(d reportData) string {
+	var mod struct {
+		ModuleSizes map[string]int `json:"module_sizes"`
+	}
+	if json.Unmarshal([]byte(d.ModulesJSON), &mod) != nil {
+		return ""
+	}
+	type row struct {
+		name  string
+		count int
+	}
+	rows := make([]row, 0, len(mod.ModuleSizes))
+	for name, count := range mod.ModuleSizes {
+		rows = append(rows, row{name, count})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].count > rows[j].count })
+	var b strings.Builder
+	b.WriteString(`<div class="d-flex flex-wrap gap-2 my-3">`)
+	for _, r := range rows {
+		b.WriteString(`<span class="badge" style="background-color:` + wgcnaHex(r.name) + `;color:#fff;border:1px solid rgba(0,0,0,.15)">` + html.EscapeString(r.name) + ` ` + fmtInt(r.count) + `</span>`)
+	}
+	b.WriteString(`</div>`)
+	return b.String()
+}
+
+// geneModuleTableHTML renders the Gene → Module table (scrollable).
+func geneModuleTableHTML(d reportData) string {
+	var mod struct {
+		Genes  []string `json:"genes"`
+		Colors []string `json:"colors"`
+	}
+	if json.Unmarshal([]byte(d.ModulesJSON), &mod) != nil {
+		return ""
+	}
+	rows := make([][]string, 0, len(mod.Genes))
+	for i, g := range mod.Genes {
+		c := ""
+		if i < len(mod.Colors) {
+			c = mod.Colors[i]
+		}
+		rows = append(rows, []string{g, c})
+	}
+	return tableHTML([]string{d.L("Gene", "Gene"), d.L("Module", "Module")}, rows)
+}
+
+// moduleTraitStatement explains where the traits came from.
+func moduleTraitStatement(d reportData) string {
+	var mt struct {
+		TraitSource string   `json:"trait_source"`
+		TraitColumn string   `json:"trait_column"`
+		Traits      []string `json:"traits"`
+	}
+	if json.Unmarshal([]byte(d.ModuleTraitJSON), &mt) != nil {
+		return ""
+	}
+	if mt.TraitSource == "sample_info" {
+		return `<div class="story"><p>` + d.L(
+			"表型性状来源：本次使用样本信息表（sample_info）中的 "+mt.TraitColumn+" 列生成表型矩阵，共 "+fmtInt(len(mt.Traits))+" 个水平："+strings.Join(mt.Traits, "、")+"。",
+			"Trait source: the trait matrix was generated from the "+mt.TraitColumn+" column of the sample-info table, with "+fmtInt(len(mt.Traits))+" levels: "+strings.Join(mt.Traits, ", ")+".",
+		) + `</p></div>`
+	}
+	return `<div class="story"><p>` + d.L(
+		"表型性状来源：本次使用用户上传的表型矩阵（trait table）。",
+		"Trait source: the user-uploaded trait table.",
+	) + `</p></div>`
+}
+
+// moduleTraitTableHTML renders the sample → trait-value table (when available).
+func moduleTraitTableHTML(d reportData) string {
+	var mt struct {
+		TraitTable  []map[string]string `json:"trait_table"`
+		TraitColumn string              `json:"trait_column"`
+	}
+	if json.Unmarshal([]byte(d.ModuleTraitJSON), &mt) != nil || len(mt.TraitTable) == 0 {
+		return ""
+	}
+	head := []string{d.L("样本", "Sample"), mt.TraitColumn}
+	rows := make([][]string, 0, len(mt.TraitTable))
+	for _, t := range mt.TraitTable {
+		rows = append(rows, []string{t["sample"], t["value"]})
+	}
+	return `<h3>` + d.L("表型表格", "Trait table") + `</h3>` + tableHTML(head, rows)
+}
+
+// significantCorrHTML lists the significant module–trait relationships.
+func significantCorrHTML(d reportData) string {
+	var mt struct {
+		Modules []string    `json:"modules"`
+		Traits  []string    `json:"traits"`
+		Cor     [][]float64 `json:"cor"`
+		P       [][]float64 `json:"p"`
+	}
+	if json.Unmarshal([]byte(d.ModuleTraitJSON), &mt) != nil {
+		return ""
+	}
+	head := []string{d.L("模块", "Module"), d.L("性状", "Trait"), "cor", "p-value"}
+	var rows [][]string
+	for i, mod := range mt.Modules {
+		for j, tr := range mt.Traits {
+			cor := mt.Cor[i][j]
+			p := mt.P[i][j]
+			if (cor > 0.65 || cor < -0.65) && p < 0.05 {
+				rows = append(rows, []string{mod, tr, fmt.Sprintf("%.3f", cor), fmt.Sprintf("%.4f", p)})
+			}
+		}
+	}
+	if len(rows) == 0 {
+		return `<div class="notice">` + d.L("没有 |cor| > 0.65 且 p < 0.05 的显著相关关系。", "No significant relationships with |cor| > 0.65 and p < 0.05.") + `</div>`
+	}
+	return `<h3>` + d.L("显著相关关系（|cor| > 0.65，p < 0.05）", "Significant relationships (|cor| > 0.65, p < 0.05)") + `</h3>` + tableHTML(head, rows)
+}
+
+// mmTableHTML renders the gene → module membership (MM / kME) table.
+func mmTableHTML(d reportData) string {
+	var mt struct {
+		Modules []string    `json:"modules"`
+		Genes   []string    `json:"genes"`
+		Kme     [][]float64 `json:"kme"`
+	}
+	if json.Unmarshal([]byte(d.ModuleTraitJSON), &mt) != nil {
+		return ""
+	}
+	var mod struct {
+		Colors []string `json:"colors"`
+	}
+	json.Unmarshal([]byte(d.ModulesJSON), &mod)
+	modIdx := map[string]int{}
+	for i, m := range mt.Modules {
+		modIdx[m] = i
+	}
+	head := []string{d.L("基因", "Gene"), d.L("模块", "Module"), "MM (kME)"}
+	rows := make([][]string, 0, len(mt.Genes))
+	for i, g := range mt.Genes {
+		modName := ""
+		if i < len(mod.Colors) {
+			modName = mod.Colors[i]
+		}
+		mm := ""
+		if i < len(mt.Kme) {
+			if idx, ok := modIdx[modName]; ok && idx < len(mt.Kme[i]) {
+				mm = fmt.Sprintf("%.4f", mt.Kme[i][idx])
+			}
+		}
+		rows = append(rows, []string{g, modName, mm})
+	}
+	return `<h3>` + d.L("模块隶属度（MM / kME）", "Module membership (MM / kME)") + `</h3>` + tableHTML(head, rows)
 }

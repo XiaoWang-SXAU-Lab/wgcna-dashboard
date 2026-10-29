@@ -21,7 +21,9 @@ var reportCharts = (() => {
   // src/utils/reportCharts.ts
   var reportCharts_exports = {};
   __export(reportCharts_exports, {
+    geneDendrogramOption: () => geneDendrogramOption,
     meanConnectivityOption: () => meanConnectivityOption,
+    moduleTraitHeatmapOption: () => moduleTraitHeatmapOption,
     sampleTreeOption: () => sampleTreeOption,
     scaleIndependenceOption: () => scaleIndependenceOption,
     sftHistogramOption: () => sftHistogramOption,
@@ -64,6 +66,65 @@ var reportCharts = (() => {
       vSegments.push([xa, ya, h], [xb, yb, h]);
     }
     return { n, leafX, nodeX, nodeY, hSegments, vSegments, minH, maxH, hangScaled };
+  }
+
+  // src/utils/colors.ts
+  var MODULE_COLORS = {
+    turquoise: "#1f9e89",
+    blue: "#3182bd",
+    brown: "#8c510a",
+    yellow: "#e6ab02",
+    green: "#66a61e",
+    red: "#e41a1c",
+    black: "#252525",
+    pink: "#f781bf",
+    magenta: "#984ea3",
+    purple: "#6a51a3",
+    greenyellow: "#a6d854",
+    tan: "#b89b74",
+    salmon: "#fa8072",
+    cyan: "#00ced1",
+    midnightblue: "#191970",
+    lightcyan: "#e0ffff",
+    grey: "#999999",
+    grey60: "#999999",
+    lightgreen: "#90ee90",
+    lightyellow: "#ffffe0",
+    royalblue: "#4169e1",
+    darkred: "#8b0000",
+    darkgreen: "#006400",
+    darkturquoise: "#00ced1",
+    darkgrey: "#a9a9a9",
+    orange: "#ffa500",
+    darkorange: "#ff8c00",
+    white: "#ffffff",
+    skyblue: "#87ceeb",
+    saddlebrown: "#8b4513",
+    steelblue: "#4682b4",
+    paleturquoise: "#afeeee",
+    violet: "#ee82ee",
+    darkolivegreen: "#556b2f",
+    darkmagenta: "#8b008b",
+    sienna3: "#cd5c5c",
+    yellowgreen: "#9acd32",
+    skyblue3: "#6ca6cd",
+    plum1: "#ffbbff",
+    orangered4: "#801700",
+    mediumpurple3: "#8968cd",
+    lightsteelblue1: "#cae1ff",
+    lightcyan1: "#e0ffff",
+    ivory: "#fffff0",
+    floralwhite: "#fffaf0",
+    darkorange2: "#ee7600",
+    brown4: "#8b2323",
+    bisque4: "#8b7d6b",
+    darkslateblue: "#483d8b",
+    plum2: "#eeaeee",
+    thistle2: "#eed2ee"
+  };
+  function moduleColor(name) {
+    var _a;
+    return (_a = MODULE_COLORS[name]) != null ? _a : "#cccccc";
   }
 
   // src/utils/reportCharts.ts
@@ -292,6 +353,144 @@ scale R\xB2=${adj_r2.toFixed(2)}, slope=${slope.toFixed(2)}`,
       },
       toolbox: { right: 10, top: 10, feature: { saveAsImage: { title: downloadTitle, name: saveName, pixelRatio: 2, backgroundColor: "#ffffff" } } },
       series
+    };
+  }
+  function geneDendrogramOption(genes, colors, dendrogram, downloadTitle = "Download PNG", saveName = "module_dendrogram") {
+    const { merge, height } = dendrogram;
+    const order = dendrogram.order.map((i) => i - 1);
+    const layout = layoutDendrogram(merge, height, order, 0.03);
+    const n = layout.n;
+    const minH = layout.minH;
+    const maxH = layout.maxH;
+    const lowestLeafY = minH - layout.hangScaled;
+    const barH = (maxH - minH) * 0.3;
+    const renderItem = (params, api) => {
+      const children = [];
+      for (let p = 0; p < n; p++) {
+        const geneIdx = order[p];
+        const color = moduleColor(colors[geneIdx]);
+        const tl = api.coord([p - 0.5, lowestLeafY]);
+        const br = api.coord([p + 0.5, lowestLeafY - barH]);
+        children.push({
+          type: "rect",
+          shape: { x: tl[0], y: tl[1], width: br[0] - tl[0], height: br[1] - tl[1] },
+          style: { fill: color }
+        });
+      }
+      const bTop1 = api.coord([-0.5, lowestLeafY]);
+      const bTop2 = api.coord([n - 0.5, lowestLeafY]);
+      children.push({ type: "line", shape: { x1: bTop1[0], y1: bTop1[1], x2: bTop2[0], y2: bTop2[1] }, style: { stroke: "#111827", lineWidth: 1 } });
+      const bBot1 = api.coord([-0.5, lowestLeafY - barH]);
+      const bBot2 = api.coord([n - 0.5, lowestLeafY - barH]);
+      children.push({ type: "line", shape: { x1: bBot1[0], y1: bBot1[1], x2: bBot2[0], y2: bBot2[1] }, style: { stroke: "#111827", lineWidth: 1 } });
+      for (const [x1, x2, y] of layout.hSegments) {
+        const a = api.coord([x1, y]);
+        const b = api.coord([x2, y]);
+        children.push({ type: "line", shape: { x1: a[0], y1: a[1], x2: b[0], y2: b[1] }, style: { stroke: "#111827", lineWidth: 1 } });
+      }
+      for (const [x, y1, y2] of layout.vSegments) {
+        const a = api.coord([x, y1]);
+        const b = api.coord([x, y2]);
+        children.push({ type: "line", shape: { x1: a[0], y1: a[1], x2: b[0], y2: b[1] }, style: { stroke: "#111827", lineWidth: 1 } });
+      }
+      const lp = api.coord([0, lowestLeafY - barH / 2]);
+      children.push({ type: "text", style: { text: "Module color", x: 10, y: lp[1], fill: "#6b7280", fontSize: 11, textAlign: "left", textVerticalAlign: "middle" } });
+      return { type: "group", children };
+    };
+    return {
+      grid: { left: 80, right: 16, top: 20, bottom: 20 },
+      xAxis: { type: "value", min: -0.5, max: n - 0.5, show: false },
+      yAxis: {
+        type: "value",
+        min: lowestLeafY - barH,
+        max: maxH * 1.03,
+        name: "Height",
+        nameLocation: "middle",
+        nameRotate: 90,
+        nameGap: 55,
+        axisLabel: { formatter: (v) => v < minH ? "" : v.toFixed(2) },
+        splitLine: { show: true, lineStyle: { color: "#eef1f4", type: "dashed" } }
+      },
+      toolbox: { right: 10, top: 10, feature: { saveAsImage: { title: downloadTitle, name: saveName, pixelRatio: 2, backgroundColor: "#ffffff" } } },
+      series: [{ type: "custom", renderItem, data: [0] }]
+    };
+  }
+  function sigMark(p) {
+    if (p < 1e-3) return "***";
+    if (p < 0.01) return "**";
+    if (p < 0.05) return "*";
+    return "";
+  }
+  function moduleTraitHeatmapOption(modules, traits, cor, p, lowColor = "#2166ac", midColor = "#ffffff", highColor = "#b2182b", downloadTitle = "Download PNG", saveName = "module_trait") {
+    const heat = [];
+    cor.forEach((row, i) => row.forEach((v, j) => heat.push([j, i, +v.toFixed(4)])));
+    return {
+      tooltip: {
+        formatter: (params) => {
+          var _a, _b;
+          if (params.seriesType === "bar") return "";
+          const xj = params.value[0];
+          const yi = params.value[1];
+          const v = params.value[2];
+          return modules[yi] + " \xD7 " + traits[xj] + "<br/>cor = " + v + "<br/>p = " + ((_b = (_a = p[yi]) == null ? void 0 : _a[xj]) != null ? _b : 0);
+        }
+      },
+      grid: [
+        { left: 125, width: 22, bottom: 100, top: 20 },
+        { left: 147, right: 30, bottom: 100, top: 20 }
+      ],
+      xAxis: [
+        { type: "value", min: 0, max: 1, show: false, gridIndex: 0 },
+        { type: "category", data: traits, gridIndex: 1, axisLabel: { rotate: 45 }, axisLine: { show: false }, axisTick: { show: false } }
+      ],
+      yAxis: [
+        { type: "category", data: modules, gridIndex: 0, axisLine: { show: false }, axisTick: { show: false } },
+        { type: "category", data: modules, gridIndex: 1, show: false }
+      ],
+      visualMap: {
+        min: -1,
+        max: 1,
+        calculable: true,
+        orient: "horizontal",
+        left: "center",
+        bottom: 0,
+        inRange: { color: [lowColor, midColor, highColor] },
+        seriesIndex: 1
+      },
+      toolbox: { right: 10, top: 10, feature: { saveAsImage: { title: downloadTitle, name: saveName, pixelRatio: 2, backgroundColor: "#ffffff" } } },
+      series: [
+        {
+          type: "bar",
+          xAxisIndex: 0,
+          yAxisIndex: 0,
+          data: modules.map((m) => ({ value: 1, itemStyle: { color: moduleColor(m), borderColor: "#333", borderWidth: 0.8 } })),
+          barWidth: "100%",
+          barCategoryGap: "0%",
+          silent: true,
+          z: 2
+        },
+        {
+          type: "heatmap",
+          xAxisIndex: 1,
+          yAxisIndex: 1,
+          data: heat,
+          label: {
+            show: true,
+            formatter: (params) => {
+              var _a, _b, _c, _d;
+              const xj = params.value[0];
+              const yi = params.value[1];
+              const c = (_b = (_a = cor[yi]) == null ? void 0 : _a[xj]) != null ? _b : 0;
+              const pv = (_d = (_c = p[yi]) == null ? void 0 : _c[xj]) != null ? _d : 1;
+              return c.toFixed(2) + String.fromCharCode(10) + sigMark(pv);
+            },
+            fontSize: 11,
+            lineHeight: 14
+          },
+          itemStyle: { borderColor: "#333", borderWidth: 0.6 },
+          emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,0.4)" } }
+        }
+      ]
     };
   }
   return __toCommonJS(reportCharts_exports);

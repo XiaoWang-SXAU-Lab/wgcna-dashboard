@@ -13,3 +13,7 @@
 /dist-windows
 /build
 Rplots.pdf
+
+# generated report previews
+/report-design/report_v*/
+/report-design/report_preview/

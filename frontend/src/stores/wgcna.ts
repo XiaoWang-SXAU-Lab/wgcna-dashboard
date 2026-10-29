@@ -74,6 +74,9 @@ export const useWgcnaStore = defineStore('wgcna', () => {
   const sftNetworkType = ref('unsigned')
   const power = ref(6)
   const netNetworkType = ref('unsigned')
+  // Network construction follows the soft-threshold network type (they describe
+  // the same network); keep them in sync so a change in SFT carries over.
+  watch(sftNetworkType, (v) => { netNetworkType.value = v })
   const tomType = ref('signed')
   const tomDenom = ref('min')
   const minModuleSize = ref(30)

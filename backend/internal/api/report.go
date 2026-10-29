@@ -282,6 +282,14 @@ func buildReportData(jobDir, base string, modules []string, enrichType, lang str
 	if st, err := sftData(jobDir); err == nil {
 		d.SftJSON = string(st)
 	}
+	// network/module data (genes + colors + sizes + dendrogram)
+	if m, err := modulesData(jobDir); err == nil {
+		d.ModulesJSON = string(m)
+	}
+	// module-trait data (cor/p matrices + eigengenes + kME)
+	if m, err := moduleTraitData(jobDir); err == nil {
+		d.ModuleTraitJSON = string(m)
+	}
 
 	return d
 }
@@ -481,6 +489,54 @@ func sftData(jobDir string) ([]byte, error) {
 		}
 	}
 	return json.Marshal(sft)
+}
+
+// modulesData reads the network/module result (genes + colors + module sizes +
+// dendrogram) for the network-construction report section.
+func modulesData(jobDir string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(jobDir, "step3_modules.json"))
+}
+
+// moduleTraitData reads the module–trait result and merges the trait source +
+// column from params (so the report can state where the traits came from).
+func moduleTraitData(jobDir string) ([]byte, error) {
+	b, err := os.ReadFile(filepath.Join(jobDir, "step4_mtrait.json"))
+	if err != nil {
+		return nil, err
+	}
+	var mt map[string]any
+	if err := json.Unmarshal(b, &mt); err != nil {
+		return nil, err
+	}
+	if pb, err := os.ReadFile(filepath.Join(jobDir, "params.json")); err == nil {
+		var p map[string]any
+		if json.Unmarshal(pb, &p) == nil {
+			if mtp, ok := p["module_trait"].(map[string]any); ok {
+				if s, ok := mtp["trait_source"].(string); ok {
+					mt["trait_source"] = s
+				}
+				if c, ok := mtp["trait_column"].(string); ok {
+					mt["trait_column"] = c
+				}
+			}
+		}
+	}
+	// For a sample_info-derived trait, include the sample → value mapping so the
+	// report can show the trait table.
+	if mt["trait_source"] == "sample_info" {
+		if col, ok := mt["trait_column"].(string); ok && col != "" {
+			if raw, err := os.ReadFile(filepath.Join(jobDir, "sample_info.tsv")); err == nil {
+				if infos, err := enrich.ParseSampleInfo(raw); err == nil {
+					var table []map[string]string
+					for _, s := range infos {
+						table = append(table, map[string]string{"sample": s.SampleID, "value": s.Attrs[col]})
+					}
+					mt["trait_table"] = table
+				}
+			}
+		}
+	}
+	return json.Marshal(mt)
 }
 
 // writeProvenance writes a minimal provenance folder (final params + environment).
