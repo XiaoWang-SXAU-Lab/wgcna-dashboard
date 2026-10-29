@@ -100,7 +100,6 @@ ht <- Heatmap(
     title_position = if (legend == "bottom") "topcenter" else "lefttop-rot"
   ),
   show_heatmap_legend = show_legend,
-  rect_gp = gpar(type = "none"),
   border_gp = gpar(col = if (border == 1) "grey40" else NA),
   column_title = title,
   column_title_gp = gpar(fontsize = 15, fontface = "bold")
