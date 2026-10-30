@@ -60,7 +60,18 @@ func (h *Handler) exportReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, err := filepath.Abs(target)
+	release, err := h.jobs.ReserveSnapshot(id)
+	if err != nil {
+		runError(w, err)
+		return
+	}
+	asynchronous := false
+	defer func() {
+		if !asynchronous {
+			release()
+		}
+	}()
+	target, err = filepath.Abs(target)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -95,7 +106,8 @@ func (h *Handler) exportReport(w http.ResponseWriter, r *http.Request) {
 	reportStates[id] = st
 	reportMu.Unlock()
 
-	go h.doReportExport(id, base, enrichType, lang, st)
+	asynchronous = true
+	go func() { defer release(); h.doReportExport(id, base, enrichType, lang, st) }()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started", "dir": base})
 }
@@ -327,10 +339,8 @@ func writeReport(reportDir string, d reportData) error {
 	if d.Lang == "en" {
 		title = "rsWGCNA Analysis report"
 	}
-	chartsScript := ""
-	if d.SampleTreeJSON != "" || d.SftJSON != "" {
-		chartsScript = `<script src="echarts.min.js"></script><script src="report-charts.js"></script>`
-	}
+	// Reports can contain later-stage charts even if an earlier chart is absent.
+	chartsScript := `<script src="echarts.min.js"></script><script src="report-charts.js"></script>`
 	html := "<!doctype html><html lang='" + langAttr + "'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>" + title + "</title><link rel='stylesheet' href='design.css'>" + chartsScript + "</head><body>" + body + "<script src='design.js'></script></body></html>"
 	if err := os.WriteFile(filepath.Join(reportDir, "index.html"), []byte(html), 0o644); err != nil {
 		return err
@@ -827,7 +837,7 @@ func hubNetworkData(jobDir, module string) ([]byte, error) {
 	}
 
 	type sc struct {
-		gene         string
+		gene          string
 		score, mm, gs float64
 	}
 	scored := make([]sc, 0, len(d.Genes))

@@ -90,6 +90,7 @@ async function doExportReport() {
     if (token === generation) reportRunning.value = false
   }
 }
+watch(error, message => { if (message) store.notifyError(new Error(message), 'report') })
 watch(jobId, restoreReport, { immediate: true })
 onBeforeUnmount(() => { mounted = false; generation++ })
 </script>

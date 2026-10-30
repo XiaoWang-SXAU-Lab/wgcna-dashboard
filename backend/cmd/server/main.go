@@ -105,6 +105,7 @@ func openWindow(baseURL string) {
 	defer w.Destroy()
 	w.SetTitle("rsWGCNA")
 	w.SetSize(1280, 800, webview.HintNone)
+	configureFileDialogs(w.Window())
 	w.Navigate(baseURL)
 	w.Run()
 }

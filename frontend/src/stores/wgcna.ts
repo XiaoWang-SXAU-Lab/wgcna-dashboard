@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia'
+import { waitForRun } from '../utils/pollJob'
+import { locale } from '../utils/i18n'
 import { computed, ref, watch } from 'vue'
 import {
-  createJob, getJob, getResult, getSampleInfo, loadDemoApi, runStep as runStepApi, uploadMeta, uploadTrait,
+  ApiError, cancelJob, validateInputs, type InputValidation, createJob, getJob, getResult, getSampleInfo, loadDemoApi, runStep as runStepApi, uploadMeta, uploadTrait,
   type DetailResult, type FilterResult, type HubResult, type JobStatus, type ModulesResult, type MtaitResult, type SampleInfo, type SftResult,
 } from '../api/client'
 
@@ -77,6 +79,7 @@ export const useWgcnaStore = defineStore('wgcna', () => {
   // Network construction follows the soft-threshold network type (they describe
   // the same network); keep them in sync so a change in SFT carries over.
   watch(sftNetworkType, (v) => { netNetworkType.value = v })
+  watch(netNetworkType, (v) => { sftNetworkType.value = v })
   const tomType = ref('signed')
   const tomDenom = ref('min')
   const minModuleSize = ref(30)
@@ -89,7 +92,77 @@ export const useWgcnaStore = defineStore('wgcna', () => {
   const sampleInfo = ref<SampleInfo[] | null>(null)
   const stepRunning = ref('')
   const error = ref('')
+  const notice = ref<{ message: string; path?: string } | null>(null)
+  const connectionLost = ref(false)
+  const cancelling = ref(false)
+  function notifyError(e: unknown, step = '') {
+    const message = e instanceof Error ? e.message : String(e)
+    error.value = friendlyError(message)
+    const routes: Record<string, string> = { filter: '/data-import', soft_threshold: '/sft', network: '/network', module_trait: '/module-trait', module_detail: '/module-explorer', hub: '/module-explorer', cluster: '/module-overview', cluster_elbow: '/module-overview', overview_network: '/module-overview' }
+    let relevant = step
+    const changed = message.match(/(?:Parameters for |Complete |Rerun )(filter|soft_threshold|network|module_trait)/)?.[1]
+    if (changed) relevant = changed
+    if (e instanceof ApiError && ['normalization', 'filter_empty', 'inputs', 'samples', 'job_missing'].includes(e.code)) relevant = 'filter'
+    notice.value = { message: error.value, path: routes[relevant] }
+  }
+  async function cancelCurrent() {
+    if (!jobId.value || cancelling.value) return
+    cancelling.value = true
+    try { await cancelJob(jobId.value) } catch (e) { notifyError(e) } finally { cancelling.value = false }
+  }
 
+  const inputValidation = ref<InputValidation | null>(null)
+  const validatingInputs = ref(false)
+  const creatingJob = ref(false)
+  const showInputValidation = ref(false)
+  let validationVersion = 0
+  const uploadFiles = () => ({ expr: exprFile.value, trait: traitFile.value, sample_info: sampleInfoFile.value,
+    annotation: annotationFile.value, gene2go: gene2goFile.value, gene2kegg: gene2keggFile.value })
+
+  async function checkInputs(): Promise<boolean> {
+    const version = ++validationVersion
+    validatingInputs.value = true
+    try {
+      const report = await validateInputs(uploadFiles(), dataType.value)
+      if (version !== validationVersion) return false
+      inputValidation.value = report
+      if (report.issues.length) showInputValidation.value = true
+      return report.valid
+    } catch (e) {
+      if (version !== validationVersion) return false
+      inputValidation.value = { valid: false, error_count: 1, warning_count: 0, issues: [
+        { severity: 'error', file: 'upload', message: e instanceof Error ? e.message : String(e) },
+      ] }
+      showInputValidation.value = true
+      return false
+    } finally {
+      if (version === validationVersion) validatingInputs.value = false
+    }
+  }
+
+  // A newly selected file belongs to a new input set. Never run an old job
+  // with new filenames shown in the upload controls.
+  function invalidateInputs() {
+    ++validationVersion
+    inputValidation.value = null
+    validatingInputs.value = false
+    showInputValidation.value = false
+    jobId.value = ''
+    job.value = null
+    demoLoaded.value = false
+    traitUploaded.value = false
+    sampleInfo.value = null
+    traitColumn.value = ''
+    selectedModule.value = ''
+    selectedTrait.value = ''
+    excludedSamples.value = []
+    clearDownstream('filter')
+    appliedParams.value = {}
+    error.value = ''
+  }
+
+
+  const appliedParams = ref<Record<string, string>>({})
   const sft = ref<SftResult | null>(null)
   const modules = ref<ModulesResult | null>(null)
   const mtait = ref<MtaitResult | null>(null)
@@ -110,23 +183,30 @@ const maxHubs = ref(30)
   // 若已选值不在新集合里，重置为第一个合法值，避免 module_detail/hub 用旧值。
   watch([mtait, modules], () => {
     const traits = mtait.value?.traits ?? []
-    if (selectedTrait.value && !traits.includes(selectedTrait.value)) {
+    if (!traits.includes(selectedTrait.value)) {
       selectedTrait.value = traits[0] ?? ''
     }
-    const mods = Object.keys(modules.value?.module_sizes ?? {})
-    if (selectedModule.value && !mods.includes(selectedModule.value)) {
+    const mods = Object.keys(modules.value?.module_sizes ?? {}).filter(m => m !== 'grey')
+    if (!mods.includes(selectedModule.value)) {
       selectedModule.value = mods[0] ?? ''
     }
   })
 
-  const sampleColumns = computed(() => Object.keys(sampleInfo.value?.[0]?.attrs ?? {}))
+  const sampleColumns = computed(() => Object.keys(sampleInfo.value?.[0]?.attrs ?? {}).filter(c => !['sample_id', 'sample_name', 'ID'].includes(c)))
+  watch([sampleInfo, traitUploaded, traitSource], () => {
+    if (!sampleColumns.value.includes(traitColumn.value)) traitColumn.value = sampleColumns.value[0] ?? ''
+    if (!traitUploaded.value && sampleColumns.value.length) traitSource.value = 'sample_info'
+    else if (traitUploaded.value && !sampleColumns.value.length) traitSource.value = 'uploaded'
+  })
 
   async function loadSampleInfo() {
     if (!jobId.value) return
+    const id = jobId.value
     try {
-      sampleInfo.value = await getSampleInfo(jobId.value)
+      const info = await getSampleInfo(id)
+      if (jobId.value === id) sampleInfo.value = info
     } catch {
-      sampleInfo.value = null
+      if (jobId.value === id) sampleInfo.value = null
     }
   }
 
@@ -142,11 +222,12 @@ const maxHubs = ref(30)
   }
 
   async function createJobAndUpload() {
-    if (!exprFile.value) return
+    if (!exprFile.value || creatingJob.value || validatingInputs.value) return
+    creatingJob.value = true
     error.value = ''
     try {
+      if (!(await checkInputs())) return
       const { id } = await createJob(exprFile.value, params(), threads.value)
-      jobId.value = id
       demoLoaded.value = false
       if (traitFile.value) {
         await uploadTrait(id, traitFile.value)
@@ -158,9 +239,12 @@ const maxHubs = ref(30)
         gene2go: gene2goFile.value,
         gene2kegg: gene2keggFile.value,
       })
+      jobId.value = id
       await refresh()
     } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
+      notifyError(e)
+    } finally {
+      creatingJob.value = false
     }
   }
 
@@ -168,13 +252,21 @@ const maxHubs = ref(30)
     error.value = ''
     try {
       const { id } = await loadDemoApi(threads.value)
+      ++validationVersion
+      validatingInputs.value = false
+      inputValidation.value = null
+      showInputValidation.value = false
+      excludedSamples.value = []
+      clearDownstream('filter')
+      appliedParams.value = {}
       jobId.value = id
       traitUploaded.value = true
+      dataType.value = 'count'
       normalizeMethod.value = 'vst'
       demoLoaded.value = true
       await refresh()
     } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
+      notifyError(e)
     }
   }
 
@@ -188,14 +280,27 @@ const maxHubs = ref(30)
     loadSampleInfo()
   }
 
-  function isDone(step: string) {
-    return job.value?.done_steps?.includes(step) ?? false
+  const dependencySteps: Record<string, string[]> = {
+    filter: [], soft_threshold: ['filter'], network: ['filter', 'soft_threshold'],
+    module_trait: ['filter', 'soft_threshold', 'network'],
+    module_detail: ['filter', 'soft_threshold', 'network', 'module_trait'],
+    hub: ['filter', 'soft_threshold', 'network', 'module_trait'],
   }
+  function isDirty(step: string) {
+    const current = params() as Record<string, unknown>
+    return [...(dependencySteps[step] ?? []), step].some(s =>
+      job.value?.done_steps?.includes(s) && appliedParams.value[s] !== undefined && appliedParams.value[s] !== JSON.stringify(current[s]))
+  }
+  function isDone(step: string) {
+    return (job.value?.done_steps?.includes(step) ?? false) && !isDirty(step)
+  }
+  const dirtyStep = computed(() => ['filter', 'soft_threshold', 'network', 'module_trait', 'module_detail', 'hub']
+    .find(s => job.value?.done_steps?.includes(s) && isDirty(s)) ?? '')
 
   function stepReady(step: string) {
     if (!jobId.value) return false
     if (step === 'module_trait' || step === 'module_detail' || step === 'hub') {
-      if (!traitUploaded.value) return false
+      if (traitSource.value === 'uploaded' ? !traitUploaded.value : !sampleColumns.value.includes(traitColumn.value)) return false
     }
     const deps: Record<string, string[]> = {
       filter: [], soft_threshold: ['filter'], network: ['soft_threshold'],
@@ -204,39 +309,32 @@ const maxHubs = ref(30)
     return (deps[step] ?? []).every(isDone)
   }
 
-  function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)) }
-
   // 把底层 panic/错误翻译成人话
   function friendlyError(msg: string): string {
     if (!msg) return ''
     if (msg.includes('Option::unwrap')) return '计算中出现无效数值（可能含常数基因/零方差数据），请检查数据或减少保留基因数'
-    if (msg.includes('read trait.tsv')) return '未上传性状表，请先上传性状文件再运行该步骤'
-    if (msg.includes('R plot failed')) return '绘图失败：' + msg.split('R plot failed:')[1]?.split('\n')[0]?.trim()
+    if (msg.includes('trait.tsv') && (msg.includes('No such file') || msg.includes('cannot find the file'))) return '未找到性状表，请先上传性状文件再运行该步骤'
+    if (msg.includes('R plot failed')) return (locale.value === 'zh' ? '绘图环境不可用或缺少 R 包。请检查 Rscript，或使用包含 R 环境的完整版。详细信息：\n' : 'The R plotting environment is unavailable or missing packages. Check Rscript or use the complete release with R. Details:\n') + msg.split('R plot failed:')[1]?.trim()
     return msg
   }
 
-  async function waitForDone() {
-    await sleep(400)
-    for (let i = 0; i < 600; i++) {
-      await refresh()
-      const st = job.value?.status
-      if (st === 'error' || st === 'cancelled') break
-      if (st === 'done') break
-      await sleep(500)
+  async function waitForDone(id: string, runId: string) {
+    const result = await waitForRun(id, runId,
+      status => { if (jobId.value === id) job.value = status },
+      lost => { connectionLost.value = lost })
+    connectionLost.value = false
+    if (result.status === 'cancelled') {
+      error.value = locale.value === 'zh' ? '已取消；可调整参数后重新运行。' : 'Cancelled. Adjust settings and run again when ready.'
+      return false
     }
-    // 把 job 的错误/取消状态传播到 store.error（友好化文案）
-    if (job.value?.status === 'error') {
-      error.value = friendlyError(job.value.error ?? '')
-    } else if (job.value?.status === 'cancelled') {
-      error.value = '已取消'
-    } else {
-      error.value = ''
-    }
+    await loadSampleInfo()
+    return true
   }
 
   // 每步状态：idle（未运行）| running（运行中）| done（完成）| error（失败）
-  function stepStatus(step: string): 'idle' | 'running' | 'done' | 'error' {
+  function stepStatus(step: string): 'idle' | 'running' | 'done' | 'error' | 'stale' {
     if (stepRunning.value === step) return 'running'
+    if (isDirty(step)) return 'stale'
     if (isDone(step)) return 'done'
     if (job.value?.status === 'error' && job.value?.current_step === step) return 'error'
     return 'idle'
@@ -258,38 +356,57 @@ const maxHubs = ref(30)
 
   async function runStep(step: string) {
     if (!jobId.value || stepRunning.value) return
+    const id = jobId.value
     stepRunning.value = step
     error.value = ''
-    clearDownstream(step)
     try {
-      await runStepApi(jobId.value, step, params(), threads.value)
-      await waitForDone()
-      await loadStep(step)
+      const submitted = params()
+      const { run_id } = await runStepApi(id, step, submitted, threads.value)
+      clearDownstream(step)
+      if (await waitForDone(id, run_id)) {
+        appliedParams.value[step] = JSON.stringify((submitted as Record<string, unknown>)[step])
+        await loadStep(step)
+      }
     } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
+      notifyError(e, step)
     } finally {
+      connectionLost.value = false
       stepRunning.value = ''
     }
   }
 
-  async function removeSamples(samples: string[]) {
+  async function removeSamples(samples: string[], replace = false) {
     if (!jobId.value || stepRunning.value) return
+    const previous = excludedSamples.value
+    const next = [...new Set(replace ? samples : [...previous, ...samples])]
+    if (filterResult.value && !replace && filterResult.value.samples.filter(s => !next.includes(s)).length < 3) {
+      notifyError(new ApiError('At least 3 samples must remain. Select fewer outliers or restore samples.', 'samples', 422), 'filter')
+      return
+    }
     stepRunning.value = 'filter'
     error.value = ''
-    clearDownstream('filter')
-    excludedSamples.value = samples
+    excludedSamples.value = next
+    let accepted = false
     try {
-      await runStepApi(jobId.value, 'filter', params(), threads.value)
-      await waitForDone()
-      await loadStep('filter')
+      const id = jobId.value
+      const submitted = params()
+      const { run_id } = await runStepApi(id, 'filter', submitted, threads.value)
+      accepted = true
+      clearDownstream('filter')
+      if (await waitForDone(id, run_id)) { appliedParams.value.filter = JSON.stringify(submitted.filter); await loadStep('filter') }
     } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
+      if (!accepted) excludedSamples.value = previous
+      notifyError(e, 'filter')
     } finally {
+      connectionLost.value = false
       stepRunning.value = ''
     }
   }
 
+  async function restoreSamples() { await removeSamples([], true) }
+
   async function loadStep(step: string) {
+    if (!isDone(step)) return
     try {
       if (step === 'filter') filterResult.value = await getResult<FilterResult>(jobId.value, step)
       else if (step === 'soft_threshold') {
@@ -301,14 +418,15 @@ const maxHubs = ref(30)
       else if (step === 'module_trait') mtait.value = await getResult<MtaitResult>(jobId.value, step)
       else if (step === 'module_detail') detail.value = await getResult<DetailResult>(jobId.value, step)
       else if (step === 'hub') hub.value = await getResult<HubResult>(jobId.value, step)
-    } catch { /* not available */ }
+    } catch (e) { notifyError(e, step) }
   }
 
   return {
     jobId, job, exprFile, traitFile, sampleInfoFile, annotationFile, gene2goFile, gene2keggFile, demoLoaded, threads, nKeep, dataType, normalizeMethod, normalizeOptions, filterMethod, samplePercentage, cutoff,
     rsquaredCut, sftNetworkType, power, netNetworkType, tomType, tomDenom, minModuleSize, mergeCutHeight, deepSplit, detectCutHeight,
-    traitUploaded, traitSource, traitColumn, sampleInfo, sampleColumns, stepRunning, error,
+    traitUploaded, traitSource, traitColumn, sampleInfo, sampleColumns, stepRunning, error, dirtyStep, notice, notifyError, connectionLost, cancelling, cancelCurrent,
     sft, modules, mtait, detail, hub, filterResult, created, selectedModule, selectedTrait, kmeCutoff, gsCutoff, weightThreshold, topNNeighbors, maxHubs,
-    createJobAndUpload, loadDemo, runStep, removeSamples, refresh, loadSampleInfo, isDone, stepReady, stepStatus,
+    inputValidation, validatingInputs, creatingJob, showInputValidation, checkInputs, invalidateInputs,
+    createJobAndUpload, loadDemo, runStep, removeSamples, restoreSamples, excludedSamples, refresh, loadSampleInfo, isDone, stepReady, stepStatus,
   }
 })

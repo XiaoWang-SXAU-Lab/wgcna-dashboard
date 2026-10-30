@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber } from '../utils/formatNumber'
 import ReportFigure from '../components/ReportFigure.vue'
 import { computed, ref, watch } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
@@ -23,7 +24,7 @@ const tab = ref<Tab>('detail')
 const traitOptions = computed(() => store.mtait?.traits ?? [])
 const moduleOptions = computed(() => {
   const sizes = store.modules?.module_sizes ?? {}
-  return Object.keys(sizes).sort((a, b) => (sizes[b] ?? 0) - (sizes[a] ?? 0))
+  return Object.keys(sizes).filter(m => m !== 'grey').sort((a, b) => (sizes[b] ?? 0) - (sizes[a] ?? 0))
 })
 
 // --- network visualization params ---
@@ -78,8 +79,8 @@ const hubRows = computed(() => (store.hub?.hub_genes ?? []).map((h) => {
     symbol: a?.symbol || '',
     gene_name: a?.gene_name || '',
     description: a?.description || '',
-    kme: h.kme.toFixed(4),
-    gs: h.gs.toFixed(4),
+    kme: formatNumber(h.kme, 4),
+    gs: formatNumber(h.gs, 4),
   }
 }))
 
@@ -87,8 +88,8 @@ const annotationRowsDisplay = computed(() => annotationRows.value.map((r) => {
   const d = detailMap.value[r.gene_id]
   return {
     ...r,
-    kme: d ? d.kme.toFixed(4) : '',
-    gs: d ? d.gs.toFixed(4) : '',
+    kme: d ? formatNumber(d.kme, 4) : '',
+    gs: d ? formatNumber(d.gs, 4) : '',
   }
 }))
 

@@ -33,12 +33,29 @@ export interface JobStatus {
   id: string
   status: 'idle' | 'running' | 'done' | 'error' | 'cancelled'
   current_step: string
+  run_id?: string
   done_steps: string[]
   progress?: Progress
   error?: string
   result?: ModulesResult
 }
 
+export class ApiError extends Error {
+  constructor(message: string, public code: string, public status: number) { super(message) }
+}
+async function apiError(res: Response): Promise<ApiError> {
+  const text = await res.text()
+  try {
+    const body = JSON.parse(text)
+    if (body.message) return new ApiError(body.message, body.code || 'request', res.status)
+  } catch { /* Plain-text errors remain readable. */ }
+  return new ApiError(text || `Request failed (${res.status})`, 'request', res.status)
+}
+async function statusFetch(url: string): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15000)
+  try { return await fetch(url, { signal: controller.signal }) } finally { clearTimeout(timer) }
+}
 const BASE = '/api'
 
 export async function createJob(expr: File, params: unknown, threads?: number): Promise<{ id: string }> {
@@ -47,29 +64,30 @@ export async function createJob(expr: File, params: unknown, threads?: number): 
   fd.append('params', JSON.stringify(params))
   if (threads) fd.append('threads', String(threads))
   const res = await fetch(`${BASE}/jobs`, { method: 'POST', body: fd })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
 export async function getJob(id: string): Promise<JobStatus> {
-  const res = await fetch(`${BASE}/jobs/${id}`)
-  if (!res.ok) throw new Error(await res.text())
+  const res = await statusFetch(`${BASE}/jobs/${id}`)
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
-export async function runStep(id: string, step: string, params?: unknown, threads?: number): Promise<void> {
+export async function runStep(id: string, step: string, params?: unknown, threads?: number): Promise<{ run_id: string }> {
   const fd = new FormData()
   if (params !== undefined) fd.append('params', JSON.stringify(params))
   if (threads) fd.append('threads', String(threads))
   const res = await fetch(`${BASE}/jobs/${id}/steps/${step}/run`, { method: 'POST', body: fd })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
+  return res.json()
 }
 
 export async function uploadTrait(id: string, trait: File): Promise<void> {
   const fd = new FormData()
   fd.append('trait', trait)
   const res = await fetch(`${BASE}/jobs/${id}/trait`, { method: 'POST', body: fd })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
 }
 
 export async function uploadMeta(id: string, files: Record<string, File | null>): Promise<void> {
@@ -79,7 +97,7 @@ export async function uploadMeta(id: string, files: Record<string, File | null>)
   }
   if ([...fd.entries()].length === 0) return
   const res = await fetch(`${BASE}/jobs/${id}/meta`, { method: 'POST', body: fd })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
 }
 
 export async function cancelJob(id: string): Promise<void> {
@@ -171,7 +189,7 @@ export interface HubResult {
 
 export async function getResult<T>(id: string, step: string): Promise<T> {
   const res = await fetch(`${BASE}/jobs/${id}/results/${step}`)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
@@ -197,7 +215,7 @@ export interface EnrichResult {
 
 export async function getAnnotation(id: string, module: string): Promise<AnnotationRow[]> {
   const res = await fetch(`${BASE}/jobs/${id}/annotation?module=${encodeURIComponent(module)}`)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
@@ -212,7 +230,7 @@ export async function getEnrich(
   const res = await fetch(
     `${BASE}/jobs/${id}/enrich?module=${encodeURIComponent(module)}&type=${type}&fdr=${fdr}&top=${top}&max_count=${maxCount}`,
   )
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
@@ -232,7 +250,7 @@ export interface ExpressionResult {
 
 export async function getExpression(id: string, genes: string[]): Promise<ExpressionResult> {
   const res = await fetch(`${BASE}/jobs/${id}/expression?genes=${encodeURIComponent(genes.join(','))}`)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
@@ -243,14 +261,14 @@ export interface SampleInfo {
 
 export async function getSampleInfo(id: string): Promise<SampleInfo[]> {
   const res = await fetch(`${BASE}/jobs/${id}/sample-info`)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
 export async function loadDemoApi(threads?: number): Promise<{ id: string }> {
   const q = threads ? `?threads=${threads}` : ''
   const res = await fetch(`${BASE}/demo/load${q}`, { method: 'POST' })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
@@ -263,13 +281,13 @@ export interface GOVersionInfo {
 
 export async function getGOVersion(): Promise<GOVersionInfo> {
   const res = await fetch(`${BASE}/meta/go-version`)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
 export async function updateGO(): Promise<{ version: string }> {
   const res = await fetch(`${BASE}/meta/go-update`, { method: 'POST' })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
@@ -284,7 +302,7 @@ export interface AIConfig {
 
 export async function getAIConfig(): Promise<AIConfig> {
   const res = await fetch(`${BASE}/ai/config`)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
@@ -299,7 +317,7 @@ export async function saveAIConfig(cfg: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(cfg),
   })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
 }
 
 export async function chatStream(
@@ -313,7 +331,7 @@ export async function chatStream(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question, error: errorCtx, job_id: ctx?.jobId ?? '', module: ctx?.module ?? '' }),
   })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   const reader = res.body!.getReader()
   const decoder = new TextDecoder()
   let buf = ''
@@ -378,7 +396,7 @@ export interface ClusterResult {
 
 export async function getOverview(id: string, type: 'go' | 'kegg' = 'go', onto = '', fdr = 0.05, top = 5): Promise<OverviewData> {
   const res = await fetch(`${BASE}/jobs/${id}/overview?type=${type}&onto=${onto}&fdr=${fdr}&top=${top}`)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
@@ -393,23 +411,25 @@ export async function getOverviewNetwork(
   hideGrey = true,
 ): Promise<OverviewNetwork> {
   const res = await fetch(`${BASE}/jobs/${id}/overview/network?mode=${mode}&max_nodes=${maxNodes}&min_per_module=${minPerModule}&intra_per_gene=${intraPerGene}&inter_per_pair=${interPerPair}&inter_budget=${interBudget}&hide_grey=${hideGrey}`)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
-export async function runOverviewNetwork(id: string, percentile = 10): Promise<void> {
+export async function runOverviewNetwork(id: string, percentile = 10): Promise<{ run_id: string }> {
   const res = await fetch(`${BASE}/jobs/${id}/overview/network?percentile=${percentile}`, { method: 'POST' })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
+  return res.json()
 }
 
-export async function runCluster(id: string, method: 'kmeans' | 'cmeans', k = 0, seed = 42, kmax = 12): Promise<void> {
+export async function runCluster(id: string, method: 'kmeans' | 'cmeans', k = 0, seed = 42, kmax = 12): Promise<{ run_id: string }> {
   const res = await fetch(`${BASE}/jobs/${id}/overview/cluster?method=${method}&k=${k}&seed=${seed}&kmax=${kmax}`, { method: 'POST' })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
+  return res.json()
 }
 
 export async function getCluster(id: string): Promise<ClusterResult> {
   const res = await fetch(`${BASE}/jobs/${id}/overview/cluster`)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
@@ -422,14 +442,15 @@ export interface ClusterElbow {
   suggested_k: number
 }
 
-export async function runClusterElbow(id: string, method: 'kmeans' | 'cmeans', seed = 42, kmax = 12): Promise<void> {
+export async function runClusterElbow(id: string, method: 'kmeans' | 'cmeans', seed = 42, kmax = 12): Promise<{ run_id: string }> {
   const res = await fetch(`${BASE}/jobs/${id}/overview/elbow?method=${method}&seed=${seed}&kmax=${kmax}`, { method: 'POST' })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
+  return res.json()
 }
 
 export async function getClusterElbow(id: string): Promise<ClusterElbow> {
   const res = await fetch(`${BASE}/jobs/${id}/overview/elbow`)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
@@ -454,19 +475,41 @@ export async function exportReport(id: string, dir: string, name: string, type: 
   fd.append('type', type)
   fd.append('lang', lang)
   const res = await fetch(`${BASE}/jobs/${id}/report/export`, { method: 'POST', body: fd })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
 export async function getReportStatus(id: string): Promise<ReportStatus> {
   const res = await fetch(`${BASE}/jobs/${id}/report/status`)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 
 export async function pickFolder(): Promise<string> {
   const res = await fetch(`${BASE}/folder-picker`)
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw await apiError(res)
   const d = await res.json()
   return d.dir
+}
+
+export interface InputIssue {
+  severity: 'error' | 'warning'
+  file: string
+  message: string
+  row?: number
+  column?: number
+}
+export interface InputValidation {
+  valid: boolean
+  issues: InputIssue[]
+  error_count: number
+  warning_count: number
+}
+export async function validateInputs(files: Record<string, File | null>, dataType: string): Promise<InputValidation> {
+  const fd = new FormData()
+  for (const [kind, file] of Object.entries(files)) if (file) fd.append(kind, file)
+  fd.append('data_type', dataType)
+  const res = await fetch(`${BASE}/inputs/validate`, { method: 'POST', body: fd })
+  if (!res.ok) throw await apiError(res)
+  return res.json()
 }

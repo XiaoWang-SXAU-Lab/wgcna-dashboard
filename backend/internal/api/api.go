@@ -32,6 +32,7 @@ func NewHandler(jobs *job.Manager) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/health", h.health)
 	mux.HandleFunc("POST /api/jobs", h.createJob)
+	mux.HandleFunc("POST /api/inputs/validate", h.validateInputs)
 	mux.HandleFunc("GET /api/jobs/{id}", h.getJob)
 	mux.HandleFunc("POST /api/jobs/{id}/trait", h.uploadTrait)
 	mux.HandleFunc("POST /api/jobs/{id}/meta", h.uploadMeta)
@@ -88,13 +89,16 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	params := json.RawMessage(r.FormValue("params"))
-	threads, _ := strconv.Atoi(r.FormValue("threads"))
+	threads, ok := parseThreads(w, r.FormValue("threads"))
+	if !ok {
+		return
+	}
 	if threads <= 0 {
 		threads = runtime.NumCPU()
 	}
 	id, err := h.jobs.Create(expr, params, threads)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		inputError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
@@ -109,7 +113,7 @@ func (h *Handler) getJob(w http.ResponseWriter, r *http.Request) {
 	}
 	// Expose live worker progress while a step is running.
 	if j.Status == "running" {
-		if p := h.jobs.LiveProgress(id); p != nil {
+		if p := h.jobs.LiveProgress(id); p != nil && p.Step == j.CurrentStep {
 			j.Progress = p
 		}
 	}
@@ -124,7 +128,7 @@ func (h *Handler) uploadTrait(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.jobs.UploadTrait(r.PathValue("id"), trait); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		inputError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -138,6 +142,7 @@ func (h *Handler) uploadMeta(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 	files := map[string][]byte{}
 	for _, name := range []string{"sample_info", "annotation", "gene2go", "gene2kegg"} {
 		file, _, err := r.FormFile(name)
@@ -155,7 +160,7 @@ func (h *Handler) uploadMeta(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := h.jobs.StoreMeta(id, files); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		inputError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -547,7 +552,10 @@ func (h *Handler) loadDemo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	threads, _ := strconv.Atoi(r.URL.Query().Get("threads"))
+	threads, ok := parseThreads(w, r.URL.Query().Get("threads"))
+	if !ok {
+		return
+	}
 	if threads <= 0 {
 		threads = runtime.NumCPU()
 	}
@@ -557,10 +565,16 @@ func (h *Handler) loadDemo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if trait, err := demo.Trait(); err == nil {
-		_ = h.jobs.UploadTrait(id, trait)
+		if err := h.jobs.UploadTrait(id, trait); err != nil {
+			inputError(w, err)
+			return
+		}
 	}
 	if meta, err := demo.Meta(); err == nil {
-		_ = h.jobs.StoreMeta(id, meta)
+		if err := h.jobs.StoreMeta(id, meta); err != nil {
+			inputError(w, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 }
@@ -615,19 +629,11 @@ func (h *Handler) runStep(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown step: "+step, http.StatusBadRequest)
 		return
 	}
-	if p := r.FormValue("params"); p != "" {
-		if err := h.jobs.UpdateParams(id, json.RawMessage(p)); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
+	threads, ok := parseThreads(w, r.FormValue("threads"))
+	if !ok {
+		return
 	}
-	if t := r.FormValue("threads"); t != "" {
-		if n, err := strconv.Atoi(t); err == nil && n > 0 {
-			h.jobs.SetThreads(id, n)
-		}
-	}
-	go h.jobs.RunStep(id, step)
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started", "step": step})
+	h.startRun(w, id, step, json.RawMessage(r.FormValue("params")), threads)
 }
 
 // cancel cancels the currently-running step, if any.
@@ -980,6 +986,9 @@ func qfloat(r *http.Request, key string) float64 {
 func readFile(r *http.Request, field string) ([]byte, error) {
 	if err := r.ParseMultipartForm(128 << 20); err != nil {
 		return nil, err
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
 	}
 	file, _, err := r.FormFile(field)
 	if err != nil {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { waitForRun } from '../utils/pollJob'
 import { useWgcnaStore } from '../stores/wgcna'
 import { t } from '../utils/i18n'
 import {
@@ -67,6 +68,8 @@ const networkLoading = ref(false)
 const clusterRunning = ref(false)
 const overviewImgLoading = ref(false)
 const showOverviewImg = ref(false)
+const overviewImgError = ref(false)
+const clusterImgError = ref(false)
 const clusterImgLoading = ref(false)
 const elbow = ref<ClusterElbow | null>(null)
 const elbowRunning = ref(false)
@@ -85,15 +88,23 @@ const clusterOverviewUrl = computed(() =>
 const networkExportUrl = computed(() =>
   store.jobId ? plotUrl(store.jobId, 'overview-network', { mode: 'svg', per_module: 2000 }) : '')
 
+watch(overviewUrl, () => { overviewImgError.value = false })
+watch(clusterOverviewUrl, () => { clusterImgError.value = false })
+function plotFailed(clusterPlot: boolean) {
+  if (clusterPlot) { clusterImgLoading.value = false; clusterImgError.value = true }
+  else { overviewImgLoading.value = false; overviewImgError.value = true }
+  store.notifyError(new Error('Plot could not be generated. Check plot settings and the R plotting environment, then retry.'))
+}
+
 async function loadOverview() {
-  if (!store.jobId) return
+  if (!store.jobId || !store.isDone('network')) return
   loading.value = true
   try {
     overview.value = await getOverview(store.jobId, enrichType.value, onto.value, 0.05, topN.value)
     if (!selectedModule.value && overview.value.module_order.length) {
       selectedModule.value = overview.value.module_order[0]
     }
-  } finally {
+  } catch (e) { store.notifyError(e, 'network') } finally {
     loading.value = false
   }
 }
@@ -109,73 +120,68 @@ async function fetchNetwork() {
   networkLoading.value = true
   try {
     network.value = await getOverviewNetwork(store.jobId, fetchMode(), maxNodes.value, minPerModule.value, intraPerGene.value, interPerPair.value, interBudget.value, hideGrey.value)
-  } finally {
+  } catch (e) { store.notifyError(e, 'overview_network') } finally {
     networkLoading.value = false
   }
 }
 
+async function awaitAux(id: string, runId: string) {
+  const status = await waitForRun(id, runId, status => { if (store.jobId === id) store.job = status }, lost => { store.connectionLost = lost })
+  return status.status === 'done'
+}
 async function buildNetwork() {
-  if (!store.jobId || networkLoading.value) return
+  if (!store.jobId || store.stepRunning || networkLoading.value) return
+  const id = store.jobId
   networkLoading.value = true
+  store.stepRunning = 'overview_network'
   try {
-    await runOverviewNetwork(store.jobId, percentile.value)
-    for (let i = 0; i < 240; i++) {
-      await new Promise((r) => setTimeout(r, 1000))
-      try {
-        network.value = await getOverviewNetwork(store.jobId, fetchMode(), maxNodes.value, minPerModule.value, intraPerGene.value, interPerPair.value, interBudget.value, hideGrey.value)
-        break
-      } catch {
-        /* still computing */
-      }
+    const { run_id } = await runOverviewNetwork(id, percentile.value)
+    network.value = null
+    if (await awaitAux(id, run_id)) {
+      network.value = await getOverviewNetwork(id, fetchMode(), maxNodes.value, minPerModule.value, intraPerGene.value, interPerPair.value, interBudget.value, hideGrey.value)
+      networkDirty.value = false
     }
-    networkDirty.value = false
-  } finally {
+  } catch (e) { store.notifyError(e, 'overview_network') } finally {
+    store.connectionLost = false
+    store.stepRunning = ''
     networkLoading.value = false
   }
 }
-
 async function runClustering() {
-  if (!store.jobId || clusterRunning.value) return
+  if (!store.jobId || store.stepRunning || clusterRunning.value) return
+  const id = store.jobId
   clusterRunning.value = true
+  store.stepRunning = 'cluster'
   try {
-    await runCluster(store.jobId, clusterMethod.value, clusterK.value, clusterSeed.value)
-    for (let i = 0; i < 120; i++) {
-      await new Promise((r) => setTimeout(r, 1000))
-      try {
-        cluster.value = await getCluster(store.jobId)
-        break
-      } catch {
-        /* still running */
-      }
+    const { run_id } = await runCluster(id, clusterMethod.value, clusterK.value, clusterSeed.value)
+    cluster.value = null
+    if (await awaitAux(id, run_id)) {
+      cluster.value = await getCluster(id)
+      selectedCluster.value = cluster.value.cluster_order[0] ?? ''
     }
-    if (cluster.value?.cluster_order.length && !selectedCluster.value) {
-      selectedCluster.value = cluster.value.cluster_order[0]
-    }
-  } finally {
+  } catch (e) { store.notifyError(e, 'cluster') } finally {
+    store.connectionLost = false
+    store.stepRunning = ''
     clusterRunning.value = false
   }
 }
-
 async function computeElbow() {
-  if (!store.jobId || elbowRunning.value) return
+  if (!store.jobId || store.stepRunning || elbowRunning.value) return
+  const id = store.jobId
   elbowRunning.value = true
+  store.stepRunning = 'cluster_elbow'
   try {
-    await runClusterElbow(store.jobId, clusterMethod.value, clusterSeed.value, clusterKmax.value)
-    for (let i = 0; i < 120; i++) {
-      await new Promise((r) => setTimeout(r, 1000))
-      try {
-        elbow.value = await getClusterElbow(store.jobId)
-        break
-      } catch {
-        /* still computing */
-      }
-    }
-    if (elbow.value) {
+    const { run_id } = await runClusterElbow(id, clusterMethod.value, clusterSeed.value, clusterKmax.value)
+    elbow.value = null
+    if (await awaitAux(id, run_id)) {
+      elbow.value = await getClusterElbow(id)
       clusterK.value = elbow.value.suggested_k
       await nextTick()
       renderElbow()
     }
-  } finally {
+  } catch (e) { store.notifyError(e, 'cluster_elbow') } finally {
+    store.connectionLost = false
+    store.stepRunning = ''
     elbowRunning.value = false
   }
 }
@@ -276,6 +282,8 @@ watch([networkMode, maxNodes, intraPerGene, interPerPair, interBudget, hideGrey]
   reSampleTimer = setTimeout(() => fetchNetwork(), 400)
 })
 
+onBeforeUnmount(() => { clearTimeout(reSampleTimer); elbowChart.value?.dispose() })
+
 onMounted(() => {
   if (store.jobId) loadOverview()
 })
@@ -315,13 +323,14 @@ onMounted(() => {
           <div v-else-if="overview">
             <div v-if="!overview.enrich_ok" class="alert alert-warning py-2 small">{{ t('mo.enrichMissing') }}</div>
             <div v-if="!showOverviewImg" class="text-center py-5">
-              <button class="btn btn-primary" @click="showOverviewImg = true; overviewImgLoading = true">
+              <button class="btn btn-primary" @click="showOverviewImg = true; overviewImgError = false; overviewImgLoading = true">
                 <i class="bi bi-play-circle me-1"></i>{{ t('mo.showFigure') }}
               </button>
               <div class="small text-muted mt-2">{{ t('mo.generating') }}</div>
             </div>
             <div v-else class="border rounded p-2 bg-white position-relative">
-              <img :src="overviewUrl" class="w-100" alt="module overview" @load="overviewImgLoading = false" @error="overviewImgLoading = false" />
+              <img v-if="!overviewImgError" :src="overviewUrl" class="w-100" alt="module overview" @load="overviewImgLoading = false" @error="plotFailed(false)" />
+              <div v-if="overviewImgError" class="alert alert-warning mb-0">{{ t('common.error') }} <button class="btn btn-sm btn-outline-secondary" @click="overviewImgError = false; overviewImgLoading = true">{{ t('common.rerun') }}</button></div>
               <div v-if="overviewImgLoading" class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center" style="background: rgba(255,255,255,0.72); z-index: 2">
                 <div class="spinner-border text-primary"></div>
                 <div class="small text-muted mt-2">{{ t('mo.generating') }}</div>
@@ -374,7 +383,8 @@ onMounted(() => {
               WSS: {{ cluster.metrics.wss.map((x) => Math.round(x)).join(', ') }}
             </div>
             <div class="border rounded p-2 bg-white mt-2 position-relative">
-              <img :src="clusterOverviewUrl" class="w-100" alt="cluster overview" @load="clusterImgLoading = false" @error="clusterImgLoading = false" />
+              <img v-if="!clusterImgError" :src="clusterOverviewUrl" class="w-100" alt="cluster overview" @load="clusterImgLoading = false" @error="plotFailed(true)" />
+              <div v-if="clusterImgError" class="alert alert-warning mb-0">{{ t('common.error') }} <button class="btn btn-sm btn-outline-secondary" @click="clusterImgError = false; clusterImgLoading = true">{{ t('common.rerun') }}</button></div>
               <div v-if="clusterImgLoading" class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center" style="background: rgba(255,255,255,0.72); z-index: 2">
                 <div class="spinner-border text-primary"></div>
                 <div class="small text-muted mt-2">{{ t('mo.generating') }}</div>

@@ -13,12 +13,30 @@ import type { CategoryBand } from '../components/SampleTreeChart.vue'
 
 const store = useWgcnaStore()
 
-function onExpr(e: Event) { store.exprFile = (e.target as HTMLInputElement).files?.[0] ?? null }
-function onTrait(e: Event) { store.traitFile = (e.target as HTMLInputElement).files?.[0] ?? null }
-function onSampleInfo(e: Event) { store.sampleInfoFile = (e.target as HTMLInputElement).files?.[0] ?? null }
-function onAnnotation(e: Event) { store.annotationFile = (e.target as HTMLInputElement).files?.[0] ?? null }
-function onGene2go(e: Event) { store.gene2goFile = (e.target as HTMLInputElement).files?.[0] ?? null }
-function onGene2kegg(e: Event) { store.gene2keggFile = (e.target as HTMLInputElement).files?.[0] ?? null }
+type UploadKind = 'exprFile' | 'traitFile' | 'sampleInfoFile' | 'annotationFile' | 'gene2goFile' | 'gene2keggFile'
+async function selectFile(kind: UploadKind, e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return // Cancelling the system picker preserves the selection.
+  store.invalidateInputs()
+  store[kind] = file
+  input.value = '' // Selecting the same corrected file must trigger change.
+  await store.checkInputs()
+}
+async function clearFile(kind: UploadKind) {
+  store.invalidateInputs()
+  store[kind] = null
+  if ([store.exprFile, store.traitFile, store.sampleInfoFile, store.annotationFile, store.gene2goFile, store.gene2keggFile].some(Boolean)) await store.checkInputs()
+}
+function onExpr(e: Event) { void selectFile('exprFile', e) }
+function onTrait(e: Event) { void selectFile('traitFile', e) }
+function onSampleInfo(e: Event) { void selectFile('sampleInfoFile', e) }
+function onAnnotation(e: Event) { void selectFile('annotationFile', e) }
+function onGene2go(e: Event) { void selectFile('gene2goFile', e) }
+function onGene2kegg(e: Event) { void selectFile('gene2keggFile', e) }
+watch(() => store.dataType, () => {
+  if (store.exprFile && !store.created) void store.checkInputs()
+})
 
 function fileName(file: File | null, demoName: string): string {
   if (store.demoLoaded) return `demo · ${demoName}`
@@ -26,6 +44,7 @@ function fileName(file: File | null, demoName: string): string {
 }
 
 async function createAndFilter() {
+  if (store.creatingJob || store.validatingInputs) return
   if (!store.created) await store.createJobAndUpload()
   if (store.created) await store.runStep('filter')
 }
@@ -40,7 +59,7 @@ const attrColumns = ref<string[]>([])
 const colorAttrs = ref<string[]>([])
 const EXCLUDE_ATTRS = new Set(['sample_id', 'sample_name', 'species'])
 
-watch(() => store.jobId, async (id) => {
+watch([() => store.jobId, () => store.filterResult], async ([id]) => {
   if (!id) {
     sampleInfos.value = []
     attrColumns.value = []
@@ -90,7 +109,7 @@ function onSelectSample(name: string) {
         <div class="border rounded p-2 mb-2">
           <div class="small fw-semibold mb-1">{{ t('di.demo') }}</div>
           <div class="d-flex gap-2">
-            <button class="btn btn-sm btn-primary flex-fill" :disabled="store.stepRunning !== ''" @click="loadDemoData">
+            <button class="btn btn-sm btn-primary flex-fill" :disabled="store.stepRunning !== '' || store.creatingJob" @click="loadDemoData">
               <i class="bi bi-magic me-1"></i>{{ t('di.loadDemo') }}
             </button>
             <a class="btn btn-sm btn-outline-secondary flex-fill" href="/api/demo/download" download>
@@ -99,48 +118,58 @@ function onSelectSample(name: string) {
           </div>
           <div v-if="store.demoLoaded" class="small text-success mt-1"><i class="bi bi-check-circle me-1"></i>{{ t('di.demoLoaded') }}</div>
         </div>
+        <div v-if="store.validatingInputs" class="alert alert-info small py-2" role="status">{{ t('di.validating') }}</div>
+        <button v-else-if="store.inputValidation" class="btn btn-sm w-100 mb-2" :class="store.inputValidation.valid ? 'btn-outline-success' : 'btn-outline-danger'" @click="store.showInputValidation = true">
+          {{ store.inputValidation.valid ? t('di.validationPassed') : t('di.validationBlocked') }}
+        </button>
         <h6 class="fw-bold mb-3">{{ t('param.parameters') }}</h6>
         <div class="vstack gap-2">
           <div>
             <label class="form-label small mb-1">{{ t('di.expr') }}<span class="text-danger">*</span></label>
+            <button v-if="store.exprFile" type="button" class="btn btn-link btn-sm p-0 float-end" :disabled="store.stepRunning !== '' || store.creatingJob" @click="clearFile('exprFile')">{{ t('di.clearFile') }}</button>
             <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
               <i class="bi bi-upload me-1"></i>{{ fileName(store.exprFile, 'expr.tsv') }}
-              <input type="file" accept=".tsv,.txt,.csv,.xlsx,.xls" class="d-none" @change="onExpr" />
+              <input type="file" :disabled="store.stepRunning !== '' || store.creatingJob" accept=".tsv,.txt,.csv,.xlsx,.xls" class="visually-hidden" @change="onExpr" />
             </label>
           </div>
           <div>
             <label class="form-label small mb-1">{{ t('di.trait') }}</label>
+            <button v-if="store.traitFile" type="button" class="btn btn-link btn-sm p-0 float-end" :disabled="store.stepRunning !== '' || store.creatingJob" @click="clearFile('traitFile')">{{ t('di.clearFile') }}</button>
             <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
               <i class="bi bi-upload me-1"></i>{{ fileName(store.traitFile, 'trait.tsv') }}
-              <input type="file" accept=".tsv,.txt,.csv,.xlsx,.xls" class="d-none" @change="onTrait" />
+              <input type="file" :disabled="store.stepRunning !== '' || store.creatingJob" accept=".tsv,.txt,.csv,.xlsx,.xls" class="visually-hidden" @change="onTrait" />
             </label>
           </div>
           <div>
             <label class="form-label small mb-1">{{ t('di.sampleInfo') }}</label>
+            <button v-if="store.sampleInfoFile" type="button" class="btn btn-link btn-sm p-0 float-end" :disabled="store.stepRunning !== '' || store.creatingJob" @click="clearFile('sampleInfoFile')">{{ t('di.clearFile') }}</button>
             <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
               <i class="bi bi-upload me-1"></i>{{ fileName(store.sampleInfoFile, 'sample_info.tsv') }}
-              <input type="file" accept=".tsv,.txt,.csv" class="d-none" @change="onSampleInfo" />
+              <input type="file" :disabled="store.stepRunning !== '' || store.creatingJob" accept=".tsv,.txt,.csv" class="visually-hidden" @change="onSampleInfo" />
             </label>
           </div>
           <div>
             <label class="form-label small mb-1">{{ t('di.annotation') }}</label>
+            <button v-if="store.annotationFile" type="button" class="btn btn-link btn-sm p-0 float-end" :disabled="store.stepRunning !== '' || store.creatingJob" @click="clearFile('annotationFile')">{{ t('di.clearFile') }}</button>
             <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
               <i class="bi bi-upload me-1"></i>{{ fileName(store.annotationFile, 'annotation.tsv') }}
-              <input type="file" accept=".tsv,.txt,.csv" class="d-none" @change="onAnnotation" />
+              <input type="file" :disabled="store.stepRunning !== '' || store.creatingJob" accept=".tsv,.txt,.csv" class="visually-hidden" @change="onAnnotation" />
             </label>
           </div>
           <div>
             <label class="form-label small mb-1">{{ t('di.gene2go') }}</label>
+            <button v-if="store.gene2goFile" type="button" class="btn btn-link btn-sm p-0 float-end" :disabled="store.stepRunning !== '' || store.creatingJob" @click="clearFile('gene2goFile')">{{ t('di.clearFile') }}</button>
             <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
               <i class="bi bi-upload me-1"></i>{{ fileName(store.gene2goFile, 'gene2go.tsv') }}
-              <input type="file" accept=".tsv,.txt,.csv" class="d-none" @change="onGene2go" />
+              <input type="file" :disabled="store.stepRunning !== '' || store.creatingJob" accept=".tsv,.txt,.csv" class="visually-hidden" @change="onGene2go" />
             </label>
           </div>
           <div>
             <label class="form-label small mb-1">{{ t('di.gene2kegg') }}</label>
+            <button v-if="store.gene2keggFile" type="button" class="btn btn-link btn-sm p-0 float-end" :disabled="store.stepRunning !== '' || store.creatingJob" @click="clearFile('gene2keggFile')">{{ t('di.clearFile') }}</button>
             <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
               <i class="bi bi-upload me-1"></i>{{ fileName(store.gene2keggFile, 'gene2kegg.tsv') }}
-              <input type="file" accept=".tsv,.txt,.csv" class="d-none" @change="onGene2kegg" />
+              <input type="file" :disabled="store.stepRunning !== '' || store.creatingJob" accept=".tsv,.txt,.csv" class="visually-hidden" @change="onGene2kegg" />
             </label>
           </div>
           <div>
@@ -182,7 +211,7 @@ function onSelectSample(name: string) {
             <label class="form-label small mb-1">{{ t('di.threads') }}</label>
             <input class="form-control form-control-sm" type="number" v-model.number="store.threads" min="1" max="32" />
           </div>
-          <button class="btn btn-primary w-100 mt-2" :disabled="(!store.created && !store.exprFile) || store.stepRunning !== ''" @click="createAndFilter">
+          <button class="btn btn-primary w-100 mt-2" :disabled="(store.creatingJob || (!store.created && (!store.exprFile || store.validatingInputs || store.inputValidation?.valid === false))) || store.stepRunning !== ''" @click="createAndFilter">
             {{ store.stepRunning ? t('common.running') : store.isDone('filter') ? t('di.rerun') : t('di.run') }}
           </button>
         </div>
@@ -198,6 +227,10 @@ function onSelectSample(name: string) {
         <button class="btn btn-sm btn-outline-danger" @click="analyzeError(store.error)">🤖 {{ t('common.ai') }}</button>
       </div>
 
+      <div v-if="store.excludedSamples.length" class="alert alert-warning small d-flex align-items-center gap-2">
+        <span class="flex-grow-1">{{ t('di.excludedSamples') }}: {{ store.excludedSamples.join(', ') }}</span>
+        <button class="btn btn-sm btn-outline-secondary text-nowrap" :disabled="store.stepRunning !== ''" @click="store.restoreSamples()">{{ t('di.restoreSamples') }}</button>
+      </div>
       <template v-if="store.filterResult">
         <div class="card mb-3">
           <div class="card-header bg-white fw-semibold"><i class="bi bi-clipboard-data me-2"></i>{{ t('di.report') }}</div>

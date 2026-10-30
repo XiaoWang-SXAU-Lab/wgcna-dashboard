@@ -235,6 +235,12 @@ type reportFigureTask struct {
 // an isolated offscreen host, without changing the user's active store/job.
 func (h *Handler) prepareReportFigures(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	release, err := h.jobs.ReserveSnapshot(id)
+	if err != nil {
+		runError(w, err)
+		return
+	}
+	defer release()
 	dir := filepath.Join(h.jobs.Dir(), id)
 	if _, err := os.Stat(filepath.Join(dir, "step3_modules.json")); err != nil {
 		http.Error(w, "Run Network & modules first.", 400)

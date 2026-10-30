@@ -665,52 +665,59 @@ func (h *Handler) plotOverviewCluster(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="cluster_overview.`+mode+`"`)
 	http.ServeFile(w, r, out)
 }
-func updateParamsField(jobDir, key string, value any) error {
-	path := filepath.Join(jobDir, "params.json")
-	var p map[string]any
-	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, &p)
-	}
-	if p == nil {
-		p = map[string]any{}
-	}
-	p[key] = value
-	b, err := json.Marshal(p)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0o644)
-}
 
 // runCluster triggers the Rust KMeans / fuzzy c-means comparison step.
 func (h *Handler) runCluster(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	values := map[string]any{}
 	method := r.URL.Query().Get("method")
-	if method != "cmeans" {
+	if method == "" {
 		method = "kmeans"
 	}
-	k := int(qfloat(r, "k"))
-	seed := int(qfloat(r, "seed"))
-	if seed <= 0 {
-		seed = 42
+	values["method"] = method
+	values["k"] = 0
+	valuek := float64(0)
+	if raw := r.URL.Query().Get("k"); raw != "" {
+		n, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"code": "parameters", "message": "Invalid number for k."})
+			return
+		}
+		valuek = n
 	}
-	kmax := int(qfloat(r, "kmax"))
-	if kmax <= 0 {
-		kmax = 12
+	values["k"] = valuek
+	valueseed := float64(42)
+	if raw := r.URL.Query().Get("seed"); raw != "" {
+		n, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"code": "parameters", "message": "Invalid number for seed."})
+			return
+		}
+		valueseed = n
 	}
-	jobDir := filepath.Join(h.jobs.Dir(), id)
-	if err := updateParamsField(jobDir, "cluster", map[string]any{
-		"method": method, "k": k, "seed": seed, "kmax": kmax,
-	}); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	values["seed"] = valueseed
+	valuekmax := float64(12)
+	if raw := r.URL.Query().Get("kmax"); raw != "" {
+		n, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"code": "parameters", "message": "Invalid number for kmax."})
+			return
+		}
+		valuekmax = n
+	}
+	values["kmax"] = valuekmax
+	params, err := json.Marshal(map[string]any{"cluster": values})
+	if err != nil {
+		writeJSON(w, 422, map[string]string{"code": "parameters", "message": "Parameters must be finite numbers."})
 		return
 	}
-	go h.jobs.RunAuxStep(id, "cluster")
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started", "step": "cluster"})
+	h.startRun(w, r.PathValue("id"), "cluster", params, 0)
 }
 
 // getCluster returns the clustering result (overview_clusters.json).
 func (h *Handler) getCluster(w http.ResponseWriter, r *http.Request) {
+	if !h.readyAuxResult(w, r.PathValue("id"), "cluster") {
+		return
+	}
 	id := r.PathValue("id")
 	b, err := os.ReadFile(filepath.Join(h.jobs.Dir(), id, "overview_clusters.json"))
 	if err != nil {
@@ -723,29 +730,45 @@ func (h *Handler) getCluster(w http.ResponseWriter, r *http.Request) {
 // runClusterElbow triggers the elbow/validity metrics computation (k=2..kmax)
 // without running the final clustering; getClusterElbow reads the result.
 func (h *Handler) runClusterElbow(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	values := map[string]any{}
 	method := r.URL.Query().Get("method")
-	if method != "cmeans" {
+	if method == "" {
 		method = "kmeans"
 	}
-	seed := int(qfloat(r, "seed"))
-	if seed <= 0 {
-		seed = 42
+	values["method"] = method
+	values["k"] = 0
+	valueseed := float64(42)
+	if raw := r.URL.Query().Get("seed"); raw != "" {
+		n, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"code": "parameters", "message": "Invalid number for seed."})
+			return
+		}
+		valueseed = n
 	}
-	kmax := int(qfloat(r, "kmax"))
-	if kmax <= 0 {
-		kmax = 12
+	values["seed"] = valueseed
+	valuekmax := float64(12)
+	if raw := r.URL.Query().Get("kmax"); raw != "" {
+		n, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"code": "parameters", "message": "Invalid number for kmax."})
+			return
+		}
+		valuekmax = n
 	}
-	jobDir := filepath.Join(h.jobs.Dir(), id)
-	if err := updateParamsField(jobDir, "cluster", map[string]any{"method": method, "seed": seed, "kmax": kmax}); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	values["kmax"] = valuekmax
+	params, err := json.Marshal(map[string]any{"cluster": values})
+	if err != nil {
+		writeJSON(w, 422, map[string]string{"code": "parameters", "message": "Parameters must be finite numbers."})
 		return
 	}
-	go h.jobs.RunAuxStep(id, "cluster_elbow")
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started", "step": "cluster_elbow"})
+	h.startRun(w, r.PathValue("id"), "cluster_elbow", params, 0)
 }
 
 func (h *Handler) getClusterElbow(w http.ResponseWriter, r *http.Request) {
+	if !h.readyAuxResult(w, r.PathValue("id"), "cluster_elbow") {
+		return
+	}
 	id := r.PathValue("id")
 	b, err := os.ReadFile(filepath.Join(h.jobs.Dir(), id, "overview_elbow.json"))
 	if err != nil {
@@ -757,24 +780,32 @@ func (h *Handler) getClusterElbow(w http.ResponseWriter, r *http.Request) {
 
 // runOverviewNetwork triggers the overview network edge/degree computation.
 func (h *Handler) runOverviewNetwork(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	jobDir := filepath.Join(h.jobs.Dir(), id)
-	pct := qfloat(r, "percentile")
-	if pct <= 0 || pct > 100 {
-		pct = 10
+	values := map[string]any{}
+	valuepercentile := float64(10)
+	if raw := r.URL.Query().Get("percentile"); raw != "" {
+		n, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"code": "parameters", "message": "Invalid number for percentile."})
+			return
+		}
+		valuepercentile = n
 	}
-	if err := updateParamsField(jobDir, "overview", map[string]any{"edge_percentile": pct}); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	values["edge_percentile"] = valuepercentile
+	params, err := json.Marshal(map[string]any{"overview": values})
+	if err != nil {
+		writeJSON(w, 422, map[string]string{"code": "parameters", "message": "Parameters must be finite numbers."})
 		return
 	}
-	go h.jobs.RunAuxStep(id, "overview_network")
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started", "step": "overview_network"})
+	h.startRun(w, r.PathValue("id"), "overview_network", params, 0)
 }
 
 // getOverviewNetwork returns the overview network (nodes + limited edges).
 // per_module caps the number of edges kept per module (and cross-module), so the
 // WebGL preview stays responsive; the exported SVG/PDF uses the full edge set.
 func (h *Handler) getOverviewNetwork(w http.ResponseWriter, r *http.Request) {
+	if !h.readyAuxResult(w, r.PathValue("id"), "overview_network") {
+		return
+	}
 	id := r.PathValue("id")
 	jobDir := filepath.Join(h.jobs.Dir(), id)
 	mode := r.URL.Query().Get("mode")

@@ -17,6 +17,14 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Reserve job execution atomically, validate dependencies and numeric domains before starting, and preserve prior derived outputs across failed reruns.
+- Track each run by ID without a fixed five-minute cutoff; reconnect status polling and support explicit cancellation.
+- Flag changed upstream parameters, unblock valid metadata-only traits, and reject constant/missing trait inputs.
+- Show actionable analysis notices and image-preview errors; omit missing report images and load the offline chart runtime for partial reports.
+- Align the report regression test with the current interactive enrichment panel.
+- Synchronize trait and sample metadata after outlier removal, preserve upload originals, and accumulate exclusions across repeated removals.
+- Validate uploaded table formats, numeric values and sample IDs with a preflight dialog and matching server-side checks.
+- Restore macOS file upload panels by retaining the native WebView delegate; add native save dialogs for demo and other downloads, including cancellation and safe file replacement.
 - Use pnpm's hoisted linker for fresh Windows installs without symlink privileges.
 - Resolve the default worker source path after PowerShell parameter binding.
 - Document the persistent local release folder and required bundled R runtime.

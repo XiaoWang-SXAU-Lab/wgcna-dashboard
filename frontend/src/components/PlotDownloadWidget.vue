@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
 import { plotUrl } from '../api/client'
-import { t } from '../utils/i18n'
+import { t, locale } from '../utils/i18n'
 
 const props = defineProps<{ kind: string; rsqCut?: number; show: boolean; attrs?: string; type?: string; module?: string; fdr?: number; top?: number; ontology?: string }>()
 const emit = defineEmits<{ close: [] }>()
@@ -60,6 +60,7 @@ const preview = ref({
   enrichHigh: enrichHigh.value, enrichTitle: enrichTitle.value, wrap: wrap.value,
 })
 const loading = ref(false)
+const previewFailed = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
 watch([size, color, lineColor, baseSize, axisSize, axisColor, lowColor, midColor, highColor, legend, width, height, dpi, enrichX, enrichColor, showCategory, sizeMin, sizeMax, enrichLow, enrichHigh, enrichTitle, wrap], () => {
   if (timer) clearTimeout(timer)
@@ -128,6 +129,8 @@ function baseParams(mode: string): Record<string, string | number> {
 }
 
 const previewUrl = computed(() => (store.jobId && props.show ? plotUrl(store.jobId, props.kind, baseParams('png')) : ''))
+watch(previewUrl, url => { loading.value = !!url; previewFailed.value = false })
+onBeforeUnmount(() => clearTimeout(timer))
 
 function download() {
   if (!store.jobId) return
@@ -345,7 +348,8 @@ function download() {
         </div>
 
         <div class="flex-grow-1 p-3 bg-light position-relative d-flex align-items-center justify-content-center overflow-auto">
-          <img v-if="previewUrl" :key="previewUrl" :src="previewUrl" :class="{ 'opacity-50': loading }" @load="loading = false" alt="preview" style="max-width: 100%; max-height: 100%; object-fit: contain" />
+          <img v-if="previewUrl && !previewFailed" :key="previewUrl" :src="previewUrl" :class="{ 'opacity-50': loading }" @load="loading = false" @error="loading = false; previewFailed = true" alt="preview" style="max-width: 100%; max-height: 100%; object-fit: contain" />
+          <div v-if="previewFailed" class="alert alert-warning" role="alert">{{ locale === 'zh' ? '预览生成失败。请检查绘图参数和 R 环境；调整设置后可重试。' : 'Preview failed. Check plot settings and the R environment, then adjust settings to retry.' }}</div>
           <div v-if="loading" class="position-absolute top-50 start-50 translate-middle">
             <span class="spinner-border spinner-border-sm text-primary"></span>
           </div>

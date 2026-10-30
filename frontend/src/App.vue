@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useWgcnaStore } from './stores/wgcna'
 import ChatWidget from './components/ChatWidget.vue'
 import ProgressOverlay from './components/ProgressOverlay.vue'
+import AnalysisNotice from './components/AnalysisNotice.vue'
+import InputValidationDialog from './components/InputValidationDialog.vue'
 import { registerAnalyzer } from './utils/aiBus'
 import { locale, t, toggleLocale } from './utils/i18n'
 
@@ -10,6 +13,9 @@ const chatWidget = ref<{ analyzeError: (err: string) => void }>()
 onMounted(() => {
   registerAnalyzer((err: string) => chatWidget.value?.analyzeError(err))
 })
+
+const store = useWgcnaStore()
+const stepPaths: Record<string, string> = { filter: '/data-import', soft_threshold: '/sft', network: '/network', module_trait: '/module-trait', module_detail: '/module-explorer', hub: '/module-explorer' }
 
 const nav = [
   { to: '/', key: 'nav.home', icon: 'bi-house-door' },
@@ -51,10 +57,16 @@ const nav = [
     </div>
   </nav>
   <main class="p-3 p-lg-4">
+    <div v-if="store.dirtyStep && !store.stepRunning" class="alert alert-warning small" role="status">
+      {{ locale === 'zh' ? '参数已更改，现有结果需要更新。请从相关步骤重新运行：' : 'Settings changed. Existing results need updating; rerun from:' }}
+      <router-link :to="stepPaths[store.dirtyStep]">{{ store.dirtyStep }}</router-link>
+    </div>
     <router-view />
   </main>
   <ChatWidget ref="chatWidget" />
   <ProgressOverlay />
+  <InputValidationDialog />
+  <AnalysisNotice />
 </template>
 
 <style scoped>

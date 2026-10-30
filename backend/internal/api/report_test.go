@@ -37,14 +37,33 @@ func TestReportWithoutAllModuleIndexAndCurrentSchemas(t *testing.T) {
 		t.Fatalf("wrong report facts: %+v", d)
 	}
 	d.KeyModules = significantModules(dir)
-	d.Assets = map[string]bool{"06_module_detail/pink/enrichment/kegg.png": true}
+	d.Assets = map[string]bool{}
+	// Enrichment is an interactive table/bubble panel; static kegg.png was retired.
+	d.ModuleEnrichJSON = `{"modules":[{"module":"pink","go":[],"kegg":[{"id":"KEGG_TEST_TERM","description":"test pathway","gene_ratio":"1/2","bg_ratio":"1/10","p.adjust":0.01,"count":1,"gene_id":["a"]}]}],"anno":{}}`
 	d.EnrichOK = true
 	body := generateReportHTML(d)
-	if !strings.Contains(body, "enrichment/kegg.png") || strings.Contains(body, "enrichment/go.png") {
-		t.Fatal("selected enrichment is not reflected in report")
+	if !strings.Contains(body, `id="me-data"`) || !strings.Contains(body, "KEGG_TEST_TERM") || !strings.Contains(body, `data-kind="KEGG"`) {
+		t.Fatal("interactive enrichment data and KEGG tab are not reflected in report")
+	}
+	if strings.Contains(body, `<img src="../result/06_module_detail/pink/enrichment/`) {
+		t.Fatal("retired enrichment images must not create broken image links")
 	}
 	if strings.Contains(body, `<img src="../result/module_overview.png"`) || !strings.Contains(body, "Figure not generated:") {
 		t.Fatal("missing assets should show an explicit notice, not a broken image")
+	}
+	reportDir := t.TempDir()
+	if err := writeReport(reportDir, d); err != nil {
+		t.Fatal(err)
+	}
+	index, err := os.ReadFile(filepath.Join(reportDir, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(index), `src="echarts.min.js"`) {
+		t.Fatal("partial reports still require the offline chart runtime")
+	}
+	if strings.Contains(body, `<img src="../result/module_overview_ALL.png"`) {
+		t.Fatal("missing overview asset emitted as a broken image")
 	}
 }
 

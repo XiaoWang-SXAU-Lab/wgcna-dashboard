@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
-import { t } from '../utils/i18n'
+import { t, locale } from '../utils/i18n'
 
 const props = defineProps<{ step: string }>()
 const store = useWgcnaStore()
@@ -14,6 +14,8 @@ const badgeClass = computed(() => {
       return 'text-bg-primary'
     case 'done':
       return 'text-bg-success'
+    case 'stale':
+      return 'text-bg-warning'
     case 'error':
       return 'text-bg-danger'
     default:
@@ -27,6 +29,8 @@ const label = computed(() => {
       return t('common.running')
     case 'done':
       return t('common.done')
+    case 'stale':
+      return locale.value === 'zh' ? '参数已更改，需重跑' : 'Settings changed · rerun'
     case 'error':
       return t('common.error')
     default:

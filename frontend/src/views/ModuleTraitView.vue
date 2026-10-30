@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber } from '../utils/formatNumber'
 import ReportFigure from '../components/ReportFigure.vue'
 import { computed, ref } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
@@ -20,7 +21,7 @@ const kmeRows = computed(() => {
   const mods = store.mtait.modules
   return store.mtait.genes.map((g, i) => {
     const row: Record<string, string> = { gene: g }
-    mods.forEach((m, j) => { row[m] = (store.mtait!.kme[i]?.[j] ?? 0).toFixed(4) })
+    mods.forEach((m, j) => { row[m] = formatNumber(store.mtait!.kme[i]?.[j], 4) })
     return row
   })
 })
@@ -35,8 +36,8 @@ const mtraitRows = computed(() => {
   store.mtait.modules.forEach((m, i) => store.mtait!.traits.forEach((tr, j) => {
     rows.push({
       module: m, trait: tr,
-      cor: (store.mtait!.cor[i]?.[j] ?? 0).toFixed(3),
-      p: (store.mtait!.p[i]?.[j] ?? 1).toExponential(2),
+      cor: formatNumber(store.mtait!.cor[i]?.[j], 3),
+      p: formatNumber(store.mtait!.p[i]?.[j], 2, true),
     })
   }))
   return rows

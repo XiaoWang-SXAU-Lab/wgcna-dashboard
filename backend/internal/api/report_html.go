@@ -2,8 +2,8 @@ package api
 
 import (
 	_ "embed"
-	"encoding/json"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"html"
 	"regexp"
@@ -28,39 +28,39 @@ var reportIcon []byte
 
 // reportData carries the real analysis facts used to build the report.
 type reportData struct {
-	KeyModules    []keyModule
-	FigureSources map[string]string
-	ProjectName   string
-	Timestamp     string
-	Version       string
-	Lang          string // "zh" | "en"
-	Samples       int
-	Genes         int
-	Modules       []string
-	ModuleSizes   map[string]int
-	GreyGenes     int
-	Params        map[string]any
-	HubCount      int
-	HasTrait      bool
-	EnrichOK      bool
-	EnrichType    string
-	Warnings      []string
-	Assets        map[string]bool
-	Networks      []reportNetworkSummary
-	ClusterMethod string
-	ClusterK      int
-	HubModule     string
-	HubTrait      string
-	HubGenes      []reportHubGene
-	Bridges       []netNode
-	ModuleTraits  map[string]string
-	SampleTreeJSON string // raw {samples, tree, bands} for the interactive sample tree
-	SftJSON        string // raw soft-threshold data for the interactive SFT figures
-	ModulesJSON    string // raw {genes, colors, module_sizes, dendrogram} for the network section
-	ModuleTraitJSON string // raw module-trait data (modules/traits/cor/p/eigengenes/genes/kme + trait_source/column)
-	PairPanelsJSON  string // significant module–trait pairs with genes/MM/GS for the tab panels
-	HeatmapDataURLs map[string]string // key "module_trait" -> base64 data URL for the z-score heatmap
-	ModuleEnrichJSON string // per-module GO/KEGG enrichment + gene annotation for function exploration
+	KeyModules       []keyModule
+	FigureSources    map[string]string
+	ProjectName      string
+	Timestamp        string
+	Version          string
+	Lang             string // "zh" | "en"
+	Samples          int
+	Genes            int
+	Modules          []string
+	ModuleSizes      map[string]int
+	GreyGenes        int
+	Params           map[string]any
+	HubCount         int
+	HasTrait         bool
+	EnrichOK         bool
+	EnrichType       string
+	Warnings         []string
+	Assets           map[string]bool
+	Networks         []reportNetworkSummary
+	ClusterMethod    string
+	ClusterK         int
+	HubModule        string
+	HubTrait         string
+	HubGenes         []reportHubGene
+	Bridges          []netNode
+	ModuleTraits     map[string]string
+	SampleTreeJSON   string            // raw {samples, tree, bands} for the interactive sample tree
+	SftJSON          string            // raw soft-threshold data for the interactive SFT figures
+	ModulesJSON      string            // raw {genes, colors, module_sizes, dendrogram} for the network section
+	ModuleTraitJSON  string            // raw module-trait data (modules/traits/cor/p/eigengenes/genes/kme + trait_source/column)
+	PairPanelsJSON   string            // significant module–trait pairs with genes/MM/GS for the tab panels
+	HeatmapDataURLs  map[string]string // key "module_trait" -> base64 data URL for the z-score heatmap
+	ModuleEnrichJSON string            // per-module GO/KEGG enrichment + gene annotation for function exploration
 
 	// input-file summary (project introduction)
 	RawSamples     int
@@ -159,10 +159,10 @@ func generateReportHTML(d reportData) string {
 	method := pstr(p, "filter", "filter_method", "mad")
 	nKeep := pint(p, "filter", "n_keep", 8000)
 	dataTypeLabel := map[string]string{
-		"count": d.L("Count（原始计数）", "Count (raw counts)"),
-		"expected_count": d.L("Expected count（期望计数）", "Expected count"),
-		"normalized_count": d.L("Normalized count（已归一化计数）", "Normalized count"),
-		"peak_area": d.L("Peak area（峰面积）", "Peak area"),
+		"count":             d.L("Count（原始计数）", "Count (raw counts)"),
+		"expected_count":    d.L("Expected count（期望计数）", "Expected count"),
+		"normalized_count":  d.L("Normalized count（已归一化计数）", "Normalized count"),
+		"peak_area":         d.L("Peak area（峰面积）", "Peak area"),
 		"protein_abundance": d.L("Protein abundance（蛋白丰度）", "Protein abundance"),
 	}[dataType]
 	if dataTypeLabel == "" {
@@ -864,17 +864,17 @@ func moduleEnrichHTML(d reportData) string {
 // (eigengene + z-score heatmap + enrichment), each resizable.
 func moduleOverviewHTML(d reportData) string {
 	var b strings.Builder
-	b.WriteString(overviewTabGroupHTML("module_overview", "module_overview_"))
+	b.WriteString(overviewTabGroupHTML(d, "module_overview", "module_overview_"))
 	b.WriteString(`<h3>` + d.L("聚类对照", "Clustering comparison") + `</h3>`)
 	b.WriteString(`<p>` + d.L("独立于 WGCNA 模块的聚类（KMeans / 模糊 c-means）总览，用于对照表达分组。", "Overview of clustering (KMeans / fuzzy c-means) independent of WGCNA modules, for comparison of expression groups.") + `</p>`)
-	b.WriteString(overviewTabGroupHTML("cluster_overview", "08_clustering/cluster_overview_"))
+	b.WriteString(overviewTabGroupHTML(d, "cluster_overview", "08_clustering/cluster_overview_"))
 	b.WriteString(`<script>(function(){document.querySelectorAll('.ov-tab').forEach(function(t){t.onclick=function(){var g=t.getAttribute('data-group'),k=t.getAttribute('data-kind');document.querySelectorAll('.ov-tab[data-group="'+g+'"]').forEach(function(x){x.classList.remove('active')});t.classList.add('active');document.querySelectorAll('.ov-panel[data-group="'+g+'"]').forEach(function(p){p.style.display=p.getAttribute('data-kind')===k?'':'none'})}})})();</script>`)
 	return b.String()
 }
 
 // overviewTabGroupHTML renders the ALL/MF/BP/CC/KEGG tab row plus one resizable
 // panel per kind (a draggable container around a lazy-loaded overview PNG).
-func overviewTabGroupHTML(group, srcPrefix string) string {
+func overviewTabGroupHTML(d reportData, group, srcPrefix string) string {
 	var b strings.Builder
 	b.WriteString(`<div class="ov-tabs">`)
 	for i, k := range []string{"ALL", "MF", "BP", "CC", "KEGG"} {
@@ -890,7 +890,14 @@ func overviewTabGroupHTML(group, srcPrefix string) string {
 		if i == 0 {
 			style = ""
 		}
-		b.WriteString(`<div class="ov-panel" data-group="` + group + `" data-kind="` + k + `"` + style + `><div style="resize:both;overflow:auto;max-width:100%;width:100%"><img src="../result/` + srcPrefix + k + `.png" alt="overview" loading="lazy" style="width:100%;display:block;border:1px solid var(--line)"></div></div>`)
+		b.WriteString(`<div class="ov-panel" data-group="` + group + `" data-kind="` + k + `"` + style + `>`)
+		file := srcPrefix + k + ".png"
+		if d.Assets[file] {
+			b.WriteString(`<div style="resize:both;overflow:auto;max-width:100%;width:100%"><img src="../result/` + file + `" alt="overview" loading="lazy" style="width:100%;display:block;border:1px solid var(--line)"></div>`)
+		} else {
+			b.WriteString(`<div class="notice">` + d.L("此图未生成：", "Figure not generated: ") + html.EscapeString(file) + `</div>`)
+		}
+		b.WriteString(`</div>`)
 	}
 	return b.String()
 }

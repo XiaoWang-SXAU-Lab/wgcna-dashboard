@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber } from '../utils/formatNumber'
 import ReportFigure from '../components/ReportFigure.vue'
 import { computed, ref } from 'vue'
 import { useWgcnaStore } from '../stores/wgcna'
@@ -17,8 +18,8 @@ const showExport = ref(false)
 const showExportCheck = ref(false)
 
 const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
-  power: f.power, rsq: f.rsq.toFixed(3), slope: f.slope.toFixed(3),
-  mean_k: f.mean_k.toFixed(1), median_k: f.median_k.toFixed(1), max_k: f.max_k.toFixed(1),
+  power: f.power, rsq: formatNumber(f.rsq, 3), slope: formatNumber(f.slope, 3),
+  mean_k: formatNumber(f.mean_k, 1), median_k: formatNumber(f.median_k, 1), max_k: formatNumber(f.max_k, 1),
 })))
 </script>
 

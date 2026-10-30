@@ -17,3 +17,6 @@ Rplots.pdf
 # generated report previews
 /report-design/report_v*/
 /report-design/report_preview/
+
+# Local signed application bundles and disk images
+/dist/
