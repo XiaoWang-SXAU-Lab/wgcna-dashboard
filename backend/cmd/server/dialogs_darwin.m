@@ -27,6 +27,20 @@
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action
     decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    NSURL *url = action.request.URL;
+    NSString *scheme = url.scheme.lowercaseString ?: @"";
+    NSString *host = url.host.lowercaseString ?: @"";
+
+    // External links (http/https outside the embedded server) open in the
+    // system browser instead of navigating inside the WebView.
+    if (([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]) &&
+        ![host isEqualToString:@"127.0.0.1"] &&
+        ![host isEqualToString:@"localhost"]) {
+        [[NSWorkspace sharedWorkspace] openURL:url];
+        decisionHandler(WKNavigationActionPolicyCancel);
+        return;
+    }
+
     if (@available(macOS 11.3, *)) {
         if (action.shouldPerformDownload) {
             decisionHandler(WKNavigationActionPolicyDownload);
