@@ -140,6 +140,8 @@ export interface HubGene {
   gene: string
   kme: number
   gs: number
+  // Standard kWithin (sum of adjacency over the full module); absent on older results.
+  module_kwithin?: number
 }
 
 export interface NetNode {
@@ -148,13 +150,25 @@ export interface NetNode {
   kme: number
   gs: number
   degree: number
+  // Sum of non-diagonal TOM weights in the extracted node set (absent on older
+  // results). NOT the standard full-module kWithin.
+  extracted_tom_strength?: number
+  // Legacy alias (pre-rename); prefer extracted_tom_strength.
+  kwithin?: number
+  // Standard kWithin (sum of adjacency over the full module); absent on older results.
+  module_kwithin?: number
+  // Scientific hub (passes the |kME| / conditional |GS| 判定).
   is_hub: boolean
+  // Network seed (top max_hubs); the drawn network is built around these.
+  is_seed?: boolean
 }
 
 export interface NetEdge {
   source: string
   target: string
   weight: number
+  // R-EAN edge_stability (absent when R-EAN has not run).
+  stability?: number
 }
 
 export interface NetworkResult {
@@ -167,6 +181,104 @@ export interface HubResult {
   trait_name: string
   hub_genes: HubGene[]
   network: NetworkResult
+  // Worker-emitted metadata (absent on older result files).
+  raw_edge_count?: number
+  node_count?: number
+  used_threshold?: number
+  tom_scope?: string
+  tom_pool_size?: number
+  weight_type?: string
+  network_type?: string
+  power?: number
+  edge_set_completeness?: string
+}
+
+export interface ReanEdge {
+  source: string
+  target: string
+  pass_count?: number
+  // null when there are no valid network replicates (denominator = valid).
+  stability: number | null
+}
+
+export interface ReanResult {
+  module: string
+  n_bootstraps: number
+  attempted?: number
+  valid?: number
+  invalid?: number
+  seed: number
+  threshold: number
+  power: number
+  network_type?: string
+  tom_type?: string
+  tom_denom?: string
+  scope: string
+  edges: ReanEdge[]
+}
+
+export interface HubPriorityGene {
+  gene: string
+  kwithin: number
+  kme_signed: number
+  kme_abs: number
+  rank_lower: number
+  rank_upper: number
+  midrank_median: number | null
+  midrank_p05: number | null
+  midrank_p95: number | null
+  mean_top_k: number | null
+}
+
+export interface HubPriorityInvalidReason {
+  reason: string
+  count: number
+}
+
+export interface HubPriorityResult {
+  module: string
+  method_version: string
+  scope: string
+  n_bootstraps: number
+  attempted: number
+  valid: number
+  invalid: number
+  invalid_reasons: HubPriorityInvalidReason[]
+  seed: number
+  top_k: number
+  resampling: string
+  tie_tol: number
+  design_confirmed: boolean
+  trait_source: string
+  power: number
+  network_type: string
+  gene_count: number
+  sample_count: number
+  limited: boolean
+  direction_undetermined: number
+  strata_column: string
+  stratum_count: number
+  strata_counts: number[]
+  strata_fingerprint: string
+  gene_fingerprint: string
+  sample_fingerprint: string
+  resource_note: string
+  genes: HubPriorityGene[]
+}
+
+// Report envelope returned by the candidate-priority report endpoint. It carries the
+// report's OWN provenance (project/execution/upstream/inputs/params) so the frontend
+// can verify it belongs to the captured execution instead of guessing from live state.
+export interface CandidateReportEnvelope {
+  project_id: string
+  step: string
+  execution_id: string
+  engine: string
+  params: Record<string, unknown>
+  inputs: Record<string, string>
+  upstream: Record<string, string>
+  validity: string
+  result: HubPriorityResult
 }
 
 export async function getResult<T>(id: string, step: string): Promise<T> {
@@ -469,4 +581,40 @@ export async function pickFolder(): Promise<string> {
   if (!res.ok) throw new Error(await res.text())
   const d = await res.json()
   return d.dir
+}
+
+// ---- toolkits ----
+
+export interface EggnogConvertResult {
+  kingdom: string
+  stats: { genes: number; go_count: number; ko_count: number; ko_filtered: number; go_terms: number; ko_terms: number }
+  annotation: string
+  gene2go: string
+  gene2kegg: string
+}
+
+export async function convertEggnog(file: File, kingdom: string): Promise<EggnogConvertResult> {
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('kingdom', kingdom)
+  const res = await fetch(`${BASE}/toolkits/eggnog`, { method: 'POST', body: fd })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export interface BlastMergeResult {
+  stats: { genes: number; from_blast: number; from_base: number; blast_hits: number }
+  annotation: string
+}
+
+export async function blastMerge(blast: File, reference: File, base: File | null, maxEvalue: number, minPident: number): Promise<BlastMergeResult> {
+  const fd = new FormData()
+  fd.append('blast', blast)
+  fd.append('reference', reference)
+  if (base) fd.append('base', base)
+  fd.append('max_evalue', String(maxEvalue))
+  fd.append('min_pident', String(minPident))
+  const res = await fetch(`${BASE}/toolkits/blast-merge`, { method: 'POST', body: fd })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
 }

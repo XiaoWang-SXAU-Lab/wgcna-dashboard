@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useWgcnaStore } from '../stores/wgcna'
-import { plotUrl } from '../api/client'
+import { useProjectStore } from '../stores/project'
+import { projectPlotUrl, getSampleInfo } from '../api/projects'
 import { t } from '../utils/i18n'
 
 const props = defineProps<{ kind: string; rsqCut?: number; show: boolean; attrs?: string; type?: string; module?: string; fdr?: number; top?: number; ontology?: string }>()
 const emit = defineEmits<{ close: [] }>()
-const store = useWgcnaStore()
+const store = useProjectStore()
 
 const isSimple = computed(() => props.kind === 'dendrogram')
 const isHeatmap = computed(() => props.kind === 'mtrait' || props.kind === 'eigengene' || props.kind === 'geneheatmap')
@@ -16,7 +16,15 @@ const isEnrich = computed(() => props.kind === 'enrich')
 
 // sample_info annotation columns (excluding id/name) for the geneheatmap export
 const selectedAnns = ref<string[]>([])
-const annColumns = computed(() => store.sampleColumns.filter((c) => c !== 'sample_id' && c !== 'sample_name'))
+const sampleColumns = ref<string[]>([])
+watch(() => store.id, async (id) => {
+  if (!id) { sampleColumns.value = []; return }
+  try {
+    const infos = await getSampleInfo(id)
+    sampleColumns.value = (infos.length ? Object.keys(infos[0].attrs) : []).filter((c) => c !== 'sample_id' && c !== 'sample_name')
+  } catch { sampleColumns.value = [] }
+}, { immediate: true })
+const annColumns = computed(() => sampleColumns.value)
 
 const size = ref(2.4)
 const color = ref('#5470c6')
@@ -127,12 +135,12 @@ function baseParams(mode: string): Record<string, string | number> {
   return p
 }
 
-const previewUrl = computed(() => (store.jobId && props.show ? plotUrl(store.jobId, props.kind, baseParams('png')) : ''))
+const previewUrl = computed(() => (store.id && props.show ? projectPlotUrl(store.id, props.kind, baseParams('png')) : ''))
 
 function download() {
-  if (!store.jobId) return
+  if (!store.id) return
   const a = document.createElement('a')
-  a.href = plotUrl(store.jobId, props.kind, baseParams(format.value))
+  a.href = projectPlotUrl(store.id, props.kind, baseParams(format.value))
   a.download = `${props.kind}.${format.value}`
   a.click()
 }

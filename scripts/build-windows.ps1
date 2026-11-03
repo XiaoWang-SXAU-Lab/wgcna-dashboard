@@ -3,6 +3,7 @@ param(
     [string]$WorkerSource,
     [string]$BuildRoot = (Join-Path $env:LOCALAPPDATA 'rsWGCNA-build/windows'),
     [string]$GccBin = (Join-Path $env:LOCALAPPDATA 'w64devkit/w64devkit/bin'),
+    [string]$RSource,
     [switch]$Launch
 )
 $ErrorActionPreference = 'Stop'
@@ -13,6 +14,7 @@ if (-not $WorkerSource) { $WorkerSource = Join-Path $dashboard '../rs_WGCNA' }
 $worker = (Resolve-Path $WorkerSource).Path
 $BuildRoot = [IO.Path]::GetFullPath($BuildRoot)
 $syncRoot = Split-Path $dashboard -Parent
+if (-not $RSource) { $RSource = Join-Path $syncRoot 'dist-windows/R' }
 if ($BuildRoot.Equals($syncRoot, [StringComparison]::OrdinalIgnoreCase) -or
     $BuildRoot.StartsWith($syncRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'BuildRoot must be outside the synchronized source directory.'
@@ -83,6 +85,12 @@ try {
     try { Run go -Arguments @('build', '-tags', 'release', '-ldflags', '-H=windowsgui', '-o', $exe, './cmd/server') }
     finally { Pop-Location }
     Copy-Item -LiteralPath $workerExe -Destination (Join-Path $output 'rs-wgcna-worker.exe') -Force
+    if (Test-Path -LiteralPath (Join-Path $RSource 'bin/Rscript.exe')) {
+        Copy-Item -LiteralPath $RSource -Destination (Join-Path $output 'R') -Recurse -Force
+        Write-Host "Bundled R runtime from $RSource"
+    } else {
+        Write-Warning "R runtime not found at $RSource; R plots need WGCNA_RSCRIPT or PATH."
+    }
     [ordered]@{
         platform = 'windows-x64'; built_at = (Get-Date -Format o)
         dashboard_commit = (& git -C $dashboard rev-parse HEAD)

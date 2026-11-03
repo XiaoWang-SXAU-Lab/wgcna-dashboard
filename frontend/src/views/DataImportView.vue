@@ -1,65 +1,37 @@
 <script setup lang="ts">
-import ReportFigure from '../components/ReportFigure.vue'
 import { computed, ref, watch } from 'vue'
-import { useWgcnaStore } from '../stores/wgcna'
-import { getSampleInfo, type SampleInfo } from '../api/client'
-import { analyzeError } from '../utils/aiBus'
+import { useProjectStore } from '../stores/project'
+import type { FilterResult, SampleInfo } from '../api/client'
+import { getSampleInfo } from '../api/projects'
+import { locale } from '../utils/i18n'
+import SampleTreeChart, { type CategoryBand } from '../components/SampleTreeChart.vue'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
-import { t } from '../utils/i18n'
-import StepStatusBadge from '../components/StepStatusBadge.vue'
-import SampleTreeChart from '../components/SampleTreeChart.vue'
 import PlotDownloadWidget from '../components/PlotDownloadWidget.vue'
-import type { CategoryBand } from '../components/SampleTreeChart.vue'
 
-const store = useWgcnaStore()
-
-function onExpr(e: Event) { store.exprFile = (e.target as HTMLInputElement).files?.[0] ?? null }
-function onTrait(e: Event) { store.traitFile = (e.target as HTMLInputElement).files?.[0] ?? null }
-function onSampleInfo(e: Event) { store.sampleInfoFile = (e.target as HTMLInputElement).files?.[0] ?? null }
-function onAnnotation(e: Event) { store.annotationFile = (e.target as HTMLInputElement).files?.[0] ?? null }
-function onGene2go(e: Event) { store.gene2goFile = (e.target as HTMLInputElement).files?.[0] ?? null }
-function onGene2kegg(e: Event) { store.gene2keggFile = (e.target as HTMLInputElement).files?.[0] ?? null }
-
-function fileName(file: File | null, demoName: string): string {
-  if (store.demoLoaded) return `demo · ${demoName}`
-  return file ? file.name : t('di.chooseFile')
-}
-
-async function createAndFilter() {
-  if (!store.created) await store.createJobAndUpload()
-  if (store.created) await store.runStep('filter')
-}
-
-async function loadDemoData() {
-  await store.loadDemo()
-}
-
+const store = useProjectStore()
+const text = (zh: string, en: string) => locale.value === 'zh' ? zh : en
 const selectedOutliers = ref<string[]>([])
+const showTreeExport = ref(false)
 const sampleInfos = ref<SampleInfo[]>([])
 const attrColumns = ref<string[]>([])
 const colorAttrs = ref<string[]>([])
 const EXCLUDE_ATTRS = new Set(['sample_id', 'sample_name', 'species'])
-
-watch(() => store.jobId, async (id) => {
-  if (!id) {
-    sampleInfos.value = []
-    attrColumns.value = []
-    colorAttrs.value = []
+async function loadSampleInfo() {
+  if (!store.id || !store.current?.state.inputs.sample_info) {
+    sampleInfos.value = []; attrColumns.value = []; colorAttrs.value = []
     return
   }
   try {
-    const infos = await getSampleInfo(id)
+    const infos = await getSampleInfo(store.id)
     sampleInfos.value = infos
     const cols = (infos.length ? Object.keys(infos[0].attrs) : []).filter((c) => !EXCLUDE_ATTRS.has(c))
     attrColumns.value = cols
     colorAttrs.value = cols.includes('group') ? ['group'] : (cols.length ? [cols[0]] : [])
   } catch {
-    sampleInfos.value = []
-    attrColumns.value = []
-    colorAttrs.value = []
+    sampleInfos.value = []; attrColumns.value = []; colorAttrs.value = []
   }
-})
-
+}
+watch(() => store.current?.state.inputs.sample_info?.sha256, () => { void loadSampleInfo() }, { immediate: true })
 const categories = computed<CategoryBand[]>(() => {
   if (!colorAttrs.value.length || !sampleInfos.value.length) return []
   return colorAttrs.value.map((attr) => {
@@ -68,188 +40,127 @@ const categories = computed<CategoryBand[]>(() => {
     return { name: attr, values }
   })
 })
-
-const showTreeExport = ref(false)
-
-async function removeOutliers() {
-  await store.removeSamples(selectedOutliers.value)
-  selectedOutliers.value = []
+const roles = computed(() => [
+  ['expr', text('表达矩阵（必需）', 'Expression matrix (required)')],
+  ['trait', text('表型数据', 'Trait table')],
+  ['sample_info', text('样本信息', 'Sample information')],
+  ['annotation', text('基因注释', 'Gene annotation')],
+  ['gene2go', 'Gene → GO'],
+  ['gene2kegg', 'Gene → KEGG'],
+])
+const filter = computed(() => store.results.filter as FilterResult | undefined)
+const canRun = computed(() => !!store.current?.state.inputs.expr && !store.busy)
+const demoLoading = ref(false)
+async function loadDemo() {
+  demoLoading.value = true
+  try { await store.loadDemo() } catch (e) { store.error = String(e) } finally { demoLoading.value = false }
 }
 
-function onSelectSample(name: string) {
-  const i = selectedOutliers.value.indexOf(name)
-  if (i >= 0) selectedOutliers.value.splice(i, 1)
-  else selectedOutliers.value.push(name)
+async function upload(role: string, event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (file) { try { await store.importFile(role, file) } catch (e) { store.error = String(e) } }
+  input.value = ''
+}
+function toggleOutlier(sample: string) {
+  selectedOutliers.value = selectedOutliers.value.includes(sample) ? selectedOutliers.value.filter(x => x !== sample) : [...selectedOutliers.value, sample]
+}
+async function excludeSelected() {
+  store.draft.filter.exclude_samples = [...new Set([...(store.draft.filter.exclude_samples as string[]), ...selectedOutliers.value])]
+  selectedOutliers.value = []
+  await store.run('filter')
 }
 </script>
 
 <template>
-  <SidebarDrawer>
+  <div v-if="!store.current" class="text-center py-5">
+    <i class="bi bi-folder2-open fs-1 text-muted"></i>
+    <h4 class="mt-3">{{ text('尚未打开项目', 'No project open') }}</h4>
+    <p class="text-muted">{{ text('请先新建或打开一个分析项目，再进行数据导入与过滤。', 'Open or create a project before importing data and filtering.') }}</p>
+    <router-link to="/projects" class="btn btn-primary mt-2">{{ text('前往项目', 'Go to projects') }}</router-link>
+  </div>
+  <SidebarDrawer v-else>
     <template #sidebar>
-      <div>
-        <div class="border rounded p-2 mb-2">
-          <div class="small fw-semibold mb-1">{{ t('di.demo') }}</div>
-          <div class="d-flex gap-2">
-            <button class="btn btn-sm btn-primary flex-fill" :disabled="store.stepRunning !== ''" @click="loadDemoData">
-              <i class="bi bi-magic me-1"></i>{{ t('di.loadDemo') }}
-            </button>
-            <a class="btn btn-sm btn-outline-secondary flex-fill" href="/api/demo/download" download>
-              <i class="bi bi-download me-1"></i>{{ t('di.downloadDemo') }}
-            </a>
-          </div>
-          <div v-if="store.demoLoaded" class="small text-success mt-1"><i class="bi bi-check-circle me-1"></i>{{ t('di.demoLoaded') }}</div>
+      <div class="border rounded p-2 mb-3">
+        <div class="small fw-semibold mb-1">{{ text('演示数据', 'Demo data') }}</div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-primary flex-fill" :disabled="store.busy || demoLoading" @click="loadDemo">{{ text('加载演示数据', 'Load demo data') }}</button>
+          <a class="btn btn-sm btn-outline-secondary flex-fill" href="/api/demo/download" download :title="text('下载演示数据', 'Download demo data')"><i class="bi bi-download"></i></a>
         </div>
-        <h6 class="fw-bold mb-3">{{ t('param.parameters') }}</h6>
-        <div class="vstack gap-2">
-          <div>
-            <label class="form-label small mb-1">{{ t('di.expr') }}<span class="text-danger">*</span></label>
-            <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
-              <i class="bi bi-upload me-1"></i>{{ fileName(store.exprFile, 'expr.tsv') }}
-              <input type="file" accept=".tsv,.txt,.csv,.xlsx,.xls" class="d-none" @change="onExpr" />
-            </label>
+        <div class="small text-muted mt-1">{{ text('拟南芥热胁迫转录记忆（GSE162434），导入表达矩阵、表型与注释。', 'Arabidopsis heat-stress memory (GSE162434): imports expression, trait and annotation.') }}</div>
+      </div>
+      <fieldset :disabled="store.busy" class="vstack gap-3">
+        <label v-for="[role, label] in roles" :key="role" class="small">{{ label }} <i v-if="store.current.state.inputs[role]" class="bi bi-check-circle text-success"></i>
+          <input type="file" accept=".tsv,.txt,.csv,.xlsx,.xls" class="form-control form-control-sm mt-1" @change="upload(role, $event)" />
+        </label>
+        <label>{{ text('数据类型', 'Data type') }}
+          <select v-model="store.draft.filter.data_type" class="form-select">
+            <option value="count">Raw counts</option>
+            <option value="normalized_count">FPKM / TPM</option>
+            <option value="protein_abundance">Protein abundance</option>
+            <option value="peak_area">Peak area</option>
+          </select>
+        </label>
+        <label>{{ text('归一化', 'Normalization') }}
+          <select v-model="store.draft.filter.normalize_method" class="form-select">
+            <option v-if="store.draft.filter.data_type === 'count'" value="vst">VST</option>
+            <option value="log2p1">log2(x+1)</option>
+            <option value="log2">log2(x)</option>
+            <option value="raw">{{ text('不变换', 'No transformation') }}</option>
+          </select>
+        </label>
+        <label>{{ text('保留基因数', 'Genes to keep') }}<input v-model.number="store.draft.filter.n_keep" type="number" min="1" class="form-control" /></label>
+        <label>{{ text('基因筛选', 'Gene selection') }}
+          <select v-model="store.draft.filter.filter_method" class="form-select"><option value="mad">MAD</option><option value="var">Variance</option></select>
+        </label>
+        <label>{{ text('表达阈值', 'Expression cutoff') }}<input v-model.number="store.draft.filter.cutoff" type="number" min="0" class="form-control" /></label>
+        <label>{{ text('满足阈值的样本比例（0–1）', 'Sample fraction above cutoff (0–1)') }}<input v-model.number="store.draft.filter.sample_percentage" type="number" min="0" max="1" step="0.1" class="form-control" /></label>
+        <button v-if="(store.draft.filter.exclude_samples as string[]).length" class="btn btn-outline-secondary" @click="store.draft.filter.exclude_samples = []">{{ text('清除排除样本', 'Clear excluded samples') }} ({{ (store.draft.filter.exclude_samples as string[]).length }})</button>
+      </fieldset>
+      <button class="btn btn-primary w-100 mt-3" :disabled="!canRun" @click="store.run('filter')">{{ text('运行此步骤', 'Run step') }}</button>
+    </template>
+    <div class="mb-3"><h4 class="mb-1">{{ text('数据导入与过滤', 'Data import & filtering') }}</h4><p class="text-muted small mb-0">{{ text('上传表达矩阵并设置过滤参数，然后运行。', 'Upload an expression matrix, set filtering parameters, then run.') }}</p></div>
+    <div v-if="store.error" class="alert alert-danger">{{ store.error }}</div>
+    <p v-if="store.busy" role="status" class="alert alert-info">{{ text('正在计算，完成后自动保存。', 'Running. Results will be saved on completion.') }}</p>
+    <template v-else-if="filter">
+      <div class="card mb-3"><div class="card-header bg-white fw-semibold">{{ text('过滤结果', 'Filter results') }}</div>
+        <div class="card-body py-2 d-flex flex-wrap gap-2">
+          <span class="badge text-bg-light border">{{ text('过滤前基因', 'Genes before') }}: {{ filter.n_genes_before }}</span>
+          <span class="badge text-bg-light border">{{ text('低表达过滤后', 'After low-expression') }}: {{ filter.n_genes_after_low }}</span>
+          <span class="badge text-bg-success">{{ text('最终基因', 'Final genes') }}: {{ filter.n_genes_final }}</span>
+          <span class="badge text-bg-light border">{{ text('样本', 'Samples') }}: {{ filter.n_samples }}</span>
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <h6 class="fw-semibold mb-0">{{ text('样本聚类树', 'Sample tree') }}</h6>
+        <button class="btn btn-sm btn-outline-primary ms-auto" @click="showTreeExport = true"><i class="bi bi-download me-1"></i>{{ text('导出高清图', 'Export') }}</button>
+      </div>
+      <div v-if="attrColumns.length" class="d-flex align-items-center gap-2 mb-2">
+        <label class="form-label small mb-0 text-nowrap">{{ text('按字段着色', 'Color by') }}</label>
+        <div class="d-flex flex-wrap gap-2">
+          <label v-for="c in attrColumns" :key="c" class="form-check form-check-inline small mb-0">
+            <input class="form-check-input" type="checkbox" :value="c" v-model="colorAttrs" />
+            <span class="form-check-label">{{ c }}</span>
+          </label>
+        </div>
+      </div>
+      <SampleTreeChart :samples="filter.samples" :tree="filter.sample_tree" :categories="categories" :selected="selectedOutliers" @select="toggleOutlier" />
+      <div class="card mt-3"><div class="card-header bg-white fw-semibold">{{ text('排除离群样本', 'Exclude outlier samples') }}</div>
+        <div class="card-body">
+          <p class="text-muted small">{{ text('勾选要排除的样本，然后重新过滤。', 'Select samples to exclude, then rerun filtering.') }}</p>
+          <div class="d-flex flex-wrap gap-2">
+            <label v-for="s in filter.samples" :key="s" class="form-check mb-0"><input class="form-check-input" type="checkbox" :value="s" v-model="selectedOutliers" /><span class="form-check-label small">{{ s }}</span></label>
           </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('di.trait') }}</label>
-            <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
-              <i class="bi bi-upload me-1"></i>{{ fileName(store.traitFile, 'trait.tsv') }}
-              <input type="file" accept=".tsv,.txt,.csv,.xlsx,.xls" class="d-none" @change="onTrait" />
-            </label>
-          </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('di.sampleInfo') }}</label>
-            <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
-              <i class="bi bi-upload me-1"></i>{{ fileName(store.sampleInfoFile, 'sample_info.tsv') }}
-              <input type="file" accept=".tsv,.txt,.csv" class="d-none" @change="onSampleInfo" />
-            </label>
-          </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('di.annotation') }}</label>
-            <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
-              <i class="bi bi-upload me-1"></i>{{ fileName(store.annotationFile, 'annotation.tsv') }}
-              <input type="file" accept=".tsv,.txt,.csv" class="d-none" @change="onAnnotation" />
-            </label>
-          </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('di.gene2go') }}</label>
-            <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
-              <i class="bi bi-upload me-1"></i>{{ fileName(store.gene2goFile, 'gene2go.tsv') }}
-              <input type="file" accept=".tsv,.txt,.csv" class="d-none" @change="onGene2go" />
-            </label>
-          </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('di.gene2kegg') }}</label>
-            <label class="btn btn-sm btn-outline-secondary w-100 text-truncate mb-0">
-              <i class="bi bi-upload me-1"></i>{{ fileName(store.gene2keggFile, 'gene2kegg.tsv') }}
-              <input type="file" accept=".tsv,.txt,.csv" class="d-none" @change="onGene2kegg" />
-            </label>
-          </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('di.dataType') }}</label>
-            <select class="form-select form-select-sm" v-model="store.dataType">
-              <option value="count">{{ t('di.dataTypeCount') }}</option>
-              <option value="expected_count">{{ t('di.dataTypeExpectedCount') }}</option>
-              <option value="normalized_count">{{ t('di.dataTypeNormalizedCount') }}</option>
-              <option value="peak_area">{{ t('di.dataTypePeakArea') }}</option>
-              <option value="protein_abundance">{{ t('di.dataTypeProteinAbundance') }}</option>
-            </select>
-          </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('di.nKeep') }}</label>
-            <input class="form-control form-control-sm" type="number" v-model.number="store.nKeep" min="100" />
-          </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('param.filterMethod') }}</label>
-            <select class="form-select form-select-sm" v-model="store.filterMethod">
-              <option value="mad">MAD</option>
-              <option value="var">VAR</option>
-            </select>
-          </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('param.samplePct') }}: <b>{{ store.samplePercentage }}%</b></label>
-            <input class="form-range" type="range" v-model.number="store.samplePercentage" min="0" max="100" step="5" />
-          </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('param.cutoff') }}</label>
-            <input class="form-control form-control-sm" type="number" v-model.number="store.cutoff" step="0.1" />
-          </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('di.normalize') }}</label>
-            <select class="form-select form-select-sm" v-model="store.normalizeMethod">
-              <option v-for="o in store.normalizeOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
-            </select>
-          </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('di.threads') }}</label>
-            <input class="form-control form-control-sm" type="number" v-model.number="store.threads" min="1" max="32" />
-          </div>
-          <button class="btn btn-primary w-100 mt-2" :disabled="(!store.created && !store.exprFile) || store.stepRunning !== ''" @click="createAndFilter">
-            {{ store.stepRunning ? t('common.running') : store.isDone('filter') ? t('di.rerun') : t('di.run') }}
-          </button>
+          <button class="btn btn-danger mt-3" :disabled="!selectedOutliers.length || store.busy" @click="excludeSelected">{{ text('排除选中样本并重新过滤', 'Exclude selected and rerun') }}</button>
         </div>
       </div>
     </template>
-      <div class="mb-3">
-        <h4 class="mb-1 d-flex align-items-center gap-2">{{ t('di.title') }} <StepStatusBadge step="filter" /></h4>
-        <p class="text-muted small mb-0">{{ t('di.desc') }}</p>
-      </div>
-      <div v-if="store.error" class="alert alert-danger d-flex align-items-center gap-2 py-2">
-        <i class="bi bi-exclamation-triangle-fill"></i>
-        <span class="flex-grow-1">{{ store.error }}</span>
-        <button class="btn btn-sm btn-outline-danger" @click="analyzeError(store.error)">🤖 {{ t('common.ai') }}</button>
-      </div>
-
-      <template v-if="store.filterResult">
-        <div class="card mb-3">
-          <div class="card-header bg-white fw-semibold"><i class="bi bi-clipboard-data me-2"></i>{{ t('di.report') }}</div>
-          <div class="card-body py-2 d-flex flex-wrap gap-2">
-            <span class="badge text-bg-light border">{{ t('di.genesBefore') }}: {{ store.filterResult.n_genes_before }}</span>
-            <span class="badge text-bg-light border">{{ t('di.genesAfterLow') }}: {{ store.filterResult.n_genes_after_low }}</span>
-            <span class="badge text-bg-success">{{ t('di.genesFinal') }}: {{ store.filterResult.n_genes_final }}</span>
-            <span class="badge text-bg-light border">{{ t('di.samples') }}: {{ store.filterResult.n_samples }}</span>
-          </div>
-        </div>
-
-        <div class="mb-3">
-          <h6 class="fw-semibold mb-2"><i class="bi bi-diagram-3 me-1"></i>{{ t('di.sampleTree') }}</h6>
-          <div v-if="attrColumns.length" class="d-flex align-items-center gap-2 mb-2">
-            <label class="form-label small mb-0 text-nowrap">{{ t('di.colorBy') }}</label>
-            <div class="d-flex flex-wrap gap-2">
-              <label v-for="c in attrColumns" :key="c" class="form-check form-check-inline small mb-0">
-                <input class="form-check-input" type="checkbox" :value="c" v-model="colorAttrs" />
-                <span class="form-check-label">{{ c }}</span>
-              </label>
-            </div>
-          </div>
-          <div class="mb-2">
-            <button class="btn btn-sm btn-outline-primary" @click="showTreeExport = true">
-              <i class="bi bi-download me-1"></i>{{ t('plot.export') }}
-            </button>
-          </div>
-          <ReportFigure figure-key="02_filter/sample_tree.png"><SampleTreeChart :samples="store.filterResult.samples" :tree="store.filterResult.sample_tree" :categories="categories" :selected="selectedOutliers" @select="onSelectSample" /></ReportFigure>
-          <PlotDownloadWidget kind="sample-tree" :attrs="colorAttrs.join(',')" :show="showTreeExport" @close="showTreeExport = false" />
-        </div>
-
-        <div class="card">
-          <div class="card-header bg-white fw-semibold"><i class="bi bi-trash me-2"></i>{{ t('di.removeOutlier') }}</div>
-          <div class="card-body">
-            <p class="text-muted small">{{ t('di.selectSamples') }}</p>
-            <div class="d-flex flex-wrap gap-2">
-              <label v-for="s in store.filterResult.samples" :key="s" class="form-check mb-0">
-                <input class="form-check-input" type="checkbox" :value="s" v-model="selectedOutliers" />
-                <span class="form-check-label small">{{ s }}</span>
-              </label>
-            </div>
-            <button class="btn btn-danger mt-3" :disabled="selectedOutliers.length === 0 || store.stepRunning !== ''" @click="removeOutliers">
-              <i class="bi bi-arrow-repeat me-1"></i>{{ t('di.removeBtn') }}
-            </button>
-          </div>
-        </div>
-      </template>
-
-      <div v-else class="alert alert-info small">
-        <span v-if="store.isDone('filter')" class="badge text-bg-success me-2">{{ t('di.done') }} ✓</span>
-        <span v-else-if="store.created" class="badge text-bg-light text-muted me-2">{{ t('di.created') }}</span>
-        {{ t('di.hint') }}
-      </div>
+    <p v-else class="text-muted">{{ text('导入表达矩阵并运行，结果会保存在当前项目中。', 'Import an expression matrix and run. Results are saved in this project.') }}</p>
+    <PlotDownloadWidget kind="sample-tree" :attrs="colorAttrs.join(',')" :show="showTreeExport" @close="showTreeExport = false" />
   </SidebarDrawer>
 </template>
+
+<style scoped>
+fieldset { border: 0; min-width: 0; padding: 0; }
+label { font-size: .875rem; }
+</style>

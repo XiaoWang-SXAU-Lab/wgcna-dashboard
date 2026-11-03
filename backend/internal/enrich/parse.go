@@ -12,6 +12,7 @@ import (
 // (tab or comma). When hasHeader is true the first record is treated as the
 // header row; otherwise all records are data.
 func readTable(data []byte, hasHeader bool) (header []string, rows [][]string, err error) {
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF}) // strip UTF-8 BOM
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, nil, fmt.Errorf("empty table")
 	}

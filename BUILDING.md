@@ -1,5 +1,26 @@
 # 本机 Windows / macOS 隔离构建
 
+> `explore/project-copilot` 探索版补充：遵守 `AGENTS.md` 和
+> `docs/exploration/HANDOFF.md`。依赖、R 运行环境与探索版成品全部保存在
+> 本机非同步目录，不执行下文稳定版旧流程中向相邻 `releases/rsWGCNA-current/`
+> 复制成品的步骤。既有目录不自动删除。构建脚本默认位置已在同步盘外，
+> 但仍需检查包管理器缓存及环境变量是否另有同步路径覆盖。
+
+探索版项目核心验证（复制源码到本机临时快照，不安装同步目录依赖）：
+
+```powershell
+./scripts/test-project-windows.ps1
+# 可选：加 -Worker <本机 rs-wgcna-worker.exe 的绝对路径> 运行真实引擎集成
+```
+
+```bash
+bash scripts/test-project-macos.sh
+# 可选：第一个参数为本机 native worker 的绝对路径
+```
+
+未指定 worker 时，真实 Rust 集成项明确 SKIP，其余使用测试子进程验证。
+实现进度、接口和限制见 `docs/exploration/PROJECT_CONTRACT.md`。
+
 源码共用；依赖、工具链、缓存、内嵌资源和可执行程序按操作系统分开。
 不要在同步目录直接运行 `pnpm install` 或 `cargo build`。
 `make build` 现已按平台转调下面的隔离构建脚本。

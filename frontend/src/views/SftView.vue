@@ -1,84 +1,68 @@
 <script setup lang="ts">
-import ReportFigure from '../components/ReportFigure.vue'
 import { computed, ref } from 'vue'
-import { useWgcnaStore } from '../stores/wgcna'
+import { useProjectStore } from '../stores/project'
+import type { SftResult } from '../api/client'
+import { locale } from '../utils/i18n'
 import SftPlot from '../components/SftPlot.vue'
 import SftCheckChart from '../components/SftCheckChart.vue'
 import SimpleTable from '../components/SimpleTable.vue'
-import { analyzeError } from '../utils/aiBus'
-import PlotDownloadWidget from '../components/PlotDownloadWidget.vue'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
-import { t } from '../utils/i18n'
-import StepStatusBadge from '../components/StepStatusBadge.vue'
+import PlotDownloadWidget from '../components/PlotDownloadWidget.vue'
 
-const store = useWgcnaStore()
-
+const store = useProjectStore()
+const text = (zh: string, en: string) => locale.value === 'zh' ? zh : en
+const sft = computed(() => store.results.soft_threshold as SftResult | undefined)
 const showExport = ref(false)
 const showExportCheck = ref(false)
-
-const rows = computed(() => (store.sft?.fit_indices ?? []).map((f) => ({
+const canRun = computed(() => store.current?.validity.filter === '' && !store.busy)
+const rows = computed(() => (sft.value?.fit_indices ?? []).map((f) => ({
   power: f.power, rsq: f.rsq.toFixed(3), slope: f.slope.toFixed(3),
   mean_k: f.mean_k.toFixed(1), median_k: f.median_k.toFixed(1), max_k: f.max_k.toFixed(1),
 })))
 </script>
 
 <template>
-  <SidebarDrawer>
+  <div v-if="!store.current" class="text-center py-5">
+    <i class="bi bi-folder2-open fs-1 text-muted"></i>
+    <h4 class="mt-3">{{ text('尚未打开项目', 'No project open') }}</h4>
+    <p class="text-muted">{{ text('请先新建或打开项目并完成数据过滤，再计算软阈值。', 'Open or create a project and finish filtering before soft-threshold analysis.') }}</p>
+    <router-link to="/projects" class="btn btn-primary mt-2">{{ text('前往项目', 'Go to projects') }}</router-link>
+  </div>
+  <SidebarDrawer v-else>
     <template #sidebar>
-      <div>
-        <h6 class="fw-bold mb-3">{{ t('param.parameters') }}</h6>
-        <div class="vstack gap-2">
-          <div>
-            <label class="form-label small mb-1">{{ t('di.rsq') }}</label>
-            <input class="form-control form-control-sm" type="number" v-model.number="store.rsquaredCut" min="0" max="1" step="0.05" />
-          </div>
-          <div>
-            <label class="form-label small mb-1">{{ t('param.networkType') }}</label>
-            <select class="form-select form-select-sm" v-model="store.sftNetworkType">
-              <option value="unsigned">unsigned</option>
-              <option value="signed">signed</option>
-              <option value="signed hybrid">signed hybrid</option>
-            </select>
-          </div>
-          <button class="btn btn-primary w-100 mt-2" :disabled="!store.stepReady('soft_threshold') || store.stepRunning !== ''" @click="store.runStep('soft_threshold')">
-            {{ store.stepRunning === 'soft_threshold' ? t('common.running') : store.isDone('soft_threshold') ? t('common.rerun') : t('common.run') }}
-          </button>
-        </div>
-      </div>
+      <fieldset :disabled="store.busy" class="vstack gap-3">
+        <label>{{ text('无标度拟合阈值', 'Scale-free fit threshold') }}<input v-model.number="store.draft.soft_threshold.rsquared_cut" type="number" min="0" max="1" step="0.05" class="form-control" /></label>
+        <label>{{ text('网络类型', 'Network type') }}
+          <select v-model="store.draft.soft_threshold.network_type" class="form-select"><option>unsigned</option><option>signed</option><option>signed hybrid</option></select>
+        </label>
+      </fieldset>
+      <button class="btn btn-primary w-100 mt-3" :disabled="!canRun" @click="store.run('soft_threshold')">{{ text('运行此步骤', 'Run step') }}</button>
     </template>
-      <div class="mb-3">
-        <h4 class="mb-1 d-flex align-items-center gap-2">{{ t('sft.title') }} <StepStatusBadge step="soft_threshold" /></h4>
-        <p class="text-muted small mb-0">{{ t('sft.desc') }}</p>
+    <div class="mb-3"><h4 class="mb-1">{{ text('软阈值', 'Soft threshold') }}</h4><p class="text-muted small mb-0">{{ text('拟合无标度拓扑，选择软阈值 β。', 'Fit scale-free topology and choose the soft threshold β.') }}</p></div>
+    <div v-if="store.error" class="alert alert-danger">{{ store.error }}</div>
+    <p v-if="store.busy" role="status" class="alert alert-info">{{ text('正在计算，完成后自动保存。', 'Running. Results will be saved on completion.') }}</p>
+    <template v-else-if="sft">
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <span class="text-muted small">{{ text('推荐 β：', 'Recommended β: ') }}<b>{{ sft.power_estimate }}</b>（{{ sft.network_type }}）</span>
+        <button class="btn btn-sm btn-outline-primary ms-auto" @click="showExport = true"><i class="bi bi-download me-1"></i>{{ text('导出高清图', 'Export') }}</button>
       </div>
-      <div v-if="store.error" class="alert alert-danger d-flex align-items-center gap-2 py-2">
-        <i class="bi bi-exclamation-triangle-fill"></i>
-        <span class="flex-grow-1">{{ store.error }}</span>
-        <button class="btn btn-sm btn-outline-danger" @click="analyzeError(store.error)">🤖 {{ t('common.ai') }}</button>
-      </div>
-      <div v-if="store.sft">
-        <div class="d-flex align-items-center gap-2 mb-2">
-          <span class="text-muted small">
-            {{ t('sft.recommend') }} <b>{{ store.sft.power_estimate }}</b>（{{ store.sft.network_type }}）
-            <span v-if="store.sft.power_source === 'experience'" class="badge text-bg-warning ms-1">{{ t('sft.experiencePower') }}</span>
-          </span>
-          <button class="btn btn-sm btn-outline-primary ms-auto" @click="showExport = true">
-            <i class="bi bi-download me-1"></i>{{ t('plot.export') }}
-          </button>
+      <SftPlot :data="sft" :rsquared-cut="Number(store.draft.soft_threshold.rsquared_cut)" />
+      <template v-if="sft.scale_free_check">
+        <div class="d-flex align-items-center mt-4 mb-2">
+          <h6 class="fw-semibold mb-0">{{ text('无标度检验', 'Scale-free check') }}</h6>
+          <button class="btn btn-sm btn-outline-primary ms-auto" @click="showExportCheck = true"><i class="bi bi-download me-1"></i>{{ text('导出高清图', 'Export') }}</button>
         </div>
-        <ReportFigure figure-key="03_soft_threshold/sft.png"><SftPlot :data="store.sft" :rsquared-cut="store.rsquaredCut" /></ReportFigure>
-        <template v-if="store.sft.scale_free_check">
-          <div class="d-flex align-items-center mt-4 mb-2">
-            <h6 class="fw-semibold mb-0"><i class="bi bi-graph-up me-1"></i>{{ t('sft.checkTitle') }}</h6>
-            <button class="btn btn-sm btn-outline-primary ms-auto" @click="showExportCheck = true">
-              <i class="bi bi-download me-1"></i>{{ t('plot.export') }}
-            </button>
-          </div>
-          <SftCheckChart :data="store.sft.scale_free_check" />
-        </template>
-        <SimpleTable :columns="[{ key: 'power', label: t('sft.col.power') }, { key: 'rsq', label: t('sft.col.rsq') }, { key: 'slope', label: t('sft.col.slope') }, { key: 'mean_k', label: t('sft.col.meanK') }, { key: 'median_k', label: t('sft.col.medianK') }, { key: 'max_k', label: t('sft.col.maxK') }]" :rows="rows" filename="sft" />
-        <PlotDownloadWidget kind="sft" :rsq-cut="store.rsquaredCut" :show="showExport" @close="showExport = false" />
-        <PlotDownloadWidget kind="sft-check" :show="showExportCheck" @close="showExportCheck = false" />
-      </div>
-      <p v-else class="text-muted">{{ t('sft.empty') }}</p>
+        <SftCheckChart :data="sft.scale_free_check" />
+      </template>
+      <SimpleTable class="mt-4" :columns="[{ key: 'power', label: 'β' }, { key: 'rsq', label: 'R²' }, { key: 'slope', label: 'Slope' }, { key: 'mean_k', label: 'mean k' }, { key: 'median_k', label: 'median k' }, { key: 'max_k', label: 'max k' }]" :rows="rows" filename="sft" />
+    </template>
+    <p v-else class="text-muted">{{ text('完成数据过滤后运行，这里会显示软阈值结果。', 'Run after filtering to see the soft-threshold results.') }}</p>
+    <PlotDownloadWidget kind="sft" :rsq-cut="Number(store.draft.soft_threshold.rsquared_cut)" :show="showExport" @close="showExport = false" />
+    <PlotDownloadWidget kind="sft-check" :show="showExportCheck" @close="showExportCheck = false" />
   </SidebarDrawer>
 </template>
+
+<style scoped>
+fieldset { border: 0; min-width: 0; padding: 0; }
+label { font-size: .875rem; }
+</style>

@@ -30,7 +30,7 @@ const year = new Date().getFullYear()
         <h1><img class="home-brand-icon" src="/rsWGCNA_icon.svg" alt="" />rsWGCNA<span>{{ text('基因共表达网络分析', 'Gene co-expression network analysis') }}</span></h1>
         <p class="home-intro">{{ text('从表达矩阵、模块识别到候选基因筛选的集成分析工具。', 'An integrated tool for expression matrices, module detection and candidate gene screening.') }}</p>
         <p class="home-description">{{ text('使用 Rust 计算引擎构建共表达网络，交互探索模块与性状的关联，结合 GO / KEGG 富集分析解释模块功能，并导出可离线浏览的分析报告。', 'Build co-expression networks with a Rust engine. Explore module–trait associations, interpret module functions with GO / KEGG enrichment, and export reports for offline viewing.') }}</p>
-        <router-link to="/data-import" class="btn btn-primary mt-3">{{ text('开始分析', 'Start analysis') }} <i class="bi bi-arrow-right ms-3" aria-hidden="true"></i></router-link>
+        <router-link to="/projects" class="btn btn-primary mt-3">{{ text('打开或新建项目', 'Open or create project') }} <i class="bi bi-arrow-right ms-3" aria-hidden="true"></i></router-link>
       </div>
       <div class="home-network-panel">
         <div class="home-figure-heading">NETWORK → MODULE → FUNCTION<small>{{ text('分析流程示意 · 非实际结果', 'Schematic illustration · Not analysis results') }}</small></div>
@@ -49,7 +49,7 @@ const year = new Date().getFullYear()
       <div class="home-workflow-title"><h2>{{ text('分析流程', 'Analysis workflow') }}</h2><span>ANALYSIS WORKFLOW</span></div>
       <div class="home-step-grid"><router-link v-for="(step,i) in steps" :key="step[0]" :to="step[0]!" class="home-step"><small>0{{ i+1 }}</small><span>{{ step[1] }}</span><i class="bi bi-arrow-up-right" aria-hidden="true"></i></router-link></div>
     </section>
-    <div class="home-methods">{{ text('方法参考', 'Methods') }}: Zhang &amp; Horvath (2005) · Langfelder &amp; Horvath (2008)</div>
+    <div class="home-methods">{{ text('方法参考', 'Methods') }}: WGCNA (Langfelder &amp; Horvath 2008) · Zhang &amp; Horvath (2005) · {{ text('网络可视化参考', 'network viz. ref.') }} hdWGCNA (Morabito et al. 2023)</div>
     <footer class="home-footer"><div>© {{ year }} rsWGCNA<small>{{ text('山西农业大学生命科学学院', 'College of Life Sciences, Shanxi Agricultural University') }}</small><small>{{ text('山西农业大学后稷实验室', 'Houji Laboratory, Shanxi Agricultural University') }}</small></div><a href="https://xwang-lab-sxau.cn/" target="_blank" rel="noopener noreferrer">{{ text('个人实验室主页', 'Personal laboratory website') }} ↗<small>xwang-lab-sxau.cn</small></a></footer>
   </div>
 </template>

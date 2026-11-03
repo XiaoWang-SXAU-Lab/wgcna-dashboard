@@ -22,7 +22,7 @@ import (
 )
 
 // StepOrder is the linear execution order of the WGCNA pipeline.
-var StepOrder = []string{"filter", "soft_threshold", "network", "module_trait", "module_detail", "hub"}
+var StepOrder = []string{"filter", "soft_threshold", "network", "module_trait", "module_detail", "hub", "rean"}
 
 // Progress mirrors the worker's <job-dir>/progress.json.
 type Progress struct {

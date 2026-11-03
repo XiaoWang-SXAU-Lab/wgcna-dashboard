@@ -15,6 +15,7 @@ export const locale = ref<Locale>(initialLocale())
 
 const messages: Record<Locale, Record<string, string>> = {
   en: {
+    'nav.projects': 'Projects',
     'nav.home': 'Home',
     'nav.dataImport': 'Data import',
     'nav.sft': 'Soft threshold',
@@ -426,6 +427,7 @@ const messages: Record<Locale, Record<string, string>> = {
     'ai.promptError': 'Please analyze this error and tell me what went wrong and how to fix it:',
   },
   zh: {
+    'nav.projects': '分析项目',
     'nav.home': '主页',
     'nav.dataImport': '数据导入',
     'nav.sft': '软阈值',

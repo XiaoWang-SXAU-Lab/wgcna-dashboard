@@ -33,6 +33,22 @@ func main() {
 
 	manager := job.NewManager(jobsDir, workerBin, runtime.NumCPU())
 	handler := api.NewHandler(manager)
+	configRoot, err := os.UserConfigDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if runtime.GOOS == "windows" && os.Getenv("LOCALAPPDATA") != "" {
+		configRoot = os.Getenv("LOCALAPPDATA")
+	}
+	cacheRoot, err := os.UserCacheDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	projects, err := api.NewProjectHandler(workerBin, filepath.Join(configRoot, "rsWGCNA-explore"), filepath.Join(cacheRoot, "rsWGCNA-explore", "staging"))
+	if err != nil {
+		log.Fatalf("projects: %v", err)
+	}
+	defer projects.Shutdown()
 
 	aiStore, err := ai.NewStore()
 	if err != nil {
@@ -42,6 +58,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	handler.Register(mux)
+	projects.Register(mux)
 	aiHandler.Register(mux)
 	mux.Handle("/", web.Handler())
 

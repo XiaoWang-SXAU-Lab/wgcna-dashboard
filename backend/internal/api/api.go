@@ -43,6 +43,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/demo/download", h.downloadDemo)
 	mux.HandleFunc("GET /api/meta/go-version", h.goVersion)
 	mux.HandleFunc("POST /api/meta/go-update", h.goUpdate)
+	mux.HandleFunc("POST /api/toolkits/eggnog", h.eggnogConvert)
+	mux.HandleFunc("POST /api/toolkits/blast-merge", h.blastMerge)
 	mux.HandleFunc("POST /api/jobs/{id}/steps/{step}/run", h.runStep)
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", h.cancel)
 	mux.HandleFunc("GET /api/jobs/{id}/results/{step}", h.getResult)

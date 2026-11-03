@@ -442,17 +442,17 @@ export function hubNetworkOption(nodes: any[], edges: any[], nodeScale = 1, edge
   const data = nodes.map((n) => ({
     id: n.id,
     name: n.id,
-    symbolSize: (n.is_hub ? 20 : 9) * nodeScale,
+    symbolSize: (n.is_seed ? 20 : 9) * nodeScale,
     itemStyle: {
       color: n.color,
-      borderColor: n.is_hub ? '#111111' : n.color,
-      borderWidth: n.is_hub ? 2 : 0.5,
+      borderColor: n.is_seed ? '#111111' : n.color,
+      borderWidth: n.is_seed ? 2 : 0.5,
       opacity: 0.95,
     },
     value: n.kme,
     gs: n.gs,
     module: n.color,
-    isHub: !!n.is_hub,
+    isHub: !!n.is_seed,
   }))
   const links = edges.map((e) => ({
     source: e.source,

@@ -34,7 +34,7 @@ function componentFor(task: Task): { component: Component; props: Record<string,
       network: (data as HubResult).network, layout: 'fcose', sizeBasis: 'degree', nodeSizeMin: 5, nodeSizeMax: 30,
       edgeLowColor: '#cbd5e1', edgeHighColor: '#e11d48', edgeWidth: 6, labelSize: 10, labelMode: 'hub',
       geneMap: {}, colorMode: 'kme', nodeLowColor: '#dbeafe', nodeHighColor: '#1d4ed8',
-      hubNodeColor: '#e11d48', hubBorderColor: '#0f172a', hubBorderWidth: 3,
+      hubNodeColor: '#e11d48', hubBorderColor: '#0f172a', nodeBorderColor: '#ffffff', nodeBorderWidth: 1.5,
     } }
     default: throw new Error(`Unsupported report figure: ${task.kind}`)
   }
