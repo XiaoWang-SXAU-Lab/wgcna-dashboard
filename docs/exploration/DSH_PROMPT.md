@@ -1,3 +1,59 @@
+# 给 DSH / Codex 的接续 Prompt
+
+## 最新（2026-11-05 上午，Claude @ 办公室 Windows：candidate priority 注释/预算 + README/NEWS + 推送）
+
+请先读 [HANDOFF.md](HANDOFF.md) 顶部最新节。用户结束当天工作，要求 handoff、push、README/NEWS。dashboard `explore/project-copilot`；功能提交 `3fe2b53` 已推送 `origin/explore/project-copilot`，本 prompt/HANDOFF/STATE 为随后收尾提交。worker `explore/project-copilot@10ae0be` = origin，工作树干净；`master` 落后 origin/master 1，不要用 master 冒充最新。
+
+本轮完成：candidate priority 表格加入 `Symbol/name`、`Description`（按当前 priority 模块加载 annotation，表格搜索/CSV 含注释，raw TSV 标明无注释）；`g²×B > 1e9` 时 UI 禁用 Run、显示最大 B 并提供 Set B=100（blue 2,405×200 被拒绝；B=100 通过，Test-01 valid 100/100）；`sample_percentage` 0–1 slider/旧 50→0.5/后端守卫；README、README.zh-CN、NEWS 更新（NEWS `[Unreleased]`）。验证：`vue-tsc -b`、`go test ./...`（CGO_ENABLED=1）、`go vet`、Windows 隔离构建 PASS；Codex 本轮未重跑。
+
+下一步优先级：① 建 108/156 memory 基因的 memory-focused 网络并跑 candidate priority/differential；② GO/KEGG 注释一致性 PoC（只作 prior/排序，不作方向；TF–target 后置）；③ R-EAN differential/bridge。不要用全模块 candidate priority 冒充 memory 候选；不要覆盖 `.dsh-acl-probe.tmp` 等未跟踪本地文件；未授权不要合并 main/接在线 LLM。
+
+## 上一轮（2026-11-05 凌晨，Claude @ 办公室 Windows：sample_percentage 0–1 UI + 后端守卫）
+
+请先读 [HANDOFF.md](HANDOFF.md) 顶部最新节。本轮把 Data Import 的 `sample_percentage` 改为 0–1 range slider（step 0.01），旧项目保存的 50 在前端迁移为 0.5；legacy `wgcna.ts` 不再除以 100；`project.Run` 在启动 worker 前拒绝 `filter.sample_percentage` 不在 [0,1] 的草稿并新增回归测试。验证：`vue-tsc -b` PASS；`go test ./...`（CGO_ENABLED=1）PASS；`go vet` 相关包 PASS；`scripts/build-windows.ps1` 隔离构建 PASS（未自动启动）。worker `rs_WGCNA` 已 fetch：`explore/project-copilot@10ae0be` = origin，工作树干净；`master` 落后 origin/master 1，不要用 master 冒充最新。dashboard 仍为未提交工作区；未 commit/push/merge。下一步：关闭旧 rsWGCNA，启动本机最新构建，打开 Test-01，确认 Data Import 显示 0.50，再重跑 filter → soft_threshold → network；不要覆盖未知未提交/CRLF-only 改动。
+
+## 上一轮（2026-11-04 晚间，Claude @ 办公室 Windows：evidence P1/P2 完成，Codex PASS with residual risks）
+
+请先读 [HANDOFF.md](HANDOFF.md) 最新节与 [STATE.md](../STATE.md)。办公室 Windows 为唯一写入者；家里 Mac 已停止写入；wgcna 自动监控保持 PAUSED。本机网络未通，未能 fetch；dashboard `explore/project-copilot@a9ebb04`、worker `10ae0be`；evidence 修复未提交，未授权 commit/push/merge。
+
+本轮：Codex CLI 在本机跑通（隔离 `CODEX_HOME=%LOCALAPPDATA%\rsWGCNA-build\windows\codex-home-review`；一次性管理员 `codex sandbox setup --elevated --current-user`；复核在同步盘外一次性快照中执行）。Codex evidence 7 轮复核 round `rean-evidence-p2-20261104-21` 判 **PASS with residual risks**；修复 P1 #6 与 P2 一致性/来源/错误/预算；另修 `report_test.go:44` 报告基线，并跑通真实 worker `hub_priority` e2e（demo black，B=20/K=5，valid 20/20，1864 facts，sum=5，渲染候选 AT1G02910）。M3 最小切片已接：`OfflineSuggestion` 确定性离线建议；`GET /api/projects/{id}/evidence/hub-priority` 从服务器当前原子 envelope 重建 bundle，not-current 固定安全文案，`full=1` 才返回 facts/candidates；报告页“离线证据解读”卡片（仅当前执行、迟到响应丢弃、只显示安全 code/message、无在线模型/自由文本/自动执行）。Codex M3 首轮 FAIL（错误路径泄露）→ 已修 → round `rean-m3-evidence-20261104-02` **PASS with residual risks**。evidence **51/51**、API **12/12**（2 env-gated skip）、vet、build、`go test ./...`（CGO_ENABLED=1）、真实 envelope API 测试、前端 vue-tsc 通过。
+
+下一步：手动 GUI/浏览器验收离线解读面板；决定是否接在线模型 adapter；候选理由持久化；完整桌面/真实 worker 全流程 e2e。仍必须从服务器当前原子 `CandidateReportEnvelope` 重建 bundle；持久化建议展示前复验；UI 只显示 `ContractError.Code/Message`，不显示 `Diagnostic()`；不接在线 LLM、不切 provider、不自动执行建议。残余风险：valid≥3 可实现性、GUI/Mac 可视验收、在线模型、报告导出、候选理由持久化、Codex 快照内 HTTP 集成权限阻塞。Codex 产物在 `%LOCALAPPDATA%\rsWGCNA-build\windows\review-20261104*`，真实 worker e2e 在 `%LOCALAPPDATA%\rsWGCNA-build\windows\e2e-worker`（非同步盘）。下方为历史。
+
+## 上一轮（2026-11-04 09:39，Claude：交接，下一地点继续）
+
+请先读 [HANDOFF.md](HANDOFF.md) 最新节与 [STATE.md](../STATE.md)。本机停止写入，下一地点先确认唯一写入者；wgcna 自动监控保持 PAUSED。dashboard `explore/project-copilot@a9ebb04`（= origin）、worker `explore/project-copilot@10ae0be`（= origin，干净）；evidence 修复与交接文档未提交，未授权 commit/push/merge/发布。
+
+已完成：Codex 深度审查的 5 个 P1 + 复核中断前命中的 4 个追加反例均已修复（sealed bundle、完整结果不变量、strata/method/tie/trait、provenance 含 result digest、explanation 同候选事实绑定、渲染标签注入、重复候选/fact）。本地 evidence **38/38**、go vet、`go build ./internal/...`、project、api 定向通过；完整 api 仍有既有 `report_test.go:44` 基线失败。macOS 测试 DMG 已构建并 headless 验证（本机产物，不在同步盘；evidence 未接 API/UI）。
+
+Codex 复核未完成：第一次额度中断，第二次被其内容安全过滤器拦截；无最终 verdict，不得声称通过。下一步：下一地点重跑 evidence 测试；用中性措辞逐项复核 P1 与 4 个追加反例；PASS 后再 review 14 轮剩余 P2，再决定 M3 adapter/UI。不要重复实现已修部分，不进入在线 LLM/UI，不合并主线，不切 provider。
+
+下方为历史。
+
+## 上一轮（2026-11-03 10:57，Claude：evidence P1 修复，等待 Codex 复核）
+
+请先读 [HANDOFF.md](HANDOFF.md) 最新节与 [STATE.md](../STATE.md)。当前 dashboard `explore/project-copilot@a9ebb04`、worker `explore/project-copilot@10ae0be`；evidence 修复未提交，未授权 commit/push/merge/发布。自动循环保持 PAUSED。
+
+Codex 深度审查 `rean-evidence-fix-20261103-14` 曾判不通过（5 个 P1）。本轮已在 `backend/internal/evidence/` 修复：sealed bundle、完整结果不变量、strata/method/tie/trait 校验、provenance 绑定、explanation 同候选事实绑定、gene/module 注入与重复候选。`Suggestion` 现必填 `provenance`，envelope 必填 `step`，iid 不得携带 strata。本地 evidence **38/38**、go vet、internal build、project、api 定向通过；全量 api 仍有既有 `report_test.go:44` 基线失败。
+
+Codex 复核因额度中断（约 11:41 恢复），中断前命中的 4 个新反例已修复并有测试；尚未给出最终 verdict，不得声称复核通过。下一步：额度恢复后重跑 `round14-p1-verification-prompt.md` 的逐项 P1 复核；PASS 后再 review 14 轮剩余项，然后才接 M3 adapter/UI。不要重复实现已修部分，不切 provider，不进入在线 LLM/UI，不合并主线。
+
+下方为历史。
+
+## 上一轮交接（2026-11-03，Codex @ Mac）
+
+请先读 [HANDOFF.md](HANDOFF.md) 最新节与 [STATE.md](../STATE.md)。用户从办公室回到家里，授权本轮测试与代码修复；未授权提交/推送/合并/发布。两仓库 `explore/project-copilot`：worker `10ae0be`、dashboard `a9ebb04`（已核对 origin）。家里 wgcna 自动任务 PAUSED，本机为唯一源码写入者。
+
+本轮已修办公室遗留的两个 evidence 反例并验证通过：
+1. `Envelope.Validity` 改 `*string`，`BuildBundle` 拒绝缺失/null/stale，空串通过；
+2. `RenderSuggestion` 改非导出，唯一公开渲染入口为 `Evaluate`。
+
+已通过：go evidence 22/22、go project、go api 定向、vue-tsc、vitest 13/13。未跑：完整 Rust/桌面/真实 worker e2e/GUI/Mac、`report_test.go:44` 基线、HTML/PDF、候选理由持久化、M3 adapter/UI、在线 LLM。
+
+下一步：Codex 复核本轮两项修复与边界测试；通过后 review 14 轮其余项，再接 M3 adapter/UI。不切 provider、不用旧 Navigator、不声明防幻觉闭合或 M0-M4 验收、不合并主线。恢复自动循环须用户在本机明确确认。
+
+下方为历史。
+
 ## 办公室交接（2026-11-03，Codex，当前唯一接续入口）
 
 请先读 [OFFICE_HANDOFF.md](OFFICE_HANDOFF.md)。用户授权本轮测试及GitHub检查点推送；两仓库使用explore/project-copilot，worker已推10ae0be，dashboard为包含本段的检查点提交。主分支远端已前进，本次未合并/覆盖。家里自动任务wgcna已PAUSED，办公室单写入者确认后再明确恢复。
