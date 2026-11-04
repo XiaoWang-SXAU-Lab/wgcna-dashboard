@@ -273,6 +273,32 @@ func TestHubPriorityRunAndOutputWhitelist(t *testing.T) {
 	}
 }
 
+func TestHubPriorityEvidenceNotRun(t *testing.T) {
+	worker, _ := os.Executable()
+	_, mux := projectHarness(t, worker, t.TempDir())
+	created := projectJSON(t, mux, "POST", "/api/projects", map[string]string{"parent": t.TempDir(), "name": "evidence"}, 201)
+	id := created.State.ID
+	req := httptest.NewRequest("GET", "/api/projects/"+id+"/evidence/hub-priority", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != 409 {
+		t.Fatalf("not-run evidence should be 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Code  string `json:"code"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != "not_current" || body.Error != evidenceNotCurrentMessage {
+		t.Fatalf("unexpected evidence error: %+v", body)
+	}
+	if strings.Contains(body.Error, created.Path) {
+		t.Fatalf("evidence error leaked the project path: %q", body.Error)
+	}
+}
+
 func TestCandidateReportNotRun(t *testing.T) {
 	worker, _ := os.Executable()
 	_, mux := projectHarness(t, worker, t.TempDir())

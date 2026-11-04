@@ -281,6 +281,39 @@ export interface CandidateReportEnvelope {
   result: HubPriorityResult
 }
 
+export interface EvidenceSuggestion {
+  project_id: string
+  execution_id: string
+  provenance: string
+  gene_ids: string[]
+  fact_ids: string[]
+  explanations: string[]
+  limitations: string[]
+  plan_preview: string[]
+  claims?: Record<string, unknown>
+}
+
+// Server-rebuilt evidence bundle summary + deterministic offline suggestion.
+// The backend rebuilds from the current atomic report envelope; this response
+// never contains a client-supplied bundle or a Diagnostic string.
+export interface HubPriorityEvidence {
+  project_id: string
+  execution_id: string
+  engine: string
+  provenance: string
+  valid: number
+  invalid: number
+  gene_count: number
+  full_coverage: boolean
+  candidate_count: number
+  fact_count: number
+  summary: string
+  limitations: string[]
+  offline: boolean
+  suggestion: EvidenceSuggestion
+  rendered: string
+}
+
 export async function getResult<T>(id: string, step: string): Promise<T> {
   const res = await fetch(`${BASE}/jobs/${id}/results/${step}`)
   if (!res.ok) throw new Error(await res.text())

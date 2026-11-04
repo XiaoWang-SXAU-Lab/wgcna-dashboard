@@ -37,13 +37,15 @@ func TestReportWithoutAllModuleIndexAndCurrentSchemas(t *testing.T) {
 		t.Fatalf("wrong report facts: %+v", d)
 	}
 	d.KeyModules = significantModules(dir)
-	d.Assets = map[string]bool{"06_module_detail/pink/enrichment/kegg.png": true}
-	d.EnrichOK = true
+	d.Assets = map[string]bool{}
+	d.ModuleEnrichJSON = `{"modules":[{"module":"pink","go":[],"kegg":[{"id":"ath00010","description":"Glycolysis","gene_ratio":"1/2","bg_ratio":"1/100","p.adjust":0.01,"count":1,"gene_id":["a"]}]}],"anno":{}}`
 	body := generateReportHTML(d)
-	if !strings.Contains(body, "enrichment/kegg.png") || strings.Contains(body, "enrichment/go.png") {
-		t.Fatal("selected enrichment is not reflected in report")
+	if !strings.Contains(body, `id="me-data"`) || !strings.Contains(body, "Glycolysis") ||
+		!strings.Contains(body, ">pink<") || !strings.Contains(body, `data-kind="KEGG"`) {
+		t.Fatal("interactive module enrichment is not reflected in report")
 	}
-	if strings.Contains(body, `<img src="../result/module_overview.png"`) || !strings.Contains(body, "Figure not generated:") {
+	if strings.Contains(body, `<img src="../result/module_overview_ALL.png"`) ||
+		!strings.Contains(body, "Figure not generated: module_overview_ALL.png") {
 		t.Fatal("missing assets should show an explicit notice, not a broken image")
 	}
 }

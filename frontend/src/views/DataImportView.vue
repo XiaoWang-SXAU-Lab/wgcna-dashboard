@@ -50,6 +50,27 @@ const roles = computed(() => [
 ])
 const filter = computed(() => store.results.filter as FilterResult | undefined)
 const canRun = computed(() => !!store.current?.state.inputs.expr && !store.busy)
+// The engine expects a fraction in [0, 1], not a percentage. Keep the slider
+// numeric so a saved draft of 50 can never be silently sent as 50× the cutoff.
+const samplePct = computed({
+  get: () => {
+    const raw = Number(store.draft.filter.sample_percentage ?? 0)
+    return Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 0
+  },
+  set: (v: number) => { store.draft.filter.sample_percentage = v },
+})
+// Older projects may still contain a 0–100 percentage (e.g. 50). Migrate
+// values > 1 to the fraction the worker actually expects; 1 is kept as 1.0.
+watch(
+  () => store.draft.filter.sample_percentage,
+  (v) => {
+    const raw = Number(v)
+    if (Number.isFinite(raw) && raw > 1 && raw <= 100) {
+      store.draft.filter.sample_percentage = raw / 100
+    }
+  },
+  { immediate: true },
+)
 const demoLoading = ref(false)
 async function loadDemo() {
   demoLoading.value = true
@@ -114,7 +135,13 @@ async function excludeSelected() {
           <select v-model="store.draft.filter.filter_method" class="form-select"><option value="mad">MAD</option><option value="var">Variance</option></select>
         </label>
         <label>{{ text('表达阈值', 'Expression cutoff') }}<input v-model.number="store.draft.filter.cutoff" type="number" min="0" class="form-control" /></label>
-        <label>{{ text('满足阈值的样本比例（0–1）', 'Sample fraction above cutoff (0–1)') }}<input v-model.number="store.draft.filter.sample_percentage" type="number" min="0" max="1" step="0.1" class="form-control" /></label>
+        <label>{{ text('满足阈值的样本比例（0–1）', 'Sample fraction above cutoff (0–1)') }}
+          <div class="d-flex align-items-center gap-2 mt-1">
+            <input v-model.number="samplePct" type="range" min="0" max="1" step="0.01" class="form-range" />
+            <span class="badge text-bg-light border font-monospace">{{ samplePct.toFixed(2) }}</span>
+          </div>
+          <div class="small text-muted">{{ text('0 = 不做低表达过滤；0.5 = 至少一半样本高于阈值', '0 = no low-expression filter; 0.5 = at least half the samples above cutoff') }}</div>
+        </label>
         <button v-if="(store.draft.filter.exclude_samples as string[]).length" class="btn btn-outline-secondary" @click="store.draft.filter.exclude_samples = []">{{ text('清除排除样本', 'Clear excluded samples') }} ({{ (store.draft.filter.exclude_samples as string[]).length }})</button>
       </fieldset>
       <button class="btn btn-primary w-100 mt-3" :disabled="!canRun" @click="store.run('filter')">{{ text('运行此步骤', 'Run step') }}</button>

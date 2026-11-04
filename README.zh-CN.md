@@ -13,6 +13,10 @@
 
 > [`rs-wgcna`](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna) 的图形界面：上传数据、调参，生成交互图表和结果表格，无需使用命令行。部分绘图需要随发行包提供的 R 运行环境。
 
+> **探索分支说明：** 当前分支（`explore/project-copilot`）包含尚未发布的
+> 项目工作区、候选优先级、离线证据解读和 R-EAN 工作。最新带标签的稳定版是
+> **v0.6.0**；生产安装包请使用 Releases 页面。
+
 ---
 
 ## 下载 / 安装
@@ -21,10 +25,10 @@
 [Releases](https://github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/releases) 页面，
 自带 R 运行时，无需另外安装 R。
 
-- **Windows** — `rsWGCNA-setup-0.5.0.exe`：标准 Inno Setup 安装器，无需管理员
+- **Windows** — `rsWGCNA-setup-0.6.0.exe`：标准 Inno Setup 安装器，无需管理员
   权限，安装到 `%LOCALAPPDATA%\rsWGCNA`，创建开始菜单 / 桌面快捷方式，自带卸载程序。
   窗口使用 Win10/11 内置的 WebView2。
-- **macOS（Apple Silicon）** — `rsWGCNA-0.5.0.dmg`：打开镜像，把 `rsWGCNA.app`
+- **macOS（Apple Silicon）** — `rsWGCNA-0.6.0.dmg`：打开镜像，把 `rsWGCNA.app`
   拖进“应用程序”。应用做了临时签名但未做 Apple 公证，首次打开若被 Gatekeeper 拦截，可右键（或
   Control 点击）应用选择“打开”，或在终端执行
   `xattr -cr /Applications/rsWGCNA.app` 后再双击。
@@ -50,10 +54,17 @@
 
 ## 功能
 
-- **7 步管线**：导入质检 → 清洗过滤 → 软阈值 β → 网络与模块 → 模块-性状 →
-  模块深入 → hub 基因。
+- **项目工作区 + 分步管线**：新建/打开/最近项目、可追溯的草稿与结果、项目级
+  问题卡、每步执行 provenance；分析路径为导入质检 → 清洗过滤 → 软阈值 β →
+  网络与模块 → 模块-性状 → 模块深入 → 候选优先级 → 报告。
 - **两种模式**：
   - *step-by-step*——分步运行；改某步参数只重算该步及其下游（脏级联），结果缓存复用。
+- **候选优先级 / 证据**：对固定完整模块做 bootstrap，按模块内 kWithin 排名稳定性
+  排序；输出有效/无效轮次、midrank/P05/P95、top-K 频率、带注释的候选表，并对
+  `g²×B` 工程预算做明确保护。离线证据解读仅从服务器当前原子 evidence envelope
+  重建，不需要在线模型。这些是连接稳定性描述，不是概率、性状关联或因果 hub。
+- **R-EAN 可靠性层**：对选中模块显示 bootstrap 边稳定性，并明确标注“采样频率，
+  不是 p 值”。
 - **交互式可视化**：ECharts 树状图（模块上色样本树）、模块-性状热图、GS/MM 散点、
   AG Grid 基因表；每个图都可缩放、换色、下载 PNG/SVG。
 - **可发表级绘图**：SFT 与树状图导出 PDF/SVG。
@@ -61,6 +72,7 @@
   流式富文本问答 + 一键错误诊断。
 - **数据类型与归一化**：FPKM/TPM（`log10(x+1)`）、raw count（`vst (DESeq2)`，
   纯 Rust）、峰面积（`log10(x)`）、蛋白丰度（`log2(x)`）；支持 TSV/CSV/XLSX。
+  低表达过滤使用 **0–1 样本比例滑条**（`0` = 关闭）；旧百分比草稿会自动迁移。
 - **i18n**：English / 中文 切换。
 
 ---
@@ -116,11 +128,15 @@ Windows（PowerShell）：
 ## 路线图
 
 - [x] 分步 WGCNA 分析流程与交互式结果探索
+- [x] 带 per-step provenance 与过期结果检测的项目工作区
+- [x] 候选优先级稳定性排序、带注释表格与离线证据解读
+- [x] R-EAN 边可靠性证据层
 - [x] AI 领航员（LLM + RAG + 错误诊断）
 - [x] raw count 的 vst 归一化（纯 Rust）
+- [ ] 注释一致性 / TF–target 先验层（设计阶段；尚不作为已验证的方向性结论）
 - ~~去掉 R 绘图依赖（原生 Rust/SVG 图），实现完全自包含、无 R 的 DMG/EXE 打包~~
   部分绘图仍依赖 R 的 **ggplot2**、**ComplexHeatmap** 和 **circlize**；桌面发行包保留 R 运行环境，常规交互报告图表使用 ECharts。
-- [ ] 桌面打包（macOS `.dmg` / Windows `.exe`）
+- [x] 桌面打包（macOS `.dmg` / Windows `.exe`）
 
 ---
 

@@ -3,6 +3,63 @@
 All notable changes to the wgcna-dashboard are documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — 2026-11-05
+
+### Added
+
+- **Persistent project workspace**: create/open/recent projects, revisioned
+  drafts and results, project-level question card, per-step execution
+  provenance, safe reopening, and stale-result detection.
+- **Evidence-aware candidate priority** (`hub_priority`): fixed full-module
+  bootstrap ranking of kWithin stability with valid/invalid round accounting,
+  midrank/P05/P95, top-K frequency, deterministic seeds, and an explicit
+  engineering budget (`g²×B ≤ 1e9`). The UI includes a plain-language summary,
+  a technical table with `Symbol/Description` annotation columns, annotated CSV
+  export, and a clear warning that this is connectivity stability—not a
+  probability, trait association, or causal hub.
+- **Offline evidence interpretation**: server-side reconstruction from the
+  current atomic `CandidateReportEnvelope` into an evidence bundle, deterministic
+  `OfflineSuggestion`, and `Evaluate` rendering; `GET
+  /api/projects/{id}/evidence/hub-priority` returns safe `not_current` errors and
+  never exposes underlying paths. The report card is offline and does not call an
+  LLM.
+- **R-EAN reliability layer** in Module Explorer: bootstrap edge stability with
+  explicit valid-round accounting and honest “sampling frequency, not p-value”
+  labels.
+- **Biologist-first report page**: one-sentence conclusion, what the analysis
+  did, how to read it, what it cannot conclude, and next steps, with technical
+  details kept in a collapsible section.
+
+### Changed
+
+- Data Import `sample_percentage` is now a **0–1 slider**. `0` disables
+  low-expression filtering; legacy projects storing values > 1 are migrated
+  (e.g. `50 → 0.5`). The Go backend rejects out-of-range filter values before
+  starting the worker, so a saved percentage can no longer silently disable
+  filtering.
+- Candidate-priority tables load annotation for the selected priority module,
+  show `Symbol/name` and `Description`, and include them in the table CSV. The
+  raw worker TSV link is explicitly labelled as having no annotation.
+- Candidate-priority runs above the engineering budget are blocked in the UI
+  with the maximum safe B and a one-click “Set B=100” action; workers still
+  enforce the same cap.
+- Module overview/report figures show a clear “Figure not generated” notice
+  instead of a broken image when a module asset is missing.
+
+### Fixed
+
+- Stale enrichment assertion in `report_test.go`; the report baseline now
+  validates the interactive module-enrichment contract.
+- Project/worker errors are surfaced with fixed safe messages instead of
+  leaking internal error strings or filesystem paths on stale/not-run evidence.
+
+### Documentation
+
+- Added `docs/exploration/R_EAN_DIFFERENTIAL_PROPOSAL.md` (exploratory
+  differential co-expression design with n=3 constraints).
+- Handoff and DSH continuation notes updated for project workspace, evidence,
+  candidate priority, and the sample-fraction guard.
+
 ## [0.6.0] — 2026-10-30
 
 ### Changed

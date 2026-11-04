@@ -13,6 +13,11 @@
 
 > A battery-included GUI for [`rs-wgcna`](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna): upload data, tune parameters, and get interactive plots and result tables without using the command line. Some plots require the bundled R runtime.
 
+> **Exploration branch note:** this branch (`explore/project-copilot`) includes
+> unreleased project-workspace, candidate-priority, evidence-interpretation and
+> R-EAN work. The latest tagged stable release is **v0.6.0**; use the
+> Releases page for production installers.
+
 ---
 
 ## Download / Install
@@ -22,11 +27,11 @@ Prebuilt desktop packages are published on the
 They bundle the R runtime used for publication exports, so **no separate R
 installation is required**.
 
-- **Windows** — `rsWGCNA-setup-0.5.0.exe`: a standard Inno Setup installer
+- **Windows** — `rsWGCNA-setup-0.6.0.exe`: a standard Inno Setup installer
   (no admin rights needed). Installs to `%LOCALAPPDATA%\rsWGCNA` with Start
   Menu / desktop shortcuts and an uninstaller. Win10/11's built-in WebView2 is
   used for the window.
-- **macOS (Apple Silicon)** — `rsWGCNA-0.5.0.dmg`: open the disk image and drag
+- **macOS (Apple Silicon)** — `rsWGCNA-0.6.0.dmg`: open the disk image and drag
   `rsWGCNA.app` to Applications. The app is ad-hoc signed but not notarized, so on first
   launch Gatekeeper may block it — right-click (Control-click) the app and
   choose **Open**, or run: `xattr -cr /Applications/rsWGCNA.app`.
@@ -52,11 +57,23 @@ and the Rust worker are embedded), so users install nothing but the executable.
 
 ## Features
 
-- **7-step pipeline**: import & QC → cleaning/filtering → soft-threshold β →
-  network & modules → module–trait → module detail → hub genes.
+- **Project workspace + step-by-step pipeline**: create/open/recent projects,
+  revisioned drafts and results, a project-level question card, and per-step
+  provenance. The analysis path is import & QC → cleaning/filtering →
+  soft-threshold β → network & modules → module–trait → module detail →
+  candidate priority → report.
 - **Two run modes**:
   - *step-by-step* — run per step; changing a parameter re-runs only that step
     and its downstream (dirty cascade), with cached results.
+- **Candidate priority / evidence**: bootstrap stability of within-module
+  kWithin ranks over a fixed full module, with valid/invalid round accounting,
+  midrank/P05/P95, top-K frequency, annotated candidate tables, and explicit
+  engineering-budget guards. Optional offline evidence interpretation is built
+  from the server’s current atomic evidence envelope; no online model is
+  required. These are connectivity-stability descriptions, not probabilities,
+  trait associations, or causal hubs.
+- **R-EAN reliability layer**: bootstrap edge-stability evidence for the
+  selected module, with honest “sampling frequency, not p-value” labelling.
 - **Interactive visualization**: ECharts dendrogram (module-colored sample tree),
   module–trait heatmap, GS/MM scatter, AG Grid gene tables; resize, recolor, and
   download PNG/SVG for every chart.
@@ -66,7 +83,8 @@ and the Rust worker are embedded), so users install nothing but the executable.
   diagnosis.
 - **Data types & normalization**: FPKM/TPM (`log10(x+1)`), raw count
   (`vst (DESeq2)`, pure Rust), peak area (`log10(x)`), protein (`log2(x)`);
-  accepts TSV/CSV/XLSX.
+  accepts TSV/CSV/XLSX. Low-expression filtering uses a **0–1 sample-fraction
+  slider** (`0` = off); legacy percentage drafts are migrated.
 - **i18n**: English / 中文 toggle.
 
 ---
@@ -124,8 +142,12 @@ Windows (PowerShell):
 ## Roadmap
 
 - [x] Step-by-step WGCNA analysis pipeline with interactive result exploration
+- [x] Persistent project workspace with per-step provenance and stale-result detection
+- [x] Candidate-priority stability ranking with annotated tables and offline evidence interpretation
+- [x] R-EAN edge-reliability evidence layer
 - [x] AI navigator (LLM + RAG + error diagnosis)
 - [x] Raw-count vst normalization (pure Rust)
+- [ ] Annotation-congruence / TF–target prior layer (design phase; not yet a validated direction claim)
 - ~~Drop the R plotting dependency (native Rust/SVG charts) for a fully self-contained, R-free DMG/EXE package.~~
   Some plots depend on R packages **ggplot2**, **ComplexHeatmap** and **circlize**. Desktop packages retain the bundled R runtime; standard interactive report charts use ECharts.
 - [x] Desktop packaging (macOS `.dmg` / Windows installer `.exe`)

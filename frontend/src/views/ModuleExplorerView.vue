@@ -9,6 +9,7 @@ import GsMmScatter from '../components/GsMmScatter.vue'
 import ModuleGeneHeatmap from '../components/ModuleGeneHeatmap.vue'
 import NetworkGraph from '../components/NetworkGraph.vue'
 import SimpleTable from '../components/SimpleTable.vue'
+import HubPriorityPlainSummary from '../components/HubPriorityPlainSummary.vue'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
 import PlotDownloadWidget from '../components/PlotDownloadWidget.vue'
 import ResizableChart from '../components/ResizableChart.vue'
@@ -268,17 +269,26 @@ function syncHub() {
 const hubPriority = computed(() => store.results.hub_priority as HubPriorityResult | undefined)
 const hubPriorityCurrent = computed(() => store.currentResult('hub_priority'))
 const hubPriorityStale = computed(() => !!hubPriority.value && !hubPriorityCurrent.value)
-// Gate: only filter/network valid + module selected + design explicitly confirmed.
-// module_trait / hub / trait are NOT required.
-const canRunHubPriority = computed(() =>
-  store.current?.validity.filter === '' && store.current?.validity.network === ''
-  && !!store.draft.hub_priority.select_module
-  && !!store.draft.hub_priority.design_confirmed
-  && !store.busy)
 const hubPriorityModuleSize = computed(() => network.value?.module_sizes?.[store.draft.hub_priority.select_module as string] ?? 0)
 // Engineering budget g²×B (not a scientific threshold); shown as guidance only.
 const hubPriorityCost = computed(() => hubPriorityModuleSize.value * hubPriorityModuleSize.value * (store.draft.hub_priority.n_bootstraps as number))
 const hubPriorityOverBudget = computed(() => hubPriorityCost.value > 1_000_000_000)
+const hubPriorityMaxBootstraps = computed(() => {
+  const g = hubPriorityModuleSize.value
+  return g > 0 ? Math.floor(1_000_000_000 / (g * g)) : 0
+})
+const hubPrioritySuggestedB = computed(() => Math.min(100, hubPriorityMaxBootstraps.value))
+// Gate: only filter/network valid + module selected + design explicitly confirmed
+// + the worker's g²×B engineering budget. module_trait / hub / trait are NOT required.
+const canRunHubPriority = computed(() =>
+  store.current?.validity.filter === '' && store.current?.validity.network === ''
+  && !!store.draft.hub_priority.select_module
+  && !!store.draft.hub_priority.design_confirmed
+  && !hubPriorityOverBudget.value
+  && !store.busy)
+const priorityAnnotationRows = ref<AnnotationRow[]>([])
+const priorityAnnotationLoading = ref(false)
+const priorityAnnotationMap = computed(() => new Map(priorityAnnotationRows.value.map((a) => [a.gene_id, a])))
 const hubPriorityRows = computed(() => {
   const genes = hubPriority.value?.genes ?? []
   return [...genes]
@@ -289,17 +299,22 @@ const hubPriorityRows = computed(() => {
       if (bm == null) return -1
       return am - bm
     })
-    .map((g) => ({
-      gene: g.gene,
-      kwithin: g.kwithin.toFixed(4),
-      kme_signed: g.kme_signed.toFixed(4),
-      kme_abs: g.kme_abs.toFixed(4),
-      rank: `${g.rank_lower}-${g.rank_upper}`,
-      midrank_median: g.midrank_median != null ? g.midrank_median.toFixed(2) : '—',
-      midrank_p05: g.midrank_p05 != null ? g.midrank_p05.toFixed(2) : '—',
-      midrank_p95: g.midrank_p95 != null ? g.midrank_p95.toFixed(2) : '—',
-      mean_top_k: g.mean_top_k != null ? g.mean_top_k.toFixed(3) : '—',
-    }))
+    .map((g) => {
+      const a = priorityAnnotationMap.value.get(g.gene)
+      return {
+        gene: g.gene,
+        symbol: a?.symbol || a?.gene_name || '—',
+        description: a?.description || '—',
+        kwithin: g.kwithin.toFixed(4),
+        kme_signed: g.kme_signed.toFixed(4),
+        kme_abs: g.kme_abs.toFixed(4),
+        rank: `${g.rank_lower}-${g.rank_upper}`,
+        midrank_median: g.midrank_median != null ? g.midrank_median.toFixed(2) : '—',
+        midrank_p05: g.midrank_p05 != null ? g.midrank_p05.toFixed(2) : '—',
+        midrank_p95: g.midrank_p95 != null ? g.midrank_p95.toFixed(2) : '—',
+        mean_top_k: g.mean_top_k != null ? g.mean_top_k.toFixed(3) : '—',
+      }
+    })
 })
 const priorityPage = ref(0)
 const priorityPageSize = ref(50)
@@ -366,6 +381,12 @@ async function loadAnnotation() {
   annotationLoading.value = true
   try { annotationRows.value = await getAnnotation(store.id, m) } catch { annotationRows.value = [] } finally { annotationLoading.value = false }
 }
+async function loadPriorityAnnotation(module?: string) {
+  const m = module || (store.draft.hub_priority.select_module as string)
+  if (!store.id || !m) { priorityAnnotationRows.value = []; return }
+  priorityAnnotationLoading.value = true
+  try { priorityAnnotationRows.value = await getAnnotation(store.id, m) } catch { priorityAnnotationRows.value = [] } finally { priorityAnnotationLoading.value = false }
+}
 async function loadEnrich() {
   const m = selectedModuleId.value
   if (!store.id || !m) return
@@ -378,6 +399,17 @@ watch(() => tab.value, (t) => {
   if (t === 'annotation') void loadAnnotation()
   if (t === 'go' || t === 'kegg') { enrichResults.value = []; void loadEnrich() }
 })
+// Candidate priority may target a different module than Module Explorer's
+// annotation tab; load the annotation for the priority module explicitly so
+// the candidate table can show gene function without a second click.
+watch(
+  [() => tab.value, () => store.draft.hub_priority.select_module, () => store.id],
+  ([t, m]) => {
+    if (t === 'priority' && m) void loadPriorityAnnotation(m as string)
+    else if (!m) priorityAnnotationRows.value = []
+  },
+  { immediate: true },
+)
 
 const selectedTerm = ref<{ termId: string; description: string; source: string; genes: string[] } | null>(null)
 const termExpr = ref<ExpressionResult | null>(null)
@@ -830,7 +862,8 @@ const termHeatOption = computed<EChartsOption>(() => {
         </div>
         <div class="small text-muted mt-1">
           {{ text('工程预算', 'Engineering budget') }}：g²×B ≈ {{ hubPriorityCost.toLocaleString() }}（{{ text('模块', 'module') }} {{ hubPriorityModuleSize }} × B {{ store.draft.hub_priority.n_bootstraps }}）
-          <span v-if="hubPriorityOverBudget" class="text-warning"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ text('超过 1e9 预算，可能被拒绝；请减小 B 或选择更小模块（不会自动截断基因）', 'Exceeds the 1e9 budget and may be rejected; reduce B or choose a smaller module (genes are never silently truncated)') }}</span>
+          <span v-if="hubPriorityOverBudget" class="text-warning"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ text(`超过 1e9 预算，worker 会拒绝；请把 B 降到 ≤ ${hubPriorityMaxBootstraps}（推荐 ≤100）或选择更小模块（不会自动截断基因）`, `Exceeds the 1e9 budget and will be rejected; reduce B to ≤ ${hubPriorityMaxBootstraps} (100 or less recommended) or choose a smaller module (genes are never silently truncated)`) }}</span>
+          <button v-if="hubPriorityOverBudget && hubPrioritySuggestedB >= 10" class="btn btn-sm btn-outline-warning mt-1" @click="store.draft.hub_priority.n_bootstraps = hubPrioritySuggestedB">{{ text(`设为 B=${hubPrioritySuggestedB}`, `Set B=${hubPrioritySuggestedB}`) }}</button>
         </div>
         <button class="btn btn-primary mt-2" :disabled="!canRunHubPriority" @click="store.run('hub_priority')">{{ hubPriority ? text('重新计算优先级', 'Re-run priority') : text('计算候选优先级', 'Compute priority') }}</button>
         <div v-if="!store.draft.hub_priority.design_confirmed" class="small text-muted mt-1">{{ text('需先勾选独立性确认才能运行。', 'Tick the independence confirmation to run.') }}</div>
@@ -838,36 +871,46 @@ const termHeatOption = computed<EChartsOption>(() => {
 
       <div v-if="hubPriorityStale" class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ text('候选优先级结果已过期（参数/上游/引擎变化），请重新计算。', 'Priority result is stale (params/upstream/engine changed); re-run.') }}</div>
       <template v-else-if="hubPriority">
-        <div v-if="priorityAllInvalid" class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ text('所有 bootstrap 轮均无效（网络退化），无可用排名；原始 kWithin/kME 仍可查看。', 'All bootstrap rounds were invalid (degenerate network); no usable ranking. Original kWithin/kME are still shown.') }}</div>
-        <div v-else-if="(hubPriority.invalid ?? 0) > 0" class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ hubPriority.invalid }}/{{ hubPriority.attempted }} {{ text('轮无效，结果条件于可计算重复，不宣称可靠候选。', 'rounds invalid; results conditioned on computable replicates, not reliable candidates.') }}</div>
-        <div v-if="(hubPriority.direction_undetermined ?? 0) > 0" class="alert alert-info py-2 small"><i class="bi bi-info-circle me-1"></i>{{ hubPriority.direction_undetermined }} {{ text('轮 eigengene 方向无法确定（仅描述性，不影响 kWithin 排名）。', 'rounds had undetermined eigengene direction (descriptive only; does not affect kWithin ranking).') }}</div>
-        <p class="text-muted small mb-1">{{ hubPriority.module }} · {{ hubPriority.scope }} · {{ hubPriority.resampling }} · seed {{ hubPriority.seed }} · K {{ hubPriority.top_k }} · power {{ hubPriority.power }}（{{ hubPriority.network_type }}）</p>
-        <p class="text-muted small mb-1">
-          {{ text('有效', 'valid') }} {{ hubPriority.valid }}/{{ hubPriority.attempted }} · {{ text('无效', 'invalid') }} {{ hubPriority.invalid }}
-          <template v-if="hubPriority.invalid_reasons?.length"> · {{ hubPriority.invalid_reasons.map((r) => `${r.reason}×${r.count}`).join('、') }}</template>
-        </p>
-        <p class="text-muted small mb-2">{{ text('定义：midrank = 并列组平均排名；top-K 频率 = 跨前 K 边界的并列按分数计入。是 bootstrap 采样频率，不是概率或显著性。', 'Definition: midrank = tie-group average rank; top-K frequency = fractional top-K membership across resamples. A bootstrap frequency, not a probability or significance.') }}</p>
-        <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
-          <span class="small text-muted">{{ hubPriorityRows.length }} {{ text('个基因', 'genes') }}</span>
-          <button class="btn btn-sm btn-outline-secondary" :disabled="priorityPage <= 0" @click="priorityPage--"><i class="bi bi-chevron-left"></i></button>
-          <span class="small">{{ priorityPage + 1 }} / {{ priorityPageCount }}</span>
-          <button class="btn btn-sm btn-outline-secondary" :disabled="priorityPage + 1 >= priorityPageCount" @click="priorityPage++"><i class="bi bi-chevron-right"></i></button>
-          <label class="small mb-0 ms-auto d-flex align-items-center gap-1">{{ text('每页', 'Per page') }}
-            <select v-model.number="priorityPageSize" class="form-select form-select-sm" style="width:auto"><option :value="25">25</option><option :value="50">50</option><option :value="100">100</option><option :value="500">500</option></select>
-          </label>
-          <a class="btn btn-sm btn-outline-primary" :href="projectOutputUrl(store.id, 'hub_priority', 'step8_hub_priority.tsv')"><i class="bi bi-download me-1"></i>{{ text('完整 TSV 导出', 'Full TSV export') }}</a>
-        </div>
-        <SimpleTable :columns="[
-          { key: 'gene', label: 'Gene' },
-          { key: 'kwithin', label: 'kWithin' },
-          { key: 'kme_signed', label: 'kME (signed)' },
-          { key: 'kme_abs', label: '|kME|' },
-          { key: 'rank', label: text('原始排名', 'Orig rank') },
-          { key: 'midrank_median', label: 'midrank 中位数' },
-          { key: 'midrank_p05', label: 'P05' },
-          { key: 'midrank_p95', label: 'P95' },
-          { key: 'mean_top_k', label: 'top-K 频率' },
-        ]" :rows="priorityPagedRows" scroll-height="520px" />
+        <HubPriorityPlainSummary :result="hubPriority" :annotations="priorityAnnotationRows" />
+        <details class="card p-3 mt-3">
+          <summary class="fw-semibold">{{ text('技术明细（原始指标）', 'Technical details (raw metrics)') }}</summary>
+          <div class="mt-3">
+            <div v-if="priorityAllInvalid" class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ text('所有 bootstrap 轮均无效（网络退化），无可用排名；原始 kWithin/kME 仍可查看。', 'All bootstrap rounds were invalid (degenerate network); no usable ranking. Original kWithin/kME are still shown.') }}</div>
+            <div v-else-if="(hubPriority.invalid ?? 0) > 0" class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ hubPriority.invalid }}/{{ hubPriority.attempted }} {{ text('轮无效，结果条件于可计算重复，不宣称可靠候选。', 'rounds invalid; results conditioned on computable replicates, not reliable candidates.') }}</div>
+            <div v-if="(hubPriority.direction_undetermined ?? 0) > 0" class="alert alert-info py-2 small"><i class="bi bi-info-circle me-1"></i>{{ hubPriority.direction_undetermined }} {{ text('轮 eigengene 方向无法确定（仅描述性，不影响 kWithin 排名）。', 'rounds had undetermined eigengene direction (descriptive only; does not affect kWithin ranking).') }}</div>
+            <p class="text-muted small mb-1">{{ hubPriority.module }} · {{ hubPriority.scope }} · {{ hubPriority.resampling }} · seed {{ hubPriority.seed }} · K {{ hubPriority.top_k }} · power {{ hubPriority.power }}（{{ hubPriority.network_type }}）</p>
+            <p class="text-muted small mb-1">
+              {{ text('有效', 'valid') }} {{ hubPriority.valid }}/{{ hubPriority.attempted }} · {{ text('无效', 'invalid') }} {{ hubPriority.invalid }}
+              <template v-if="hubPriority.invalid_reasons?.length"> · {{ hubPriority.invalid_reasons.map((r) => `${r.reason}×${r.count}`).join('、') }}</template>
+            </p>
+            <p class="text-muted small mb-2">{{ text('定义：midrank = 并列组平均排名；top-K 频率 = 跨前 K 边界的并列按分数计入。是 bootstrap 采样频率，不是概率或显著性。', 'Definition: midrank = tie-group average rank; top-K frequency = fractional top-K membership across resamples. A bootstrap frequency, not a probability or significance.') }}</p>
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+              <span class="small text-muted">{{ hubPriorityRows.length }} {{ text('个基因', 'genes') }}</span>
+              <button class="btn btn-sm btn-outline-secondary" :disabled="priorityPage <= 0" @click="priorityPage--"><i class="bi bi-chevron-left"></i></button>
+              <span class="small">{{ priorityPage + 1 }} / {{ priorityPageCount }}</span>
+              <button class="btn btn-sm btn-outline-secondary" :disabled="priorityPage + 1 >= priorityPageCount" @click="priorityPage++"><i class="bi bi-chevron-right"></i></button>
+              <label class="small mb-0 ms-auto d-flex align-items-center gap-1">{{ text('每页', 'Per page') }}
+                <select v-model.number="priorityPageSize" class="form-select form-select-sm" style="width:auto"><option :value="25">25</option><option :value="50">50</option><option :value="100">100</option><option :value="500">500</option></select>
+              </label>
+              <a class="btn btn-sm btn-outline-primary" :href="projectOutputUrl(store.id, 'hub_priority', 'step8_hub_priority.tsv')" :title="text('原始 worker 指标，不含基因注释；带注释请用表格上方的下载按钮', 'Raw worker metrics without gene annotation; use the table download button for annotated CSV')"><i class="bi bi-download me-1"></i>{{ text('原始指标 TSV（无注释）', 'Raw metrics TSV (no annotation)') }}</a>
+            </div>
+            <p v-if="priorityAnnotationLoading" class="small text-muted mb-1">{{ text('正在加载基因注释…', 'Loading gene annotation…') }}</p>
+            <p v-else-if="priorityAnnotationRows.length === 0" class="small text-muted mb-1">{{ text('未找到该模块的注释；Symbol/Description 显示为 —。', 'No annotation found for this module; Symbol/Description show —.') }}</p>
+            <SimpleTable :columns="[
+              { key: 'gene', label: 'Gene' },
+              { key: 'symbol', label: text('符号/名称', 'Symbol / name') },
+              { key: 'description', label: text('功能描述', 'Description') },
+              { key: 'kwithin', label: 'kWithin' },
+              { key: 'kme_signed', label: 'kME (signed)' },
+              { key: 'kme_abs', label: '|kME|' },
+              { key: 'rank', label: text('原始排名', 'Orig rank') },
+              { key: 'midrank_median', label: 'midrank 中位数' },
+              { key: 'midrank_p05', label: 'P05' },
+              { key: 'midrank_p95', label: 'P95' },
+              { key: 'mean_top_k', label: 'top-K 频率' },
+            ]" :rows="priorityPagedRows" scroll-height="520px" />
+          </div>
+        </details>
       </template>
       <p v-else class="text-muted">{{ text('尚未运行：选择模块、勾选独立性确认并运行后，这里显示候选优先级表。', 'Not run: select a module, confirm independence, and run to see the candidate priority table.') }}</p>
     </template>

@@ -1,4 +1,4 @@
-import type { AnnotationRow, CandidateReportEnvelope, EnrichResult, ExpressionResult, HubPriorityResult, SampleInfo } from './client'
+import type { AnnotationRow, CandidateReportEnvelope, EnrichResult, ExpressionResult, HubPriorityEvidence, HubPriorityResult, SampleInfo } from './client'
 
 export type StepName = 'filter' | 'soft_threshold' | 'network' | 'module_trait' | 'module_detail' | 'hub' | 'rean' | 'hub_priority'
 export const steps: StepName[] = ['filter', 'soft_threshold', 'network', 'module_trait', 'module_detail', 'hub', 'rean', 'hub_priority']
@@ -52,7 +52,27 @@ export function projectOutputUrl(id: string, step: StepName, basename: string): 
 // Candidate-priority evidence report: server re-validates the current execution
 // (409 with a reason when stale/not-run), then returns the provenance envelope.
 export async function getCandidateReport(id: string): Promise<CandidateReportEnvelope> {
-  return projectRequest<CandidateReportEnvelope>(`/${id}/report/hub-priority`)
+  const res = await fetch(`/api/projects/${id}/report/hub-priority`)
+  const body = await res.json().catch(() => null)
+  if (!res.ok) {
+    throw new Error(body && typeof body.error === 'string' ? body.error : res.statusText)
+  }
+  return body as CandidateReportEnvelope
+}
+
+// Server-rebuilt, deterministic offline evidence interpretation for the current
+// hub_priority execution. The endpoint returns {code,error} on stale/not-run
+// evidence; surface the safe message/code, never a server diagnostic.
+export async function getHubPriorityEvidence(id: string): Promise<HubPriorityEvidence> {
+  const res = await fetch(`/api/projects/${id}/evidence/hub-priority`)
+  const body = await res.json().catch(() => null)
+  if (!res.ok) {
+    const message = body && typeof body.error === 'string' ? body.error : res.statusText
+    const err = new Error(message) as Error & { code?: string }
+    if (body && typeof body.code === 'string') err.code = body.code
+    throw err
+  }
+  return body as HubPriorityEvidence
 }
 
 export async function getAnnotation(id: string, module: string): Promise<AnnotationRow[]> {

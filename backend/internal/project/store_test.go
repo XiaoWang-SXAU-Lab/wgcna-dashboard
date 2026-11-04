@@ -274,6 +274,23 @@ func TestFailedWorkerAndParameterProvenance(t *testing.T) {
 	}
 }
 
+func TestRunRejectsSamplePercentageOutsideUnitRange(t *testing.T) {
+	p, _ := newFixture(t)
+	s := p.Snapshot()
+	s.Draft["filter"] = json.RawMessage(`{"n_keep":100,"sample_percentage":50}`)
+	if _, err := p.Save(s.Revision, s.Draft, s.UI, s.Question); err != nil {
+		t.Fatal(err)
+	}
+	worker, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = p.Run(context.Background(), "filter", worker, t.TempDir(), 1)
+	if err == nil || !strings.Contains(err.Error(), "sample_percentage") {
+		t.Fatalf("expected sample_percentage range error, got %v", err)
+	}
+}
+
 func TestPortablePathValidation(t *testing.T) {
 	p, _ := newFixture(t)
 	hash := strings.Repeat("a", 64)

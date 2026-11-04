@@ -19,13 +19,13 @@ import (
 var dependencies = map[string][]string{
 	"filter": {}, "soft_threshold": {"filter"}, "network": {"filter", "soft_threshold"},
 	"module_trait": {"filter", "network"}, "module_detail": {"filter", "network", "module_trait"}, "hub": {"filter", "network", "module_trait"},
-	"rean": {"filter", "network", "module_trait", "hub"},
+	"rean":         {"filter", "network", "module_trait", "hub"},
 	"hub_priority": {"filter", "network"},
 }
 var outputNames = map[string]string{
 	"filter": "step1_filter.json", "soft_threshold": "step2_sft.json", "network": "step3_modules.json",
 	"module_trait": "step4_mtrait.json", "module_detail": "step5_detail.json", "hub": "step6_hub.json",
-	"rean": "step7_rean.json",
+	"rean":         "step7_rean.json",
 	"hub_priority": "step8_hub_priority.json",
 }
 
@@ -34,6 +34,30 @@ var outputNames = map[string]string{
 func IsStep(name string) bool {
 	_, ok := dependencies[name]
 	return ok
+}
+
+// validateStepDraft rejects parameters that the worker would otherwise silently
+// misinterpret. In particular, the filter engine expects sample_percentage as a
+// 0–1 fraction; a saved percentage such as 50 would disable low-expression
+// filtering instead of filtering at 50%.
+func validateStepDraft(name string, raw json.RawMessage) error {
+	if name != "filter" {
+		return nil
+	}
+	var params struct {
+		SamplePercentage *float64 `json:"sample_percentage"`
+	}
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return err
+	}
+	if params.SamplePercentage == nil {
+		return nil
+	}
+	v := *params.SamplePercentage
+	if v < 0 || v > 1 {
+		return fmt.Errorf("filter.sample_percentage must be between 0 and 1 (got %g); use 0.5 for 50%%", v)
+	}
+	return nil
 }
 
 func sameJSON(a, b json.RawMessage) bool {
@@ -142,6 +166,10 @@ func (p *Project) Run(ctx context.Context, name, worker, stagingRoot string, thr
 	if !json.Valid(p.state.Draft[name]) {
 		p.mu.Unlock()
 		return errors.New("step parameters required")
+	}
+	if err := validateStepDraft(name, p.state.Draft[name]); err != nil {
+		p.mu.Unlock()
+		return err
 	}
 	reasons := p.validity(engine)
 	for _, dep := range dependencies[name] {
