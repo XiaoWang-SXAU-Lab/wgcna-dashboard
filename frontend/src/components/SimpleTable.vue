@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { t } from '../utils/i18n'
 
-type Column = { key: string; label: string; fmt?: (v: any) => string }
+type Column = { key: string; label: string; fmt?: (v: any, row: Record<string, any>) => string }
 
 const props = defineProps<{
   columns: Column[]
@@ -49,6 +49,70 @@ function toggleSort(key: string) {
   }
 }
 
+// Windowed rendering: large tables (e.g. 8,000 genes × 7 modules) otherwise put
+// tens of thousands of cells in the DOM and make scrolling/layout janky.
+const ROW_HEIGHT_FALLBACK = 32
+const BUFFER = 8
+const rowHeight = ref(ROW_HEIGHT_FALLBACK)
+const scrollTop = ref(0)
+const viewport = ref<HTMLElement>()
+const measuredHeight = ref(0)
+let viewportObserver: ResizeObserver | null = null
+
+const viewportHeight = computed(() => {
+  if (measuredHeight.value > 0) return measuredHeight.value
+  const parsed = Number.parseInt(props.scrollHeight ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 420
+})
+
+const start = computed(() => {
+  const maxStart = Math.max(0, sorted.value.length - 1)
+  return Math.min(maxStart, Math.max(0, Math.floor(scrollTop.value / rowHeight.value) - BUFFER))
+})
+
+const visibleCount = computed(() => Math.ceil(viewportHeight.value / rowHeight.value) + BUFFER * 2)
+const end = computed(() => Math.min(sorted.value.length, start.value + visibleCount.value))
+const windowRows = computed(() => sorted.value.slice(start.value, end.value))
+const topPad = computed(() => start.value * rowHeight.value)
+const bottomPad = computed(() => Math.max(0, (sorted.value.length - end.value) * rowHeight.value))
+
+function onScroll(event: Event) {
+  scrollTop.value = (event.target as HTMLElement).scrollTop
+}
+
+function resetScroll() {
+  scrollTop.value = 0
+  if (viewport.value) viewport.value.scrollTop = 0
+}
+
+// Row height is font/DPI dependent; measure the first rendered row so spacer
+// heights match the browser exactly.
+function measureRow() {
+  const el = viewport.value?.querySelector<HTMLTableRowElement>('tr.simple-row')
+  const h = el?.getBoundingClientRect().height
+  if (h && h > 0 && Math.abs(h - rowHeight.value) > 0.25) rowHeight.value = h
+}
+
+onMounted(() => {
+  nextTick(measureRow)
+  if (viewport.value) {
+    measuredHeight.value = viewport.value.clientHeight
+    viewportObserver = new ResizeObserver(() => {
+      measuredHeight.value = viewport.value?.clientHeight ?? 0
+    })
+    viewportObserver.observe(viewport.value)
+  }
+})
+onBeforeUnmount(() => {
+  viewportObserver?.disconnect()
+  viewportObserver = null
+})
+watch([start, end], () => nextTick(measureRow), { flush: 'post' })
+watch([search, sortKey, sortAsc, () => props.rows], () => {
+  resetScroll()
+  nextTick(measureRow)
+})
+
 const QUOTE = String.fromCharCode(34)
 const COMMA = String.fromCharCode(44)
 
@@ -89,7 +153,7 @@ function download() {
       </button>
       <span class="text-muted small ms-auto">{{ sorted.length }} / {{ rows.length }} {{ t('comp.rows') }}</span>
     </div>
-    <div :style="{ maxHeight: scrollHeight ?? '420px', overflow: 'auto' }">
+    <div ref="viewport" :style="{ maxHeight: scrollHeight ?? '420px', overflow: 'auto' }" @scroll.passive="onScroll">
       <table class="table table-sm table-hover align-middle mb-0">
         <thead class="table-light" style="position: sticky; top: 0; z-index: 1">
           <tr>
@@ -106,14 +170,21 @@ function download() {
           </tr>
         </thead>
         <tbody>
+          <tr v-if="topPad > 0" aria-hidden="true">
+            <td :colspan="columns.length" :style="{ height: topPad + 'px', padding: 0, border: 0 }">&nbsp;</td>
+          </tr>
           <tr
-            v-for="(r, i) in sorted"
-            :key="i"
-            style="cursor: pointer"
+            v-for="(r, i) in windowRows"
+            :key="start + i"
+            class="simple-row"
+            :style="{ height: rowHeight + 'px', cursor: 'pointer' }"
             :class="{ 'table-active': !!selectedKey && String(r[rowKey ?? 'id']) === selectedKey }"
             @click="emit('row-click', r)"
           >
-            <td v-for="c in columns" :key="c.key" class="text-nowrap">{{ c.fmt ? c.fmt(r[c.key]) : r[c.key] }}</td>
+            <td v-for="c in columns" :key="c.key" class="text-nowrap">{{ c.fmt ? c.fmt(r[c.key], r) : r[c.key] }}</td>
+          </tr>
+          <tr v-if="bottomPad > 0" aria-hidden="true">
+            <td :colspan="columns.length" :style="{ height: bottomPad + 'px', padding: 0, border: 0 }">&nbsp;</td>
           </tr>
           <tr v-if="sorted.length === 0">
             <td :colspan="columns.length" class="text-center text-muted py-3">{{ t('comp.noMatch') }}</td>

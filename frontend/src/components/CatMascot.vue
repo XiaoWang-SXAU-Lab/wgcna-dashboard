@@ -54,19 +54,16 @@ withDefaults(defineProps<{ folded?: boolean; state?: 'idle' | 'thinking' | 'repl
 
 <style scoped>
 .cat{--cat-main:#F3B777;--cat-ink:#765447;--cat-belly:#FFF0DA;--cat-stripe:#CF8B50;--cat-accent:#3182BD;overflow:visible}
-.cat-seated .tail{transform-origin:43px 54px;animation:cat-tail 3s ease-in-out infinite}
-.cat-folded .tail{transform-origin:17px 44px;animation:cat-tail 4s ease-in-out infinite}
-.cat-seated .paw-wave{transform-origin:42px 42px;animation:cat-wave 4s ease-in-out infinite}
-.cat .eye{transform-box:fill-box;transform-origin:center;animation:cat-blink 5.5s ease-in-out infinite}
-@keyframes cat-tail{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(5deg)}}
+.cat-seated .tail{transform-origin:43px 54px}
+.cat-folded .tail{transform-origin:17px 44px}
+.cat-seated .paw-wave{transform-origin:42px 42px}
+.cat .eye{transform-box:fill-box;transform-origin:center}
 @keyframes cat-wave{0%,65%,100%{transform:rotate(0)}72%,86%{transform:rotate(12deg)}79%,93%{transform:rotate(-6deg)}}
-@keyframes cat-blink{0%,43%,49%,100%{transform:scaleY(1)}46%{transform:scaleY(.12)}}
 @media(prefers-reduced-motion:reduce){.cat .tail,.cat .paw,.cat .eye{animation:none}}
 
 .cat{display:block;width:100%;height:100%}
 .cat-seated.is-thinking .ear{transform-box:fill-box;transform-origin:center bottom;animation:cat-listen 1.4s ease-in-out infinite}
 .cat-seated.is-thinking .paw-wave{animation:none}
-.cat.is-replying .tail{animation-duration:1.2s}
 .cat.is-error{--cat-accent:#C67953}
 .cat.is-happy .paw-wave{animation:cat-wave .8s ease-in-out infinite}
 .love{animation:cat-love 1.6s ease-out both;pointer-events:none}

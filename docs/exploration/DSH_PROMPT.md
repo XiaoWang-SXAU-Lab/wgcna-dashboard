@@ -1,5 +1,13 @@
 # 给 DSH / Codex 的接续 Prompt
 
+## 最新（2026-11-10 深夜，Claude @ 家里 Windows：边稳定性降为可选诊断，构建通过）
+
+先读 [HANDOFF.md](HANDOFF.md) 顶部。R-EAN 已按用户决定降为模块网络下方的可选折叠诊断，差异层和桥接层暂停；历史结果仍可读取。UI、README/NEWS、帮助文档已改，Windows 隔离构建（`vue-tsc -b`、`vite build`、Rust worker、Go GUI）通过。另修复高刷新率屏上常驻 CSS 动画导致的卡顿（Module Explorer 空闲 CPU 91%→6%，首页 34%→<1%），并把 `SimpleTable` 及剩余大数据表改为窗口化虚拟滚动（module-trait kME 表 DOM 72,307→570，空闲 CPU 79%→0.2%）。改动未提交；报告页/候选优先级表需重跑 priority 后验收。继续时先启动 EXE 冒烟，再按用户授权提交。
+
+## 最新（2026-11-10，Codex：Windows 探索版安装包）
+
+请先读 [HANDOFF.md](HANDOFF.md) 顶部。Windows 本机已用 dashboard `d873ade` 和 worker `10ae0be` 生成与 GitHub Release 同名的安装器，包含 R 4.5.1、`igraph`、`svglite` 和绘图依赖。内嵌引擎、WebView2 和 R 图形导出已通过验证。若进入发布流程，先在独立 Windows 环境验收安装与卸载。Mac 继续使用自己的源码快照和依赖。
+
 ## 最新（2026-11-05 上午，Claude @ 办公室 Windows：candidate priority 注释/预算 + README/NEWS + 推送）
 
 请先读 [HANDOFF.md](HANDOFF.md) 顶部最新节。用户结束当天工作，要求 handoff、push、README/NEWS。dashboard `explore/project-copilot`；功能提交 `3fe2b53` 已推送 `origin/explore/project-copilot`，本 prompt/HANDOFF/STATE 为随后收尾提交。worker `explore/project-copilot@10ae0be` = origin，工作树干净；`master` 落后 origin/master 1，不要用 master 冒充最新。

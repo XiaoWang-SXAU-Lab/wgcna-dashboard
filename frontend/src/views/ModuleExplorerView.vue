@@ -32,17 +32,10 @@ const hasKwithin = computed(() => (hub.value?.network.nodes ?? []).some((n) => n
 const mtrait = computed(() => store.results.module_trait as MtaitResult | undefined)
 const network = computed(() => store.results.network as ModulesResult | undefined)
 const rean = computed(() => store.results.rean as ReanResult | undefined)
-const canRunRean = computed(() => store.current?.validity.hub === '' && !!hub.value && !store.busy)
-const reanCurrent = computed(() => store.currentResult('rean'))
-const reanStale = computed(() => !!rean.value && !reanCurrent.value)
-const reanStats = computed(() => {
-  const edges = rean.value?.edges ?? []
-  const vals = edges.map((e) => e.stability).filter((v): v is number => v != null).sort((a, b) => a - b)
-  if (!vals.length) return { n: edges.length, min: null, median: null, equalsOne: 0, evaluated: 0 }
-  const mid = vals.length >> 1
-  const median = vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2
-  return { n: edges.length, min: vals[0], median, equalsOne: vals.filter((v) => v === 1).length, evaluated: vals.length }
-})
+const canRunRean = computed(() => store.currentResult('hub') && !!hub.value && !store.busy)
+const reanStale = computed(() => !!rean.value && !store.currentResult('rean'))
+const showEdgeStability = ref(false)
+watch([tab, () => store.id], () => { showEdgeStability.value = false })
 
 const traitOptions = computed(() => mtrait.value?.traits ?? [])
 const moduleOptions = computed(() => {
@@ -107,30 +100,14 @@ const displayMode = ref<'sparse' | 'hub' | 'full'>('hub')
 const maxEdges = ref(500)
 const minEdgeWeight = ref(0)
 const hideIsolated = ref(true)
-// 网络证据层：用什么依据观察连接（连接强度 / 重采样稳定性 / …）。
-// 与"显示范围"（hub/sparse/full）正交：切换证据只换着色，不改节点集合与布局。
-const edgeMetric = ref<'weight' | 'stability'>('weight')
-const showFragileOnly = ref(false)
 const selectedElement = ref<{ kind: 'node' | 'edge'; data: Record<string, any> } | null>(null)
-const edgeMetricHint = computed(() =>
-  edgeMetric.value === 'stability'
-    ? text('换一批样本，这些连接还出现吗？', 'If samples change, do these connections still appear?')
-    : text('哪些基因紧密相连？', 'Which genes are tightly connected?'))
-// 稳定性证据用固定色阶（低稳定→浅红警示，高稳定→深红可信），不被装饰色覆盖。
-const effectiveEdgeLowColor = computed(() => (edgeMetric.value === 'stability' ? '#fecaca' : edgeLowColor.value))
-const effectiveEdgeHighColor = computed(() => (edgeMetric.value === 'stability' ? '#7f1d1d' : edgeHighColor.value))
 function onSelect(payload: { kind: 'node' | 'edge'; data: Record<string, any> }) {
   selectedElement.value = payload
 }
 function onClear() {
   selectedElement.value = null
 }
-// The selected element's snapshot is bound to a specific (hub, rean) evidence
-// identity. Clear it whenever either execution or validity changes, so a stale
-// stability/kME/GS snapshot is never presented as current "connection evidence".
-watch([() => store.current?.state.steps.hub?.execution_id, () => store.current?.state.steps.rean?.execution_id, () => store.currentResult('hub'), () => store.currentResult('rean')], () => {
-  selectedElement.value = null
-})
+watch([() => store.current?.state.steps.hub?.execution_id, () => store.currentResult('hub')], onClear)
 
 // Sparse mode: keep hub-incident edges first (they carry the hub structure),
 // then spend the remaining budget on the strongest non-hub edges so
@@ -161,45 +138,10 @@ function pickSparseEdges(edges: NetEdge[], hubIds: Set<string>, budget: number, 
   return picked
 }
 
-const stabilityMap = computed(() => {
-  const m = new Map<string, number>()
-  // Overlay stability only when BOTH the hub network and its rean stability layer
-  // are current evidence. currentResult('rean') already validates the rean→hub
-  // upstream execution association via backend validity; the module-name check is
-  // an additional guard, not the sole proof of association.
-  if (!reanCurrent.value || !store.currentResult('hub')) return m
-  if (rean.value?.module && hub.value?.module && rean.value.module !== hub.value.module) return m
-  for (const e of rean.value?.edges ?? []) {
-    if (e.stability == null) continue
-    const key = e.source < e.target ? e.source + '::' + e.target : e.target + '::' + e.source
-    m.set(key, e.stability)
-  }
-  return m
-})
-
-// "强但不稳"连接：TOM 在前 25% 但 stability < 0.8 —— 单靠强度层看不到、只有可靠性层能暴露的证据。
-const fragileEdges = computed(() => {
-  const net = hub.value?.network
-  const smap = stabilityMap.value
-  if (!net || !reanCurrent.value) return [] as { source: string; target: string; weight: number; stability: number }[]
-  const joined = net.edges
-    .map((e) => {
-      const key = e.source < e.target ? e.source + '::' + e.target : e.target + '::' + e.source
-      return { source: e.source, target: e.target, weight: e.weight, stability: smap.get(key) }
-    })
-    .filter((e) => e.stability != null) as { source: string; target: string; weight: number; stability: number }[]
-  if (!joined.length) return []
-  const weights = joined.map((e) => e.weight).sort((a, b) => a - b)
-  const w75 = weights[Math.floor(weights.length * 0.75)]
-  return joined.filter((e) => e.weight >= w75 && e.stability < 0.8).sort((a, b) => a.stability - b.stability)
-})
-
-const reanRows = computed(() => {
-  const base = showFragileOnly.value
-    ? fragileEdges.value
-    : [...(rean.value?.edges ?? [])].sort((a, b) => (b.stability ?? -1) - (a.stability ?? -1))
-  return base.map((e) => ({ source: e.source, target: e.target, stability: e.stability != null ? e.stability.toFixed(3) : '—' }))
-})
+const reanRows = computed(() =>
+  [...(rean.value?.edges ?? [])]
+    .sort((a, b) => (a.stability ?? Infinity) - (b.stability ?? Infinity))
+    .map((e) => ({ source: e.source, target: e.target, stability: e.stability?.toFixed(3) ?? '—' })))
 
 const displayNetwork = computed<NetworkResult | undefined>(() => {
   const net = hub.value?.network
@@ -233,11 +175,6 @@ const displayNetwork = computed<NetworkResult | undefined>(() => {
   } else {
     edges = edges.filter((e) => e.weight > minEdgeWeight.value)
   }
-  const smap = stabilityMap.value
-  edges = edges.map((e) => {
-    const key = e.source < e.target ? e.source + '::' + e.target : e.target + '::' + e.source
-    return { ...e, stability: smap.get(key) }
-  })
   const used = new Set<string>()
   edges.forEach((e) => { used.add(e.source); used.add(e.target) })
   const nodes = hideIsolated.value ? net.nodes.filter((n) => used.has(n.id)) : net.nodes
@@ -641,7 +578,6 @@ const termHeatOption = computed<EChartsOption>(() => {
           <details class="mt-1" open>
             <summary class="small fw-semibold">{{ text('边样式（Edge）', 'Edge style') }}</summary>
             <div class="d-flex flex-column gap-1 mt-2">
-              <div class="small text-muted">{{ text('装饰颜色（仅连接强度模式；稳定性模式用固定色阶）', 'Decorative colors (strength mode only; stability uses a fixed scale)') }}</div>
               <div class="d-flex gap-2">
                 <label class="small mb-0 flex-fill d-flex align-items-center gap-1">{{ text('边低色', 'Edge low') }}<input type="color" v-model="edgeLowColor" class="form-control form-control-color form-control-sm" /></label>
                 <label class="small mb-0 flex-fill d-flex align-items-center gap-1">{{ text('边高色', 'Edge high') }}<input type="color" v-model="edgeHighColor" class="form-control form-control-color form-control-sm" /></label>
@@ -649,27 +585,6 @@ const termHeatOption = computed<EChartsOption>(() => {
               <label class="small mb-0">{{ text('边宽（最大）', 'Edge width (max)') }}: <b>{{ edgeWidth }}</b>
                 <input type="range" class="form-range" min="0.5" max="12" step="0.5" v-model.number="edgeWidth" />
               </label>
-            </div>
-          </details>
-
-          <details class="mt-1" open>
-            <summary class="small fw-semibold">{{ text('网络证据（R-EAN）', 'Network evidence (R-EAN)') }}</summary>
-            <div v-if="reanStale" class="alert alert-warning py-1 px-2 small mb-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ text('稳定性结果已过期（参数/上游/引擎变化），未用于当前网络。', 'Stability result is stale (params/upstream/engine changed); not applied to the current network.') }}</div>
-            <div class="d-flex flex-column gap-1 mt-2">
-              <label class="small mb-0">{{ text('查看依据', 'View by') }}
-                <select v-model="edgeMetric" class="form-select form-select-sm">
-                  <option value="weight">{{ text('连接强度', 'strength') }}</option>
-                  <option value="stability" :disabled="!rean">{{ text('重采样稳定性', 'resampling stability') }}</option>
-                </select>
-              </label>
-              <div class="small fw-semibold text-primary">{{ edgeMetricHint }}</div>
-              <div class="small text-muted">{{ text('稳定性是 bootstrap 采样频率，不是 p 值；条件差异、跨模块连接后续实现。', 'Stability is a bootstrap frequency, not a p-value; differential & bridge layers come later.') }}</div>
-              <div class="d-flex gap-2">
-                <label class="form-label small mb-0 flex-fill">{{ text('Bootstrap 次数', 'Bootstraps') }}<input type="number" class="form-control form-control-sm" min="10" max="1000" v-model.number="store.draft.rean.n_bootstraps" /></label>
-                <label class="form-label small mb-0 flex-fill">{{ text('随机种子', 'Seed') }}<input type="number" class="form-control form-control-sm" min="0" v-model.number="store.draft.rean.seed" /></label>
-              </div>
-              <div class="small text-muted">{{ text('边存在阈值沿用 hub 网络', 'Edge threshold inherits the hub network') }}：{{ hub?.used_threshold ?? '—' }}</div>
-              <button class="btn btn-outline-primary btn-sm w-100" :disabled="!canRunRean" @click="store.run('rean')">{{ rean ? text('重新计算稳定性', 'Re-run stability') : text('计算重采样稳定性', 'Compute stability') }}</button>
             </div>
           </details>
 
@@ -728,21 +643,6 @@ const termHeatOption = computed<EChartsOption>(() => {
           <span class="text-muted small">{{ text('仅影响显示，不重算网络', 'Display only, no re-run') }}</span>
           <button class="btn btn-sm btn-outline-secondary ms-auto" @click="nodeInfoOpen = true"><i class="bi bi-table me-1"></i>{{ text('节点信息 / 标签', 'Node info & labels') }}</button>
         </div>
-        <div v-if="rean" class="alert py-2 small mb-2 d-flex align-items-center gap-2 flex-wrap" :class="reanStale ? 'alert-warning' : fragileEdges.length ? 'alert-info' : 'alert-success'">
-          <template v-if="reanStale">
-            <i class="bi bi-exclamation-triangle-fill"></i>
-            <span>{{ text('稳定性结果已过期，未用于当前网络；请重新计算。', 'Stability result is stale; re-run to apply to the current network.') }}</span>
-          </template>
-          <template v-else-if="fragileEdges.length">
-            <i class="bi bi-lightbulb"></i>
-            <span>{{ text('证据发现', 'Evidence finding') }}：{{ fragileEdges.length }} {{ text('条边 TOM 较高但稳定性 < 0.8（强但不稳，可能是噪声）', 'edges have high TOM but stability < 0.8 (strong but unstable, possibly noise)') }}</span>
-            <button class="btn btn-sm btn-outline-primary ms-auto" @click="showFragileOnly = !showFragileOnly">{{ showFragileOnly ? text('显示全部', 'Show all') : text('查看这些连接', 'View these') }}</button>
-          </template>
-          <template v-else>
-            <i class="bi bi-check-circle"></i>
-            <span>{{ text('证据检查', 'Evidence check') }}：{{ text('所有高 TOM 边的稳定性均 ≥ 0.8，未发现「强但不稳」的连接。', 'all high-TOM edges have stability ≥ 0.8; no strong-but-unstable edges found.') }}</span>
-          </template>
-        </div>
         <div v-if="displayMode === 'full' && (displayNetwork?.edges.length ?? 0) > 2000" class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ text('完整诱导子图边数较多，渲染可能较慢（不会静默截断）。', 'Full induced graph has many edges and may render slowly (no silent truncation).') }}</div>
         <div v-else-if="largeNetwork" class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ text('网络较大，可能较慢', 'Large network, may be slow') }}（{{ netNodeCount }} / {{ netEdgeCount }}）</div>
         <NetworkGraph
@@ -751,10 +651,9 @@ const termHeatOption = computed<EChartsOption>(() => {
           :size-basis="sizeBasis"
           :node-size-min="nodeSizeMin"
           :node-size-max="nodeSizeMax"
-          :edge-low-color="effectiveEdgeLowColor"
-          :edge-high-color="effectiveEdgeHighColor"
+          :edge-low-color="edgeLowColor"
+          :edge-high-color="edgeHighColor"
           :edge-width="edgeWidth"
-          :edge-color-by="edgeMetric"
           @select="onSelect"
           @clear="onClear"
           :label-size="labelSize"
@@ -772,7 +671,7 @@ const termHeatOption = computed<EChartsOption>(() => {
         />
         <div v-if="selectedElement" class="card p-3 mt-3 border-start border-4" :class="selectedElement.kind === 'edge' ? 'border-primary' : 'border-success'">
           <div class="d-flex align-items-center justify-content-between mb-1">
-            <h6 class="mb-0">{{ selectedElement.kind === 'edge' ? text('连接证据', 'Edge evidence') : text('基因证据', 'Gene evidence') }}</h6>
+            <h6 class="mb-0">{{ selectedElement.kind === 'edge' ? text('连接信息', 'Edge details') : text('基因证据', 'Gene evidence') }}</h6>
             <button class="btn-close" @click="onClear"></button>
           </div>
           <template v-if="selectedElement.kind === 'node'">
@@ -794,28 +693,33 @@ const termHeatOption = computed<EChartsOption>(() => {
             <table class="table table-sm small mb-0 mt-1">
               <tbody>
                 <tr><td>{{ text('连接强度（weight）', 'strength (weight)') }}</td><td>{{ selectedElement.data.weight.toFixed(4) }}</td></tr>
-                <tr><td>{{ text('重采样稳定性', 'resampling stability') }}</td><td>{{ selectedElement.data.hasStability ? selectedElement.data.stability.toFixed(3) : text('未计算', 'not computed') }}</td></tr>
               </tbody>
             </table>
           </template>
         </div>
         <SimpleTable class="mt-3" :columns="[{ key: 'gene', label: text('基因', 'Gene') }, { key: 'kme', label: 'kME' }, { key: 'gs', label: 'GS' }]" :rows="hubRows" filename="hub_gene" />
 
-        <div v-if="rean" class="card p-3 mt-3">
-          <h6 class="mb-1">R-EAN · {{ text('网络证据', 'network evidence') }} <span v-if="reanStale" class="badge text-bg-secondary ms-1">{{ text('历史', 'history') }}</span></h6>
-          <p v-if="reanStale" class="text-muted small mb-1">{{ text('该稳定性结果已过期，仅作历史查看，不用于当前网络解释。', 'This stability result is stale; shown for history only, not applied to the current network.') }}</p>
-          <p class="text-muted small mb-2">{{ rean.module }} · {{ rean.n_bootstraps }} {{ text('次 bootstrap', 'bootstraps') }} · seed {{ rean.seed }} · {{ text('阈值', 'threshold') }} {{ rean.threshold }} · power {{ rean.power }}</p>
-          <p class="small mb-1">
-            {{ text('有效重复', 'Valid replicates') }}：{{ rean.valid != null ? rean.valid : text('未知', 'unknown') }} / {{ rean.attempted != null ? rean.attempted : text('未知', 'unknown') }}
-            <span v-if="rean.valid == null || rean.attempted == null" class="text-muted">（{{ text('旧结果未记录有效分母，按未知口径展示，不推断为 n_bootstraps', 'old result lacks the valid denominator; shown as unknown, not inferred from n_bootstraps') }}）</span>
-            <span v-if="(rean.invalid ?? 0) > 0" class="text-warning">（{{ rean.invalid }} {{ text('轮无效，结果条件于可计算重复', 'invalid; results conditioned on computable replicates') }}）</span>
-          </p>
-          <p class="small mb-1">{{ text('边', 'Edges') }} {{ reanStats.n }} · {{ text('稳定性 min / 中位数 / =1', 'stability min / median / =1') }}：{{ reanStats.min != null ? reanStats.min.toFixed(3) : '—' }} / {{ reanStats.median != null ? reanStats.median.toFixed(3) : '—' }} / {{ reanStats.equalsOne }}</p>
-          <p class="text-muted small mb-2">{{ text('定义：stability = 边在 bootstrap 重采样下 TOM > 阈值的频率（分母为有效重复数）；是采样频率，不是 p 值。', 'Definition: stability = fraction of bootstraps where edge TOM > threshold (denominator = valid replicates); a sampling frequency, not a p-value.') }}</p>
-          <SimpleTable :columns="[{ key: 'source', label: 'Source' }, { key: 'target', label: 'Target' }, { key: 'stability', label: 'stability' }]" :rows="reanRows" filename="rean_edge_stability" scroll-height="360px" />
-        </div>
       </div>
       <p v-else class="text-muted">{{ text('运行候选基因后，这里会显示该模块的候选基因网络。', 'Run hub to see the candidate gene network.') }}</p>
+      <section v-if="hub || rean" class="mt-3">
+        <button type="button" class="btn btn-link btn-sm text-secondary p-0" :aria-expanded="showEdgeStability" aria-controls="edge-stability" @click="showEdgeStability = !showEdgeStability">
+          {{ text('边稳定性（可选）', 'Edge stability (optional)') }}
+        </button>
+        <div v-if="showEdgeStability" id="edge-stability" class="card p-3 mt-2">
+          <p class="small text-muted mb-2">{{ text('对样本重采样，查看已选连接在有效重复中超过当前网络阈值的比例。', 'Resample the samples to see how often each selected edge exceeds the network threshold in valid runs.') }}</p>
+          <div class="d-flex gap-2 align-items-end flex-wrap mb-2">
+            <label class="form-label small mb-0">{{ text('重采样次数', 'Resamples') }}<input type="number" class="form-control form-control-sm" min="10" max="1000" v-model.number="store.draft.rean.n_bootstraps" /></label>
+            <label class="form-label small mb-0">{{ text('随机种子', 'Seed') }}<input type="number" class="form-control form-control-sm" min="0" v-model.number="store.draft.rean.seed" /></label>
+            <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="!canRunRean" @click="store.run('rean')">{{ text('计算稳定性', 'Check stability') }}</button>
+          </div>
+          <p v-if="!canRunRean && !store.busy" class="small text-muted mb-2">{{ text('请先运行当前模块的候选基因网络。', 'Run the candidate gene network for this module first.') }}</p>
+          <template v-if="rean">
+            <p v-if="reanStale" class="small text-muted mb-1">{{ text('历史结果 · 参数或网络已变更。', 'Historical result · settings or network have changed.') }}</p>
+            <p class="small text-muted mb-2">{{ rean.module }} · {{ text('TOM 阈值', 'TOM threshold') }} {{ rean.threshold }} · {{ text('有效重复', 'Valid runs') }} {{ rean.valid ?? '—' }} / {{ rean.attempted ?? '—' }}</p>
+            <SimpleTable :columns="[{ key: 'source', label: text('基因 A', 'Gene A') }, { key: 'target', label: text('基因 B', 'Gene B') }, { key: 'stability', label: text('稳定性', 'Stability') }]" :rows="reanRows" filename="rean_edge_stability" scroll-height="360px" />
+          </template>
+        </div>
+      </section>
     </template>
 
     <template v-else-if="tab === 'priority'">

@@ -1,6 +1,6 @@
 # R-EAN 全量落地方案（R_EAN_PLAN）
 
-> 状态：已定稿（2026-11-02）。本文是 R-EAN 的完整落地规划，与 `MODULE_NETWORK_METHOD.md`（方法细节）和 `ATTRIBUTION.md`（借鉴/自研边界）配套。
+> 历史方案（2026-11-02）。2026-11-10 决定将已实现部分作为模块网络下方的可选边稳定性诊断，暂停差异层、桥接层和独立面板。下文保留原规划供查阅。
 > 关键决定：R-EAN 独立成 panel（module overview 之后、report 之前）；module overview 去掉基因级整体网络；**UMAP 默认不做**。
 
 ## 1. 定位（一句话）

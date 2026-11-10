@@ -14,8 +14,8 @@
 > A battery-included GUI for [`rs-wgcna`](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna): upload data, tune parameters, and get interactive plots and result tables without using the command line. Some plots require the bundled R runtime.
 
 > **Exploration branch note:** this branch (`explore/project-copilot`) includes
-> unreleased project-workspace, candidate-priority, evidence-interpretation and
-> R-EAN work. The latest tagged stable release is **v0.6.0**; use the
+> unreleased project-workspace, candidate-priority, and evidence-interpretation
+> work. The latest tagged stable release is **v0.6.0**; use the
 > Releases page for production installers.
 
 ---
@@ -72,11 +72,11 @@ and the Rust worker are embedded), so users install nothing but the executable.
   from the server’s current atomic evidence envelope; no online model is
   required. These are connectivity-stability descriptions, not probabilities,
   trait associations, or causal hubs.
-- **R-EAN reliability layer**: bootstrap edge-stability evidence for the
-  selected module, with honest “sampling frequency, not p-value” labelling.
 - **Interactive visualization**: ECharts dendrogram (module-colored sample tree),
   module–trait heatmap, GS/MM scatter, AG Grid gene tables; resize, recolor, and
   download PNG/SVG for every chart.
+  In Module Explorer, expand **Edge stability (optional)** below the network
+  to see how often selected edges exceed the TOM threshold in valid resamples.
 - **Publication-quality plots**: SFT and dendrogram render to PDF/SVG.
 - **AI navigator**: multi-vendor LLM (OpenAI-compatible), local vector RAG over
   the codebase, encrypted API key, streaming rich-text Q&A, and one-click error
@@ -144,7 +144,6 @@ Windows (PowerShell):
 - [x] Step-by-step WGCNA analysis pipeline with interactive result exploration
 - [x] Persistent project workspace with per-step provenance and stale-result detection
 - [x] Candidate-priority stability ranking with annotated tables and offline evidence interpretation
-- [x] R-EAN edge-reliability evidence layer
 - [x] AI navigator (LLM + RAG + error diagnosis)
 - [x] Raw-count vst normalization (pure Rust)
 - [ ] Annotation-congruence / TF–target prior layer (design phase; not yet a validated direction claim)

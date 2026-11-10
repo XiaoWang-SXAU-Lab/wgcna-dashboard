@@ -120,9 +120,9 @@ const saveTone = computed(() => project.saving ? 'text-warning' : project.dirty 
 .navbar-contact:hover { color: #067d89; background: #edf6f7; }
 .navbar-project { display: inline-flex; align-items: center; max-width: 260px; color: #25475f; }
 .navbar-project span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.toolkits-glow { border-radius: 8px; animation: toolkits-pulse 2.4s ease-in-out infinite; }
-@keyframes toolkits-pulse {
-  0%, 100% { box-shadow: 0 0 4px rgba(6, 125, 137, 0.25), 0 0 10px rgba(6, 125, 137, 0.15); text-shadow: 0 0 6px rgba(6, 125, 137, 0.35); }
-  50% { box-shadow: 0 0 10px rgba(6, 125, 137, 0.55), 0 0 22px rgba(6, 125, 137, 0.3); text-shadow: 0 0 12px rgba(6, 125, 137, 0.7); }
+.toolkits-glow { border-radius: 8px; text-shadow: 0 0 6px rgba(6, 125, 137, 0.25); }
+.toolkits-glow:hover, .toolkits-glow:focus-visible {
+  box-shadow: 0 0 10px rgba(6, 125, 137, 0.45), 0 0 22px rgba(6, 125, 137, 0.25);
+  text-shadow: 0 0 12px rgba(6, 125, 137, 0.6);
 }
 </style>

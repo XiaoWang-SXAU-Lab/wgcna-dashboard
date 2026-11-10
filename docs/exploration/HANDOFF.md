@@ -1,3 +1,19 @@
+## 最新（2026-11-10 深夜，Claude @ 家里 Windows：边稳定性降为可选诊断，构建通过）
+
+- 用户决定将 R-EAN 从默认流程撤下：保留实现与历史结果，作为模块网络下方的可选诊断；暂停差异层与桥接层。
+- 已完成（未提交）：`frontend/src/views/ModuleExplorerView.vue` 主图默认只显示连接强度；稳定性参数/结果移入默认折叠的「边稳定性（可选）」；移除「强但不稳」横幅和稳定性着色，历史结果仍可查看。同步更新中英文 README、NEWS、`R_EAN_PLAN.md` 状态和 `ToolkitGuideView.vue` 帮助。
+- 验证：Windows 隔离构建 `scripts/build-windows.ps1` 通过（Rust worker release、`vue-tsc -b`、`vite build`、Go GUI EXE）。最终产物 `%LOCALAPPDATA%\rsWGCNA-build\windows\runs\20261111-000420-4642fd\app\rsWGCNA.exe`。本次构建未找到 `~/Bio-info-PRJ/dist-windows/R`，未嵌入 R 运行时；不影响 UI 构建，但绘图/GUI 交互验收未做。
+- 性能修复（同轮，未提交）：用户报告卡顿。通过 WebView2 调试端口和 `document.getAnimations()` 定位到 165 Hz 屏上常驻 CSS 动画导致整窗每帧重绘：导航栏「工具箱」的 box-shadow 脉冲、猫尾巴/眨眼。已改为静态样式（保留 hover/thinking/happy 短动画）。实测 Module Explorer 空闲 CPU 91% → 6%，首页 34% → <1%；NEWS 已记录。
+- 表格性能（同轮，未提交）：`SimpleTable` 改为窗口化虚拟滚动，只渲染可见约 30 行，搜索/排序/CSV 仍用全量数据；报告页候选表、报告摘要、module overview 表也改用同一组件。实测 module-trait 的 8,000 × 7 kME 表：DOM 72,307 → 570，空闲 CPU 79% → 0.2%，滚动到中段/底部、搜索过滤、清空搜索均通过。报告页和候选优先级表因结果 stale 未实际展开（需重跑 priority 才能验收）。
+- 工作树未提交、未推送。下一步：用户确认 UI 与流畅度后，按授权提交。
+
+## 最新（2026-11-10，Codex：Windows 探索版安装包）
+
+- Dashboard `explore/project-copilot@d873ade`、worker `explore/project-copilot@10ae0be` 与远端分支一致。构建使用干净源码快照。本轮只更新交接文档，未改应用源码或发布脚本。
+- 按 GitHub Release 的 Inno Setup 配置生成 `rsWGCNA-setup-0.6.0.exe`，内嵌 Rust worker、R 4.5.1 x64 和绘图依赖。SVG 导出需要 `svglite`，基因网络图需要 `igraph`，本次打包均已补齐。构建、测试与成品都留在 Windows 本机构建目录。未上传 GitHub。
+- 验证通过：前端类型检查和生产构建、Go GUI EXE、WebView2 运行时启动、内嵌 worker 哈希和示例四步分析。使用包内 R 并隔离用户库后，软阈值图、模块性状热图及 igraph 网络图均通过 PNG、PDF、SVG 导出。
+- 安装器编译成功，未在现有稳定版环境运行安装器。若要发布，下一步是在独立 Windows 环境验证安装、启动和卸载。未测试 Mac 或运行全量测试套件。
+
 ## 最新（2026-11-05 上午，Claude @ 办公室 Windows：candidate priority 注释/预算 + README/NEWS + 推送）
 
 - **收尾状态**：用户结束当天工作，要求 handoff、push、README/NEWS。dashboard `explore/project-copilot`；功能提交 **`3fe2b53`** 已推送 `origin/explore/project-copilot`；本文件、`DSH_PROMPT.md`、`STATE.md` 为随后收尾提交。worker `explore/project-copilot@10ae0be` = origin，工作树干净；`master` @ `fb74752` 落后 `origin/master` 1（未合并）。

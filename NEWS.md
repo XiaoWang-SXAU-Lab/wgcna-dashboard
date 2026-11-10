@@ -23,15 +23,14 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   /api/projects/{id}/evidence/hub-priority` returns safe `not_current` errors and
   never exposes underlying paths. The report card is offline and does not call an
   LLM.
-- **R-EAN reliability layer** in Module Explorer: bootstrap edge stability with
-  explicit valid-round accounting and honest “sampling frequency, not p-value”
-  labels.
 - **Biologist-first report page**: one-sentence conclusion, what the analysis
   did, how to read it, what it cannot conclude, and next steps, with technical
   details kept in a collapsible section.
 
 ### Changed
 
+- Module Explorer shows the TOM-weighted network by default. Edge stability is
+  a collapsed, optional check below the network, with CSV export.
 - Data Import `sample_percentage` is now a **0–1 slider**. `0` disables
   low-expression filtering; legacy projects storing values > 1 are migrated
   (e.g. `50 → 0.5`). The Go backend rejects out-of-range filter values before
@@ -48,6 +47,15 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- High idle CPU on high-refresh displays: the navbar toolkits pulse and the
+  mascot's idle tail/blink animations kept the whole WebView repainting at the
+  display refresh rate. They are now static; hover, thinking and happy cues
+  remain. On a 165 Hz display, idle Module Explorer CPU dropped from ~90% to
+  <10%, and the home page from ~34% to <1%.
+- Large result tables now render only the visible window of rows. The 8,000-gene
+  kME table (8,000 × 7) no longer creates ~72,000 DOM nodes; search, sort and CSV
+  export still use the full data. Candidate-priority and module-overview tables
+  use the same component.
 - Stale enrichment assertion in `report_test.go`; the report baseline now
   validates the interactive module-enrichment contract.
 - Project/worker errors are surfaced with fixed safe messages instead of

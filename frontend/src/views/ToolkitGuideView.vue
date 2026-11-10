@@ -105,7 +105,8 @@ AT1G01010	NAC001	NAC domain containing protein 1	NAC transcription factor</code>
         <li><b>annotation</b>{{ text('：上一步的 annotation.tsv', ': the annotation.tsv from the previous step') }}</li>
         <li><b>gene2go</b> / <b>gene2kegg</b>{{ text('：第 4 步的 gene2go.tsv / gene2kegg.tsv', ': the gene2go.tsv / gene2kegg.tsv from step 4') }}</li>
       </ul>
-      <p class="mb-0">{{ text('之后即可按 过滤 → 软阈值 → 网络 → 模块-性状 → 模块解析（含 GO/KEGG 富集）跑完整流程。', 'Then run filter → soft threshold → network → module-trait → module explorer (with GO/KEGG enrichment).') }}</p>
+      <p class="mb-2">{{ text('之后即可按 过滤 → 软阈值 → 网络 → 模块-性状 → 模块解析（含 GO/KEGG 富集）跑完整流程。', 'Then run filter → soft threshold → network → module-trait → module explorer (with GO/KEGG enrichment).') }}</p>
+      <p class="mb-0">{{ text('如需检查连接对样本变化的敏感程度，可展开模块网络下方的「边稳定性（可选）」，查看已选连接在有效重采样中超过 TOM 阈值的比例。', 'To check how sensitive selected edges are to changes in the samples, expand Edge stability (optional) below the module network. It shows how often each edge exceeds the TOM threshold in valid resamples.') }}</p>
     </section>
 
     <!-- format reference -->

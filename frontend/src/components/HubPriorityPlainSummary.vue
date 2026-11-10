@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import type { AnnotationRow, HubPriorityResult } from '../api/client'
 import { locale } from '../utils/i18n'
+import SimpleTable from './SimpleTable.vue'
 
 const props = defineProps<{ result?: HubPriorityResult; annotations?: AnnotationRow[] }>()
 const text = (zh: string, en: string) => (locale.value === 'zh' ? zh : en)
@@ -21,18 +22,24 @@ const rows = computed(() => {
       if (bm == null) return -1
       return am - bm
     })
-    .map((g) => {
+    .map((g, i) => {
       const a = annotationMap.value.get(g.gene)
+      const tie = g.rank_lower < g.rank_upper
       return {
         gene: g.gene,
         symbol: a?.symbol || a?.gene_name || '—',
         description: a?.description || '—',
-        tie: g.rank_lower < g.rank_upper,
+        tie,
         midrank: g.midrank_median != null ? g.midrank_median.toFixed(1) : '—',
         p05: g.midrank_p05 != null ? g.midrank_p05.toFixed(1) : '—',
         p95: g.midrank_p95 != null ? g.midrank_p95.toFixed(1) : '—',
         freqPct: g.mean_top_k != null ? Math.round(g.mean_top_k * 100) : null,
         freqCount: g.mean_top_k != null && valid > 0 ? Math.round(g.mean_top_k * valid * 10) / 10 : null,
+        meaning: i === 0
+          ? text('最稳定候选，优先关注', 'Most stable; prioritize')
+          : tie
+            ? text('并列，不能区分', 'Tied; indistinguishable')
+            : text('候选，次于前者', 'Candidate; lower priority'),
       }
     })
 })
@@ -40,6 +47,31 @@ const rows = computed(() => {
 const showAll = ref(false)
 const visibleRows = computed(() => (showAll.value ? rows.value : rows.value.slice(0, 10)))
 const topGene = computed(() => rows.value[0] ?? null)
+
+const candidateColumns = computed(() => [
+  { key: 'gene', label: text('基因', 'Gene') },
+  { key: 'symbol', label: text('符号/名称', 'Symbol / name') },
+  { key: 'description', label: text('功能描述', 'Description') },
+  { key: 'midrank', label: text('稳定性排名（中位数）', 'Stability rank (median)') },
+  {
+    key: 'freqPct',
+    label: text('进入前 K 名的比例', 'Top-K proportion'),
+    fmt: (v: any, r: Record<string, any>) => {
+      if (v == null) return '—'
+      const suffix = r.freqCount != null
+        ? text(`（${result.value?.valid ?? '—'} 次中约 ${r.freqCount} 次）`, ` (about ${r.freqCount} of ${result.value?.valid ?? '—'} rounds)`)
+        : ''
+      return `${v}%${suffix}`
+    },
+  },
+  {
+    key: 'p05',
+    label: text('排名波动（P05–P95）', 'Rank spread (P05–P95)'),
+    fmt: (_v: any, r: Record<string, any>) => `${r.p05} – ${r.p95}`,
+  },
+  { key: 'tie', label: text('是否并列', 'Tied?'), fmt: (v: any) => (v ? text('是', 'Yes') : text('否', 'No')) },
+  { key: 'meaning', label: text('怎么理解', 'How to read it') },
+])
 
 const summaryLine = computed(() => {
   const r = result.value
@@ -134,34 +166,7 @@ const nextSteps = computed(() => [
         </button>
       </div>
       <p class="text-muted small mb-2">{{ text('稳定性排名越低越稳定；它不是表达量高低，也不是差异倍数。排名波动是多次抽样中的典型范围，不是置信区间。Symbol / Description 来自上传的 annotation.tsv；— 表示未注释。', 'A lower stability rank means more stable; it is not expression level or fold change. The rank range is the typical spread across resamples, not a confidence interval. Symbol / Description come from the uploaded annotation.tsv; — means not annotated.') }}</p>
-      <div class="table-responsive">
-        <table class="table table-sm table-striped small mb-0">
-          <thead>
-            <tr>
-              <th>{{ text('基因', 'Gene') }}</th>
-              <th>{{ text('符号/名称', 'Symbol / name') }}</th>
-              <th>{{ text('功能描述', 'Description') }}</th>
-              <th>{{ text('稳定性排名（中位数）', 'Stability rank (median)') }}</th>
-              <th>{{ text('进入前 K 名的比例', 'Top-K proportion') }}</th>
-              <th>{{ text('排名波动（P05–P95）', 'Rank spread (P05–P95)') }}</th>
-              <th>{{ text('是否并列', 'Tied?') }}</th>
-              <th>{{ text('怎么理解', 'How to read it') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(r, i) in visibleRows" :key="r.gene">
-              <td><b>{{ r.gene }}</b></td>
-              <td>{{ r.symbol }}</td>
-              <td class="text-muted">{{ r.description }}</td>
-              <td>{{ r.midrank }}</td>
-              <td>{{ r.freqPct != null ? r.freqPct + '%' : '—' }}<span v-if="r.freqCount != null" class="text-muted">（{{ result.valid }} 次中约 {{ r.freqCount }} 次）</span></td>
-              <td>{{ r.p05 }} – {{ r.p95 }}</td>
-              <td>{{ r.tie ? text('是', 'Yes') : text('否', 'No') }}</td>
-              <td>{{ i === 0 ? text('最稳定候选，优先关注', 'Most stable; prioritize') : r.tie ? text('并列，不能区分', 'Tied; indistinguishable') : text('候选，次于前者', 'Candidate; lower priority') }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <SimpleTable :columns="candidateColumns" :rows="visibleRows" scroll-height="420px" filename="candidate_priority" />
     </div>
 
     <div class="card p-3 mb-3 border-warning">

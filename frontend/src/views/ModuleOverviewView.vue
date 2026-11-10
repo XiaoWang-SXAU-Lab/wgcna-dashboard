@@ -11,6 +11,7 @@ import * as echarts from 'echarts'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
 import OverviewSettingsSidebar, { type Tab } from '../components/overview/OverviewSettingsSidebar.vue'
 import OverviewNetworkPanel from '../components/overview/OverviewNetworkPanel.vue'
+import SimpleTable from '../components/SimpleTable.vue'
 
 const store = useWgcnaStore()
 
@@ -248,6 +249,12 @@ const tableGenes = computed(() => {
 
 const xlsxUrl = computed(() => store.jobId ? overviewExportUrl(store.jobId, tableMode.value) : '#')
 
+const overviewTableColumns = computed(() => [
+  { key: 'gene', label: 'Gene' },
+  { key: 'group', label: t('mo.group') },
+  { key: 'kme', label: 'kME / score', fmt: (v: any) => (v != null ? Number(v).toFixed(3) : '') },
+])
+
 const moduleOptions = computed(() => overview.value?.module_order ?? [])
 const clusterOptions = computed(() => cluster.value?.cluster_order ?? [])
 
@@ -386,20 +393,7 @@ onMounted(() => {
 
         <!-- table -->
         <div v-else class="h-100 overflow-auto">
-          <div class="table-responsive border rounded bg-white" style="max-height: 100%">
-            <table class="table table-sm table-hover mb-0">
-              <thead class="table-light sticky-top">
-                <tr><th>Gene</th><th>{{ t('mo.group') }}</th><th>kME / score</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="r in tableGenes.slice(0, 500)" :key="r.gene">
-                  <td class="font-monospace small">{{ r.gene }}</td>
-                  <td>{{ r.group }}</td>
-                  <td>{{ r.kme != null ? r.kme.toFixed(3) : '' }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <SimpleTable :columns="overviewTableColumns" :rows="tableGenes" scroll-height="calc(100vh - 260px)" filename="module_overview_genes" />
           <div v-if="tableGenes.length === 0" class="text-center text-muted py-4 small">{{ t('mo.noData') }}</div>
         </div>
       </div>

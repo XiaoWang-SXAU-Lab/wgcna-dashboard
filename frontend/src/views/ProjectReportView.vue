@@ -5,6 +5,7 @@ import { getHubPriorityEvidence, projectOutputUrl } from '../api/projects'
 import type { HubPriorityEvidence } from '../api/client'
 import { useCandidateReport } from '../composables/useCandidateReport'
 import { locale } from '../utils/i18n'
+import SimpleTable from '../components/SimpleTable.vue'
 
 const store = useProjectStore()
 const text = (zh: string, en: string) => (locale.value === 'zh' ? zh : en)
@@ -85,23 +86,69 @@ const rows = computed(() => {
       if (bm == null) return -1
       return am - bm
     })
-    .map((g) => ({
-      gene: g.gene,
-      kwithin: g.kwithin.toFixed(2),
-      kmeAbs: g.kme_abs.toFixed(2),
-      rank: `${g.rank_lower}-${g.rank_upper}`,
-      tie: g.rank_lower < g.rank_upper,
-      midrank: g.midrank_median != null ? g.midrank_median.toFixed(1) : '—',
-      p05: g.midrank_p05 != null ? g.midrank_p05.toFixed(1) : '—',
-      p95: g.midrank_p95 != null ? g.midrank_p95.toFixed(1) : '—',
-      freqPct: g.mean_top_k != null ? Math.round(g.mean_top_k * 100) : null,
-      freqCount: g.mean_top_k != null && valid > 0 ? Math.round(g.mean_top_k * valid * 10) / 10 : null,
-    }))
+    .map((g, i) => {
+      const tie = g.rank_lower < g.rank_upper
+      return {
+        gene: g.gene,
+        kwithin: g.kwithin.toFixed(2),
+        kmeAbs: g.kme_abs.toFixed(2),
+        rank: `${g.rank_lower}-${g.rank_upper}`,
+        tie,
+        midrank: g.midrank_median != null ? g.midrank_median.toFixed(1) : '—',
+        p05: g.midrank_p05 != null ? g.midrank_p05.toFixed(1) : '—',
+        p95: g.midrank_p95 != null ? g.midrank_p95.toFixed(1) : '—',
+        freqPct: g.mean_top_k != null ? Math.round(g.mean_top_k * 100) : null,
+        freqCount: g.mean_top_k != null && valid > 0 ? Math.round(g.mean_top_k * valid * 10) / 10 : null,
+        meaning: i === 0
+          ? text('最稳定候选，优先关注', 'Most stable; prioritize')
+          : tie
+            ? text('并列，不能区分', 'Tied; indistinguishable')
+            : text('候选，次于前者', 'Candidate; lower priority'),
+      }
+    })
 })
 
 const showAll = ref(false)
 const visibleRows = computed(() => (showAll.value ? rows.value : rows.value.slice(0, 10)))
 const topGene = computed(() => rows.value[0] ?? null)
+
+const summaryColumns = computed(() => [
+  { key: 'gene', label: text('基因', 'Gene') },
+  { key: 'midrank', label: text('稳定性排名（中位数）', 'Stability rank (median)') },
+  {
+    key: 'freqPct',
+    label: text('进入前 K 名的比例', 'Top-K proportion'),
+    fmt: (v: any, r: Record<string, any>) => {
+      if (v == null) return '—'
+      const suffix = r.freqCount != null
+        ? text(`（${result.value?.valid ?? '—'} 次中约 ${r.freqCount} 次）`, ` (about ${r.freqCount} of ${result.value?.valid ?? '—'} rounds)`)
+        : ''
+      return `${v}%${suffix}`
+    },
+  },
+  {
+    key: 'p05',
+    label: text('排名波动（P05–P95）', 'Rank spread (P05–P95)'),
+    fmt: (_v: any, r: Record<string, any>) => `${r.p05} – ${r.p95}`,
+  },
+  { key: 'tie', label: text('是否并列', 'Tied?'), fmt: (v: any) => (v ? text('是', 'Yes') : text('否', 'No')) },
+  { key: 'meaning', label: text('怎么理解', 'How to read it') },
+])
+
+const rawColumns = computed(() => [
+  { key: 'gene', label: 'Gene' },
+  { key: 'kwithin', label: 'kWithin' },
+  { key: 'kmeAbs', label: '|kME|' },
+  { key: 'rank', label: text('原始排名', 'Orig rank') },
+  { key: 'midrank', label: text('中位排名', 'Median rank') },
+  { key: 'p05', label: 'P05' },
+  { key: 'p95', label: 'P95' },
+  {
+    key: 'freqPct',
+    label: text('前 K 比例', 'Top-K fraction'),
+    fmt: (v: any) => (v != null ? (v / 100).toFixed(3) : '—'),
+  },
+])
 
 const summaryLine = computed(() => {
   const r = result.value
@@ -222,30 +269,7 @@ const nextSteps = computed(() => [
           </button>
         </div>
         <p class="text-muted small mb-2">{{ text('稳定性排名越低越稳定；它不是表达量高低，也不是差异倍数。排名波动是多次抽样中的典型范围，不是置信区间。', 'A lower stability rank means more stable; it is not expression level or fold change. The rank range is the typical spread across resamples, not a confidence interval.') }}</p>
-        <div class="table-responsive">
-          <table class="table table-sm table-striped small mb-0">
-            <thead>
-              <tr>
-                <th>{{ text('基因', 'Gene') }}</th>
-                <th>{{ text('稳定性排名（中位数）', 'Stability rank (median)') }}</th>
-                <th>{{ text('进入前 K 名的比例', 'Top-K proportion') }}</th>
-                <th>{{ text('排名波动（P05–P95）', 'Rank spread (P05–P95)') }}</th>
-                <th>{{ text('是否并列', 'Tied?') }}</th>
-                <th>{{ text('怎么理解', 'How to read it') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(r, i) in visibleRows" :key="r.gene">
-                <td><b>{{ r.gene }}</b></td>
-                <td>{{ r.midrank }}</td>
-                <td>{{ r.freqPct != null ? r.freqPct + '%' : '—' }}<span v-if="r.freqCount != null" class="text-muted">（{{ result?.valid }} 次中约 {{ r.freqCount }} 次）</span></td>
-                <td>{{ r.p05 }} – {{ r.p95 }}</td>
-                <td>{{ r.tie ? text('是', 'Yes') : text('否', 'No') }}</td>
-                <td>{{ i === 0 ? text('最稳定候选，优先关注', 'Most stable; prioritize') : r.tie ? text('并列，不能区分', 'Tied; indistinguishable') : text('候选，次于前者', 'Candidate; lower priority') }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <SimpleTable :columns="summaryColumns" :rows="visibleRows" scroll-height="420px" filename="candidate_priority_summary" />
       </div>
 
       <div class="card p-3 mb-3 border-warning">
@@ -285,20 +309,7 @@ const nextSteps = computed(() => [
           </div>
 
           <h6 class="mb-2 mt-3">{{ text('完整候选表（原始指标）', 'Full candidate table (raw metrics)') }}</h6>
-          <div class="table-responsive" style="max-height: 420px; overflow: auto">
-            <table class="table table-sm table-striped small mb-0">
-              <thead class="sticky-top">
-                <tr>
-                  <th>Gene</th><th>kWithin</th><th>|kME|</th><th>{{ text('原始排名', 'Orig rank') }}</th><th>{{ text('中位排名', 'Median rank') }}</th><th>P05</th><th>P95</th><th>{{ text('前 K 比例', 'Top-K fraction') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="r in rows" :key="r.gene">
-                  <td>{{ r.gene }}</td><td>{{ r.kwithin }}</td><td>{{ r.kmeAbs }}</td><td>{{ r.rank }}</td><td>{{ r.midrank }}</td><td>{{ r.p05 }}</td><td>{{ r.p95 }}</td><td>{{ r.freqPct != null ? (r.freqPct / 100).toFixed(3) : '—' }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <SimpleTable :columns="rawColumns" :rows="rows" scroll-height="420px" filename="candidate_priority_full" />
 
           <h6 class="mb-2 mt-3">{{ text('服务端离线证据（技术文本）', 'Server-side offline evidence (technical text)') }}</h6>
           <div class="d-flex justify-content-between align-items-center mb-2">
