@@ -5,7 +5,7 @@
 - 验证：Windows 隔离构建 `scripts/build-windows.ps1` 通过（Rust worker release、`vue-tsc -b`、`vite build`、Go GUI EXE）。最终产物 `%LOCALAPPDATA%\rsWGCNA-build\windows\runs\20261111-000420-4642fd\app\rsWGCNA.exe`。本次构建未找到 `~/Bio-info-PRJ/dist-windows/R`，未嵌入 R 运行时；不影响 UI 构建，但绘图/GUI 交互验收未做。
 - 性能修复（同轮，未提交）：用户报告卡顿。通过 WebView2 调试端口和 `document.getAnimations()` 定位到 165 Hz 屏上常驻 CSS 动画导致整窗每帧重绘：导航栏「工具箱」的 box-shadow 脉冲、猫尾巴/眨眼。已改为静态样式（保留 hover/thinking/happy 短动画）。实测 Module Explorer 空闲 CPU 91% → 6%，首页 34% → <1%；NEWS 已记录。
 - 表格性能（同轮，未提交）：`SimpleTable` 改为窗口化虚拟滚动，只渲染可见约 30 行，搜索/排序/CSV 仍用全量数据；报告页候选表、报告摘要、module overview 表也改用同一组件。实测 module-trait 的 8,000 × 7 kME 表：DOM 72,307 → 570，空闲 CPU 79% → 0.2%，滚动到中段/底部、搜索过滤、清空搜索均通过。报告页和候选优先级表因结果 stale 未实际展开（需重跑 priority 才能验收）。
-- 工作树未提交、未推送。下一步：用户确认 UI 与流畅度后，按授权提交。
+- 已本地提交 `9a53b38`（feat(ui): demote R-EAN to optional and virtualize large tables），**未推送**。下一步：用户确认后授权推送。
 
 ## 最新（2026-11-10，Codex：Windows 探索版安装包）
 

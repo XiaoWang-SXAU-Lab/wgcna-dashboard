@@ -2,7 +2,7 @@
 
 ## 最新（2026-11-10 深夜，Claude @ 家里 Windows：边稳定性降为可选诊断，构建通过）
 
-先读 [HANDOFF.md](HANDOFF.md) 顶部。R-EAN 已按用户决定降为模块网络下方的可选折叠诊断，差异层和桥接层暂停；历史结果仍可读取。UI、README/NEWS、帮助文档已改，Windows 隔离构建（`vue-tsc -b`、`vite build`、Rust worker、Go GUI）通过。另修复高刷新率屏上常驻 CSS 动画导致的卡顿（Module Explorer 空闲 CPU 91%→6%，首页 34%→<1%），并把 `SimpleTable` 及剩余大数据表改为窗口化虚拟滚动（module-trait kME 表 DOM 72,307→570，空闲 CPU 79%→0.2%）。改动未提交；报告页/候选优先级表需重跑 priority 后验收。继续时先启动 EXE 冒烟，再按用户授权提交。
+先读 [HANDOFF.md](HANDOFF.md) 顶部。R-EAN 已按用户决定降为模块网络下方的可选折叠诊断，差异层和桥接层暂停；历史结果仍可读取。UI、README/NEWS、帮助文档已改，Windows 隔离构建（`vue-tsc -b`、`vite build`、Rust worker、Go GUI）通过。另修复高刷新率屏上常驻 CSS 动画导致的卡顿（Module Explorer 空闲 CPU 91%→6%，首页 34%→<1%），并把 `SimpleTable` 及剩余大数据表改为窗口化虚拟滚动（module-trait kME 表 DOM 72,307→570，空闲 CPU 79%→0.2%）。已本地提交 `9a53b38`，未推送；报告页/候选优先级表需重跑 priority 后验收。继续时先启动 EXE 冒烟，再按用户授权推送。
 
 ## 最新（2026-11-10，Codex：Windows 探索版安装包）
 
