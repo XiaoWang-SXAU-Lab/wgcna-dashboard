@@ -16,7 +16,7 @@
 
 ## 最新（2026-11-12，Windows：Codex 导出/prior 复核修复）
 
-请先读 [HANDOFF.md](HANDOFF.md) 顶部最新节。Codex 只读复核发现 ReguTrace 全量导出、prior 查询、Data Import 上传、Module Explorer 上游 TF 面板的 P1/P2；已在两仓库工作树修复：Rust 原子发布（Windows `ReplaceFileW`）、文本/JSONL 数值校验、gzip 显式 finalize、prior 只读与 hard-link 别名拒绝、`validate-db` 完整性/六索引定义/全行类型检查；Go 导出 generation 缓存与唯一 partial、`evidence.<generation>.tsv`、严格 numeric/JSON EOF 检查；前端 stale response 防护。最后一轮 focused Codex 复核 final3 给出 **V2/V4 PASS**，V2/V4 范围无剩余 P0/P1；V1/V3/V5 在前一轮 PASS。验证：Rust release 64/64、`go test ./...`、`go vet ./...`、`vue-tsc -b`、`vite build` PASS。未提交、未推送、未重建安装器。
+请先读 [HANDOFF.md](HANDOFF.md) 顶部最新节。Codex 只读复核发现 ReguTrace 全量导出、prior 查询、Data Import 上传、Module Explorer 上游 TF 面板的 P1/P2；已在两仓库工作树修复：Rust 原子发布（Windows `ReplaceFileW`）、文本/JSONL 数值校验、gzip 显式 finalize、prior 只读与 hard-link 别名拒绝、`validate-db` 完整性/六索引定义/全行类型检查；Go 导出 generation 缓存与唯一 partial、`evidence.<generation>.tsv`、严格 numeric/JSON EOF 检查；前端 stale response 防护。最后一轮 focused Codex 复核 final3 给出 **V2/V4 PASS**，V2/V4 范围无剩余 P0/P1；V1/V3/V5 在前一轮 PASS。验证：Rust release 64/64、`go test ./...`、`go vet ./...`、`vue-tsc -b`、`vite build` PASS。已提交推送：dashboard `3be0309`、regutrace `093e2cc`；未重建安装器。
 
 # 给 DSH / Codex 的接续 Prompt
 
