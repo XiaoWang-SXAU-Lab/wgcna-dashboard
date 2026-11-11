@@ -651,3 +651,250 @@ export async function blastMerge(blast: File, reference: File, base: File | null
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
+
+// ---- ReguTrace toolkit ----
+
+export interface RegutraceLibraryInfo {
+  key: string
+  name: string
+  count: number
+}
+
+export interface RegutraceInfo {
+  motif_library: string
+  motif_count: number
+  libraries: RegutraceLibraryInfo[]
+}
+
+export interface RegutraceParams {
+  promoter_len: number
+  downstream: number
+  pvalue: number
+  background: [number, number, number, number]
+  threads: number
+}
+
+export interface RegutraceInputs {
+  genome: string
+  gff: string
+  motifs: string
+  motif_library_key?: string
+  tf_map?: string
+  annotation?: string
+  annotation_source: string
+  genome_bytes: number
+  gff_bytes: number
+}
+
+export interface RegutraceDiagnostic {
+  severity: 'error' | 'warning' | 'info'
+  code: string
+  message: string
+  file?: string
+  line?: number
+  context?: Record<string, string>
+  suggestion?: string
+}
+
+export interface RegutraceReport {
+  tool: string
+  version: string
+  command: string
+  inputs: Record<string, string>
+  summary: { errors: number; warnings: number; infos: number }
+  diagnostics: RegutraceDiagnostic[]
+}
+
+export interface RegutraceCountItem {
+  id: string
+  name: string
+  targets: number
+  hits: number
+  edges: number
+}
+
+export interface RegutraceSummary {
+  genes: number
+  promoters: number
+  motif_library_size: number
+  motifs_with_hits: number
+  motif_hits: number
+  tf_target_pairs: number
+  tf_target_edges: number
+  unique_tfs: number
+  unique_targets: number
+  unique_motifs: number
+  evidence_level_d: number
+  threads?: number
+  annotation_source: string
+  top_tfs: RegutraceCountItem[]
+  top_motifs: RegutraceCountItem[]
+}
+
+export interface RegutraceJob {
+  id: string
+  status: 'uploaded' | 'validating' | 'validated' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  stage: string
+  message: string
+  progress: number
+  error?: string
+  created_at: string
+  updated_at: string
+  params: RegutraceParams
+  inputs: RegutraceInputs
+  diagnostics?: RegutraceReport
+  summary?: RegutraceSummary
+}
+
+export interface RegutraceQueryRow {
+  tf_id: string
+  tf_symbol: string
+  tf_family?: string
+  target_id: string
+  target_symbol: string
+  target_description?: string
+  annotation_source: string
+  evidence_type?: string
+  evidence_level?: string
+  method?: string
+  source?: string
+  pmid?: string
+  condition?: string
+  promoter_start?: number
+  promoter_end?: number
+  motif_id?: string
+  motif_name?: string
+  consensus?: string
+  hit_start?: number
+  hit_end?: number
+  strand?: string
+  score?: number
+  p_value?: number
+  notes?: string
+}
+
+export interface RegutraceQueryResult {
+  total: number
+  limit: number
+  offset: number
+  rows: RegutraceQueryRow[]
+}
+
+export interface RegutraceTFInfo {
+  id: string
+  symbol: string
+  family?: string
+}
+
+export interface RegutracePromoterHit {
+  motif_id: string
+  motif_name?: string
+  consensus?: string
+  start: number
+  end: number
+  genomic_start?: number
+  genomic_end?: number
+  strand: string
+  score?: number
+  p_value?: number
+  site: string
+  matched_site: string
+  tfs: RegutraceTFInfo[]
+}
+
+export interface RegutracePromoterView {
+  target_id: string
+  target_symbol: string
+  target_description?: string
+  annotation_source: string
+  chrom?: string
+  start?: number
+  end?: number
+  strand?: string
+  length: number
+  sequence: string
+  tss_position: number
+  hits: RegutracePromoterHit[]
+}
+
+export async function getRegutraceInfo(): Promise<RegutraceInfo> {
+  const res = await fetch(`${BASE}/toolkits/regutrace/info`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export function createRegutraceJob(
+  files: { genome: File; gff: File; motifs?: File | null; motifLibrary?: string; tfMap?: File | null; annotation?: File | null },
+  onProgress?: (fraction: number) => void,
+): Promise<RegutraceJob> {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData()
+    fd.append('genome', files.genome)
+    fd.append('gff', files.gff)
+    if (files.motifs) fd.append('motifs', files.motifs)
+    if (files.motifLibrary) fd.append('motif_library', files.motifLibrary)
+    if (files.tfMap) fd.append('tf_map', files.tfMap)
+    if (files.annotation) fd.append('annotation', files.annotation)
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${BASE}/toolkits/regutrace/jobs`)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total)
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText)) } catch (e) { reject(e) }
+      } else {
+        reject(new Error(xhr.responseText || `HTTP ${xhr.status}`))
+      }
+    }
+    xhr.onerror = () => reject(new Error('upload failed'))
+    xhr.send(fd)
+  })
+}
+
+export async function startRegutraceJob(id: string, mode: 'validate' | 'run', params: RegutraceParams): Promise<RegutraceJob> {
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/${mode}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getRegutraceJob(id: string): Promise<RegutraceJob> {
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function cancelRegutraceJob(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/cancel`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+}
+
+export async function queryRegutrace(
+  id: string,
+  opts: { direction: 'tf' | 'target'; q: string; motif?: string; maxP?: number; limit?: number; offset?: number },
+): Promise<RegutraceQueryResult> {
+  const p = new URLSearchParams()
+  p.set('direction', opts.direction)
+  p.set('q', opts.q)
+  if (opts.motif) p.set('motif', opts.motif)
+  if (opts.maxP !== undefined) p.set('max_p', String(opts.maxP))
+  if (opts.limit !== undefined) p.set('limit', String(opts.limit))
+  if (opts.offset !== undefined) p.set('offset', String(opts.offset))
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/query?${p}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getRegutracePromoter(id: string, target: string): Promise<RegutracePromoterView> {
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/promoter?target=${encodeURIComponent(target)}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export function regutraceExportUrl(id: string, kind: 'evidence' | 'report' | 'promoters' | 'log'): string {
+  return `${BASE}/toolkits/regutrace/jobs/${id}/export?kind=${kind}`
+}

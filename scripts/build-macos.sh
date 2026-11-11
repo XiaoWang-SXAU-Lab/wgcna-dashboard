@@ -3,6 +3,7 @@ set -euo pipefail
 [[ "$(uname -s)" == Darwin ]] || { echo 'Use build-windows.ps1 on Windows.' >&2; exit 1; }
 dashboard="$(cd "$(dirname "$0")/.." && pwd -P)"
 worker="$(cd "${WGCNA_WORKER_SOURCE:-$dashboard/../rs_WGCNA}" && pwd -P)"
+regutrace="$(cd "${WGCNA_REGUTRACE_SOURCE:-$dashboard/../regutrace}" && pwd -P)"
 root="${WGCNA_BUILD_ROOT:-$HOME/Library/Caches/rsWGCNA-build/macos}"
 mkdir -p "$root"
 root="$(cd "$root" && pwd -P)"
@@ -23,6 +24,7 @@ copy_source() {
 }
 copy_source "$dashboard" "$run/dashboard" frontend backend
 copy_source "$worker" "$run/worker" Cargo.toml Cargo.lock src build.rs
+copy_source "$regutrace" "$run/regutrace" Cargo.toml Cargo.lock crates
 export CARGO_TARGET_DIR="$root/cargo-target"
 # Keep Windows-specific compiler settings out of this build.
 unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS CC CXX GOOS GOARCH
@@ -32,12 +34,17 @@ export CGO_ENABLED=1 CI=true
   cargo +stable build --locked --release --bin rs-wgcna-worker
 )
 (
+  cd "$run/regutrace"
+  CARGO_TARGET_DIR="$root/cargo-target-regutrace" cargo +stable build --locked --release --bin regutrace
+)
+(
   cd "$run/dashboard/frontend"
   pnpm --config.manage-package-manager-versions=false install --frozen-lockfile
   node node_modules/vue-tsc/bin/vue-tsc.js -b
   node node_modules/vite/bin/vite.js build
 )
 cp "$CARGO_TARGET_DIR/release/rs-wgcna-worker" "$run/dashboard/backend/internal/worker/worker-bin"
+cp "$root/cargo-target-regutrace/release/regutrace" "$run/dashboard/backend/internal/regutrace/regutrace-bin"
 cp -R "$run/dashboard/frontend/dist" "$run/dashboard/backend/internal/web/dist"
 mkdir -p "$run/app"
 (
@@ -45,5 +52,6 @@ mkdir -p "$run/app"
   go build -tags release -o "$run/app/rsWGCNA" ./cmd/server
 )
 cp "$CARGO_TARGET_DIR/release/rs-wgcna-worker" "$run/app/rs-wgcna-worker"
+cp "$root/cargo-target-regutrace/release/regutrace" "$run/app/regutrace"
 printf '%s\n' "$run/app" > "$root/latest-app.txt"
 printf 'macOS build: %s\n' "$run/app/rsWGCNA"

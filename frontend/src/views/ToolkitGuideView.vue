@@ -109,6 +109,27 @@ AT1G01010	NAC001	NAC domain containing protein 1	NAC transcription factor</code>
       <p class="mb-0">{{ text('如需检查连接对样本变化的敏感程度，可展开模块网络下方的「边稳定性（可选）」，查看已选连接在有效重采样中超过 TOM 阈值的比例。', 'To check how sensitive selected edges are to changes in the samples, expand Edge stability (optional) below the module network. It shows how often each edge exceeds the TOM threshold in valid resamples.') }}</p>
     </section>
 
+    <!-- ReguTrace motif library -->
+    <section class="step-card">
+      <div class="step-head"><span class="step-badge" style="background:#0f766e">M</span><h5 class="mb-0">{{ text('ReguTrace motif 库从哪里来？', 'Where do ReguTrace motif libraries come from?') }}</h5></div>
+      <p>{{ text('ReguTrace 只接受 JASPAR PFM 文本（>ID name + A/C/G/T 矩阵）。内置库是 JASPAR 2024 CORE plants non-redundant（805 个 motif，CC BY 4.0）；其它物种族需要从下面的来源下载并转换成 JASPAR PFM 后上传。', 'ReguTrace accepts JASPAR PFM text only (>ID name + A/C/G/T rows). The built-in library is JASPAR 2024 CORE plants non-redundant (805 motifs, CC BY 4.0); other taxa need to be downloaded from the sources below and converted to JASPAR PFM before upload.') }}</p>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle small mb-2">
+          <thead><tr><th>{{ text('类群', 'Taxon') }}</th><th>{{ text('推荐来源', 'Recommended sources') }}</th><th>{{ text('说明', 'Notes') }}</th></tr></thead>
+          <tbody>
+            <tr><td>{{ text('通用真核', 'Eukaryotes') }}</td><td><a href="https://jaspar.elixir.no/downloads/" target="_blank" rel="noopener noreferrer">JASPAR downloads</a> · <a href="https://cisbp.ccbr.utoronto.ca/" target="_blank" rel="noopener noreferrer">CIS-BP</a></td><td>{{ text('JASPAR 可按 taxon 下载 JASPAR 格式；CIS-BP 多为 MEME/TRANSFAC，需要转换。', 'JASPAR offers per-taxon JASPAR-format downloads; CIS-BP is often MEME/TRANSFAC and needs conversion.') }}</td></tr>
+            <tr><td>{{ text('植物', 'Plants') }}</td><td>JASPAR plants · CIS-BP plants · PlantTFDB</td><td>{{ text('内置库即 JASPAR plants；PlantTFDB/PlantRegMap 站点目前可能不可用。', 'The built-in library is JASPAR plants; PlantTFDB/PlantRegMap availability varies.') }}</td></tr>
+            <tr><td>{{ text('动物', 'Animals') }}</td><td>JASPAR vertebrates / insects / nematodes / urochordates · <a href="https://hocomoco14.autosome.org/downloads_v14" target="_blank" rel="noopener noreferrer">HOCOMOCO</a> · <a href="http://uniprobe.org/" target="_blank" rel="noopener noreferrer">UniPROBE</a></td><td>{{ text('HOCOMOCO 覆盖人/小鼠，提供 JASPAR/MEME/TRANSFAC 等格式。', 'HOCOMOCO covers human/mouse and provides JASPAR/MEME/TRANSFAC formats.') }}</td></tr>
+            <tr><td>{{ text('真菌', 'Fungi') }}</td><td>JASPAR fungi · <a href="http://yetfasco.ccbr.utoronto.ca/" target="_blank" rel="noopener noreferrer">YeTFaSCo</a> · CIS-BP fungi</td><td>{{ text('YeTFaSCo 主要覆盖 S. cerevisiae；其它真菌优先 JASPAR/CIS-BP。', 'YeTFaSCo focuses on S. cerevisiae; use JASPAR/CIS-BP for other fungi.') }}</td></tr>
+            <tr><td>{{ text('细菌', 'Bacteria') }}</td><td><a href="https://regulondb.ccg.unam.mx/" target="_blank" rel="noopener noreferrer">RegulonDB</a> · <a href="https://www.prodoric.de/" target="_blank" rel="noopener noreferrer">PRODORIC</a> · <a href="http://www.collectf.org/" target="_blank" rel="noopener noreferrer">CollecTF</a></td><td>{{ text('多为结合位点/矩阵或比对结果，需要整理成 PFM；RegulonDB 以 E. coli 为主。', 'Often binding sites/alignments rather than PFMs; RegulonDB focuses on E. coli.') }}</td></tr>
+            <tr><td>{{ text('古菌', 'Archaea') }}</td><td>PRODORIC · <a href="http://bioinformatics.zj.cn/archaeatf/" target="_blank" rel="noopener noreferrer">ArchaeaTF</a> · <a href="https://entraf.iimas.unam.mx/" target="_blank" rel="noopener noreferrer">ENTRAF</a></td><td>{{ text('没有像 JASPAR 那样统一的古菌 motif 库，覆盖较稀疏。', 'No unified JASPAR-like archaeal motif collection; coverage is sparse.') }}</td></tr>
+            <tr><td>{{ text('病毒 / 原生生物', 'Viruses / protists') }}</td><td>{{ text('宿主 JASPAR/CIS-BP；原生生物另查 VEuPathDB/PlasmoDB', 'Host JASPAR/CIS-BP; for protists also VEuPathDB/PlasmoDB') }}</td><td>{{ text('没有统一的病毒 TF motif 库；病毒调控位点通常用宿主 TF 矩阵近似。', 'No unified viral TF motif library; viral regulatory sites are usually approximated with host TF matrices.') }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small text-muted mb-0">{{ text('引用：JASPAR 2024, Nucleic Acids Research, doi:10.1093/nar/gkad1059；CIS-BP, Weirauch et al., Cell 2014；HOCOMOCO 2024, doi:10.1093/nar/gkad1077。', 'Citations: JASPAR 2024, Nucleic Acids Research, doi:10.1093/nar/gkad1059; CIS-BP, Weirauch et al., Cell 2014; HOCOMOCO 2024, doi:10.1093/nar/gkad1077.') }}</p>
+    </section>
+
     <!-- format reference -->
     <section class="step-card">
       <div class="step-head"><span class="step-badge" style="background:#64748b">?</span><h5 class="mb-0">{{ text('输入/输出格式速查', 'Format cheat sheet') }}</h5></div>

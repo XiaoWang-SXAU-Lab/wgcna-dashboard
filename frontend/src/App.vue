@@ -82,6 +82,7 @@ const saveTone = computed(() => project.saving ? 'text-warning' : project.dirty 
           <div v-if="toolkitsOpen" class="dropdown-menu show position-fixed" :style="{ top: toolkitsPos.top + 'px', left: toolkitsPos.left + 'px', zIndex: 1030 }">
             <router-link class="dropdown-item" to="/toolkits/eggnog" @click="toolkitsOpen = false"><i class="bi bi-file-earmark-arrow-down me-2"></i>{{ text('eggNOG 注释转换', 'eggNOG annotation converter') }}</router-link>
             <router-link class="dropdown-item" to="/toolkits/blast-merge" @click="toolkitsOpen = false"><i class="bi bi-shuffle me-2"></i>{{ text('BLAST 注释合并', 'BLAST annotation merge') }}</router-link>
+            <router-link class="dropdown-item" to="/toolkits/regutrace" @click="toolkitsOpen = false"><i class="bi bi-diagram-3 me-2"></i>{{ text('TF–Target 预测 (ReguTrace)', 'TF–target prediction (ReguTrace)') }}</router-link>
             <hr class="dropdown-divider" />
             <router-link class="dropdown-item" to="/toolkits/guide" @click="toolkitsOpen = false"><i class="bi bi-book me-2"></i>{{ text('详细使用指引', 'Detailed guide') }}</router-link>
           </div>

@@ -19,6 +19,11 @@ jobs:
           repository: XiaoWang-SXAU-Lab/rs-wgcna
           path: rs_WGCNA
 
+      - uses: actions/checkout@v4
+        with:
+          repository: XiaoWang-SXAU-Lab/regutrace
+          path: regutrace
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -31,7 +36,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25'
           cache-dependency-path: backend/go.sum
 
       - name: Build frontend
@@ -48,6 +53,12 @@ jobs:
           cd rs_WGCNA
           cargo build --release --bin rs-wgcna-worker
           cp target/release/rs-wgcna-worker ../backend/internal/worker/worker-bin
+
+      - name: Build ReguTrace
+        run: |
+          cd regutrace
+          cargo build --release --bin regutrace
+          cp target/release/regutrace ../backend/internal/regutrace/regutrace-bin
 
       - name: Build Go binary (macOS)
         run: |
@@ -108,6 +119,11 @@ jobs:
           repository: XiaoWang-SXAU-Lab/rs-wgcna
           path: rs_WGCNA
 
+      - uses: actions/checkout@v4
+        with:
+          repository: XiaoWang-SXAU-Lab/regutrace
+          path: regutrace
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -120,7 +136,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25'
           cache-dependency-path: backend/go.sum
 
       - name: Install mingw (cgo compiler)
@@ -141,6 +157,13 @@ jobs:
           cd rs_WGCNA
           cargo build --release --bin rs-wgcna-worker
           Copy-Item target\release\rs-wgcna-worker.exe ..\backend\internal\worker\worker-bin -Force
+
+      - name: Build ReguTrace
+        shell: pwsh
+        run: |
+          cd regutrace
+          cargo build --release --bin regutrace
+          Copy-Item target\release\regutrace.exe ..\backend\internal\regutrace\regutrace-bin -Force
 
       - name: Build Go executable (Windows)
         shell: pwsh

@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$WorkerSource,
+    [string]$RegutraceSource,
     [string]$BuildRoot = (Join-Path $env:LOCALAPPDATA 'rsWGCNA-build/windows'),
     [string]$GccBin = (Join-Path $env:LOCALAPPDATA 'w64devkit/w64devkit/bin'),
     [string]$RSource,
@@ -12,6 +13,8 @@ if ($env:OS -ne 'Windows_NT') { throw 'Use build-macos.sh on macOS.' }
 $dashboard = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not $WorkerSource) { $WorkerSource = Join-Path $dashboard '../rs_WGCNA' }
 $worker = (Resolve-Path $WorkerSource).Path
+if (-not $RegutraceSource) { $RegutraceSource = Join-Path $dashboard '../regutrace' }
+$regutrace = (Resolve-Path $RegutraceSource).Path
 $BuildRoot = [IO.Path]::GetFullPath($BuildRoot)
 $syncRoot = Split-Path $dashboard -Parent
 if (-not $RSource) { $RSource = Join-Path $syncRoot 'dist-windows/R' }
@@ -62,11 +65,23 @@ try {
     New-Item -ItemType Directory -Path $run -Force | Out-Null
     Copy-Source $dashboard (Join-Path $run 'dashboard') -Paths @('frontend', 'backend')
     Copy-Source $worker (Join-Path $run 'worker') -Paths @('Cargo.toml', 'Cargo.lock', 'src', 'build.rs')
+    Copy-Source $regutrace (Join-Path $run 'regutrace') -Paths @('Cargo.toml', 'Cargo.lock', 'crates')
 
     Push-Location (Join-Path $run 'worker')
     try { Run cargo -Arguments @('+stable-x86_64-pc-windows-gnu', 'build', '--locked', '--release', '--bin', 'rs-wgcna-worker') }
     finally { Pop-Location }
     $workerExe = Join-Path $env:CARGO_TARGET_DIR 'release/rs-wgcna-worker.exe'
+
+    $reguTarget = Join-Path $BuildRoot 'cargo-target-regutrace'
+    Push-Location (Join-Path $run 'regutrace')
+    try {
+        $env:CARGO_TARGET_DIR = $reguTarget
+        Run cargo -Arguments @('+stable-x86_64-pc-windows-gnu', 'build', '--locked', '--release', '--bin', 'regutrace')
+    } finally {
+        Pop-Location
+        $env:CARGO_TARGET_DIR = Join-Path $BuildRoot 'cargo-target'
+    }
+    $reguExe = Join-Path $reguTarget 'release/regutrace.exe'
 
     Push-Location (Join-Path $run 'dashboard/frontend')
     try {
@@ -77,6 +92,7 @@ try {
 
     $backend = Join-Path $run 'dashboard/backend'
     Copy-Item -LiteralPath $workerExe -Destination (Join-Path $backend 'internal/worker/worker-bin') -Force
+    Copy-Item -LiteralPath $reguExe -Destination (Join-Path $backend 'internal/regutrace/regutrace-bin') -Force
     Copy-Item -LiteralPath (Join-Path $run 'dashboard/frontend/dist') -Destination (Join-Path $backend 'internal/web/dist') -Recurse -Force
     $output = Join-Path $run 'app'
     New-Item -ItemType Directory -Path $output -Force | Out-Null
@@ -85,6 +101,7 @@ try {
     try { Run go -Arguments @('build', '-tags', 'release', '-ldflags', '-H=windowsgui', '-o', $exe, './cmd/server') }
     finally { Pop-Location }
     Copy-Item -LiteralPath $workerExe -Destination (Join-Path $output 'rs-wgcna-worker.exe') -Force
+    Copy-Item -LiteralPath $reguExe -Destination (Join-Path $output 'regutrace.exe') -Force
     if (Test-Path -LiteralPath (Join-Path $RSource 'bin/Rscript.exe')) {
         Copy-Item -LiteralPath $RSource -Destination (Join-Path $output 'R') -Recurse -Force
         Write-Host "Bundled R runtime from $RSource"
@@ -95,9 +112,11 @@ try {
         platform = 'windows-x64'; built_at = (Get-Date -Format o)
         dashboard_commit = (& git -C $dashboard rev-parse HEAD)
         worker_commit = (& git -C $worker rev-parse HEAD)
+        regutrace_commit = (& git -C $regutrace rev-parse HEAD)
         source = 'working files, including uncommitted edits'
         exe_sha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
         worker_sha256 = (Get-FileHash -LiteralPath $workerExe -Algorithm SHA256).Hash
+        regutrace_sha256 = (Get-FileHash -LiteralPath $reguExe -Algorithm SHA256).Hash
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'build-info.json') -Encoding utf8
     Set-Content -LiteralPath (Join-Path $BuildRoot 'latest-app.txt') -Value $output -Encoding utf8
     Write-Host "Windows build: $exe"

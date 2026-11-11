@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/ai"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/api"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/job"
+	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/regutrace"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/web"
 	"github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/internal/worker"
 )
@@ -44,6 +46,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	reguManager := regutrace.NewManager(filepath.Join(cacheRoot, "rsWGCNA-explore", "regutrace"), resolveRegutrace())
+	reguHandler := api.NewRegutraceHandler(reguManager)
 	projects, err := api.NewProjectHandler(workerBin, filepath.Join(configRoot, "rsWGCNA-explore"), filepath.Join(cacheRoot, "rsWGCNA-explore", "staging"))
 	if err != nil {
 		log.Fatalf("projects: %v", err)
@@ -58,6 +62,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	handler.Register(mux)
+	reguHandler.Register(mux)
 	projects.Register(mux)
 	aiHandler.Register(mux)
 	mux.Handle("/", web.Handler())
@@ -122,6 +127,7 @@ func openWindow(baseURL string) {
 	defer w.Destroy()
 	w.SetTitle("rsWGCNA")
 	w.SetSize(1280, 800, webview.HintNone)
+	configureFileDialogs(w.Window())
 	w.Navigate(baseURL)
 	w.Run()
 }
@@ -137,4 +143,21 @@ func resolveWorker() string {
 		log.Fatalf("no worker available: %v (set WGCNA_WORKER, or build with -tags release)", err)
 	}
 	return p
+}
+
+// resolveRegutrace prefers WGCNA_REGUTRACE (dev), then the embedded binary
+// (release builds), then PATH. A missing binary is non-fatal: the toolkit
+// reports an actionable error when a job is started.
+func resolveRegutrace() string {
+	if p := os.Getenv("WGCNA_REGUTRACE"); p != "" {
+		return p
+	}
+	if p, err := regutrace.Extract(); err == nil {
+		return p
+	}
+	if p, err := exec.LookPath("regutrace"); err == nil {
+		return p
+	}
+	log.Printf("warning: no ReguTrace binary available (set WGCNA_REGUTRACE or build with -tags release)")
+	return ""
 }

@@ -13,6 +13,7 @@ import ModuleExplorerView from './views/ModuleExplorerView.vue'
 import ToolkitEggnogView from './views/ToolkitEggnogView.vue'
 import ToolkitBlastView from './views/ToolkitBlastView.vue'
 import ToolkitGuideView from './views/ToolkitGuideView.vue'
+import ToolkitRegutraceView from './views/ToolkitRegutraceView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -26,6 +27,7 @@ const router = createRouter({
     { path: '/module-explorer', name: 'module-explorer', component: ModuleExplorerView },
     { path: '/toolkits/eggnog', name: 'toolkit-eggnog', component: ToolkitEggnogView },
     { path: '/toolkits/blast-merge', name: 'toolkit-blast', component: ToolkitBlastView },
+    { path: '/toolkits/regutrace', name: 'toolkit-regutrace', component: ToolkitRegutraceView },
     { path: '/toolkits/guide', name: 'toolkit-guide', component: ToolkitGuideView },
     { path: '/module-overview', name: 'module-overview', component: ProjectPlaceholderView, meta: { title: '模块总览', titleEn: 'Module overview' } },
     { path: '/report', name: 'report', component: ProjectReportView, meta: { title: '分析报告', titleEn: 'Report' } },
