@@ -2,7 +2,7 @@
 
 ## 最新（2026-11-11 上午，Claude @ 办公室 Mac：macOS 包 + CI 修复）
 
-请先读 [HANDOFF.md](HANDOFF.md) 顶部。当前 dashboard `explore/project-copilot@be49821`（含 `9a53b38`）、worker `10ae0be`，两仓库干净。已在本机构建 macOS arm64 DMG：207 MB，内置裁剪后的 R 4.5.1（75 个包），验证了签名、从挂载 DMG headless `/api/health`、包内 R 的 PNG/PDF/SVG 和 ComplexHeatmap。`release.yml` 两个 job 补装 `igraph`/`svglite`，macOS 改为固定安装 CRAN R 4.5.1 并断言版本。下一步：提交后跑一次 GitHub macOS job 验证 R 4.5.1 安装路径；未授权不要合并 main、不要接在线 LLM。
+请先读 [HANDOFF.md](HANDOFF.md) 顶部。当前 dashboard `explore/project-copilot@be49821`（含 `9a53b38`）、worker `10ae0be`，两仓库干净。已在本机构建 macOS arm64 DMG：207 MB，内置裁剪后的 R 4.5.1（75 个包），验证了签名、从挂载 DMG headless `/api/health`、包内 R 的 PNG/PDF/SVG 和 ComplexHeatmap。`release.yml` 两个 job 补装 `igraph`/`svglite`，macOS 改为固定安装 CRAN R 4.5.1 并断言版本。下一步：跑一次 GitHub macOS job 验证 R 4.5.1 安装路径；DMG 已复制到同步盘 `releases/v0.6.0-explore-be49821-10ae0be/`。未授权不要合并 main、不要接在线 LLM。
 
 ## 最新（2026-11-10 深夜，Claude @ 家里 Windows：边稳定性降为可选诊断，构建通过）
 

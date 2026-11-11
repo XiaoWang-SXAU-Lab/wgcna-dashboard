@@ -5,7 +5,7 @@
 - 验证：`codesign --verify --deep --strict`；从挂载的只读 DMG headless 启动 `/api/health` 返回 ok；包内 R 在挂载镜像内输出 PNG、PDF、SVG；ComplexHeatmap 热图正常。
 - CI 修复：`.github/workflows/release.yml` 的 macOS 和 Windows job 都补装 `igraph`、`svglite`（基因网络图和 SVG 导出必需）；macOS 从 `brew install --cask r` 改为按架构安装 CRAN R 4.5.1 官方 pkg，并断言 `getRversion() == "4.5.1"`。
 - 未验证：原生窗口 GUI 交互、完整 WGCNA 分析流程、第二台 Mac 的安装/卸载、Apple 公证（当前 ad-hoc 签名）。
-- 下一步：在 GitHub 上跑一次 macOS job，验证固定 R 4.5.1 的下载/安装路径；确认后把 DMG 按发布规则复制到同步盘 `releases/`。
+- 下一步：在 GitHub 上跑一次 macOS job，验证固定 R 4.5.1 的下载/安装路径。DMG 已按发布规则复制到同步盘 `releases/v0.6.0-explore-be49821-10ae0be/`（README、SHA256SUMS、build-info 齐全）。
 
 ## 最新（2026-11-10 深夜，Claude @ 家里 Windows：边稳定性降为可选诊断，构建通过）
 
