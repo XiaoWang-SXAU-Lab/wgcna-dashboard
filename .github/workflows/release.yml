@@ -55,10 +55,17 @@ jobs:
           cd backend
           CGO_ENABLED=1 go build -tags release -o ../build/macos/rsWGCNA ./cmd/server
 
-      - name: Install R and plot packages
+      - name: Install R 4.5.1 and plot packages
         run: |
-          brew install --cask r
-          sudo /Library/Frameworks/R.framework/Resources/bin/Rscript -e 'install.packages(c("jsonlite","ggplot2","patchwork","circlize"), repos="https://cloud.r-project.org")'
+          if [ "$(uname -m)" = "arm64" ]; then
+            R_URL="https://cloud.r-project.org/bin/macosx/big-sur-arm64/base/R-4.5.1-arm64.pkg"
+          else
+            R_URL="https://cloud.r-project.org/bin/macosx/big-sur-x86_64/base/R-4.5.1-x86_64.pkg"
+          fi
+          curl -fL --retry 3 -o /tmp/R-4.5.1.pkg "$R_URL"
+          sudo installer -pkg /tmp/R-4.5.1.pkg -target /
+          /Library/Frameworks/R.framework/Resources/bin/Rscript -e 'stopifnot(as.character(getRversion()) == "4.5.1")'
+          sudo /Library/Frameworks/R.framework/Resources/bin/Rscript -e 'install.packages(c("jsonlite","ggplot2","patchwork","circlize","igraph","svglite"), repos="https://cloud.r-project.org")'
           sudo /Library/Frameworks/R.framework/Resources/bin/Rscript -e 'if (!requireNamespace("BiocManager", quietly=TRUE)) install.packages("BiocManager", repos="https://cloud.r-project.org"); BiocManager::install("ComplexHeatmap", ask=FALSE, update=FALSE)'
 
       - name: Assemble app bundle and ad-hoc sign
@@ -148,7 +155,7 @@ jobs:
         run: |
           Invoke-WebRequest -Uri 'https://cloud.r-project.org/bin/windows/base/old/4.5.1/R-4.5.1-win.exe' -OutFile R-win.exe
           Start-Process -Wait -FilePath .\R-win.exe -ArgumentList '/SILENT','/DIR=C:\R'
-          & 'C:\R\bin\Rscript.exe' -e 'install.packages(c("jsonlite","ggplot2","patchwork","circlize"), repos="https://cloud.r-project.org", Ncpus=2)'
+          & 'C:\R\bin\Rscript.exe' -e 'install.packages(c("jsonlite","ggplot2","patchwork","circlize","igraph","svglite"), repos="https://cloud.r-project.org", Ncpus=2)'
           & 'C:\R\bin\Rscript.exe' -e 'if (!requireNamespace("BiocManager", quietly=TRUE)) install.packages("BiocManager", repos="https://cloud.r-project.org"); BiocManager::install("ComplexHeatmap", ask=FALSE, update=FALSE)'
 
       - name: Bundle R runtime

@@ -1,5 +1,9 @@
 # 给 DSH / Codex 的接续 Prompt
 
+## 最新（2026-11-11 上午，Claude @ 办公室 Mac：macOS 包 + CI 修复）
+
+请先读 [HANDOFF.md](HANDOFF.md) 顶部。当前 dashboard `explore/project-copilot@be49821`（含 `9a53b38`）、worker `10ae0be`，两仓库干净。已在本机构建 macOS arm64 DMG：207 MB，内置裁剪后的 R 4.5.1（75 个包），验证了签名、从挂载 DMG headless `/api/health`、包内 R 的 PNG/PDF/SVG 和 ComplexHeatmap。`release.yml` 两个 job 补装 `igraph`/`svglite`，macOS 改为固定安装 CRAN R 4.5.1 并断言版本。下一步：提交后跑一次 GitHub macOS job 验证 R 4.5.1 安装路径；未授权不要合并 main、不要接在线 LLM。
+
 ## 最新（2026-11-10 深夜，Claude @ 家里 Windows：边稳定性降为可选诊断，构建通过）
 
 先读 [HANDOFF.md](HANDOFF.md) 顶部。R-EAN 已按用户决定降为模块网络下方的可选折叠诊断，差异层和桥接层暂停；历史结果仍可读取。UI、README/NEWS、帮助文档已改，Windows 隔离构建（`vue-tsc -b`、`vite build`、Rust worker、Go GUI）通过。另修复高刷新率屏上常驻 CSS 动画导致的卡顿（Module Explorer 空闲 CPU 91%→6%，首页 34%→<1%），并把 `SimpleTable` 及剩余大数据表改为窗口化虚拟滚动（module-trait kME 表 DOM 72,307→570，空闲 CPU 79%→0.2%）。已本地提交 `9a53b38`，未推送；报告页/候选优先级表需重跑 priority 后验收。继续时先启动 EXE 冒烟，再按用户授权推送。
