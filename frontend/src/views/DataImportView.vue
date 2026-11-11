@@ -47,7 +47,13 @@ const roles = computed(() => [
   ['annotation', text('基因注释', 'Gene annotation')],
   ['gene2go', 'Gene → GO'],
   ['gene2kegg', 'Gene → KEGG'],
+  ['tf_target', text('TF–target prior（ReguTrace，可选）', 'TF–target prior (ReguTrace, optional)')],
 ])
+function acceptFor(role: string) {
+  return role === 'tf_target'
+    ? '.db,.sqlite,.tsv,.csv,.tsv.gz,.csv.gz'
+    : '.tsv,.txt,.csv,.xlsx,.xls'
+}
 const filter = computed(() => store.results.filter as FilterResult | undefined)
 const canRun = computed(() => !!store.current?.state.inputs.expr && !store.busy)
 // The engine expects a fraction in [0, 1], not a percentage. Keep the slider
@@ -112,7 +118,8 @@ async function excludeSelected() {
       </div>
       <fieldset :disabled="store.busy" class="vstack gap-3">
         <label v-for="[role, label] in roles" :key="role" class="small">{{ label }} <i v-if="store.current.state.inputs[role]" class="bi bi-check-circle text-success"></i>
-          <input type="file" accept=".tsv,.txt,.csv,.xlsx,.xls" class="form-control form-control-sm mt-1" @change="upload(role, $event)" />
+          <input type="file" :accept="acceptFor(role)" class="form-control form-control-sm mt-1" @change="upload(role, $event)" />
+          <span v-if="role === 'tf_target'" class="d-block text-muted mt-1">{{ text('可选；支持 SQLite、TSV/CSV 或 gzip。导入后会转成项目内 SQLite，不影响现有 WGCNA 步骤。', 'Optional; SQLite, TSV/CSV or gzip. Converted to project SQLite and does not invalidate existing WGCNA steps.') }}</span>
         </label>
         <label>{{ text('数据类型', 'Data type') }}
           <select v-model="store.draft.filter.data_type" class="form-select">

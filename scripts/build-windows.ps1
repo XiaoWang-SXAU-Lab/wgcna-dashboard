@@ -91,8 +91,6 @@ try {
     } finally { Pop-Location }
 
     $backend = Join-Path $run 'dashboard/backend'
-    Copy-Item -LiteralPath $workerExe -Destination (Join-Path $backend 'internal/worker/worker-bin') -Force
-    Copy-Item -LiteralPath $reguExe -Destination (Join-Path $backend 'internal/regutrace/regutrace-bin') -Force
     Copy-Item -LiteralPath (Join-Path $run 'dashboard/frontend/dist') -Destination (Join-Path $backend 'internal/web/dist') -Recurse -Force
     $output = Join-Path $run 'app'
     New-Item -ItemType Directory -Path $output -Force | Out-Null
@@ -102,6 +100,7 @@ try {
     finally { Pop-Location }
     Copy-Item -LiteralPath $workerExe -Destination (Join-Path $output 'rs-wgcna-worker.exe') -Force
     Copy-Item -LiteralPath $reguExe -Destination (Join-Path $output 'regutrace.exe') -Force
+    & (Join-Path $PSScriptRoot 'set-windows-version-info.ps1') -Directory $output -Windres (Join-Path $GccBin 'windres.exe')
     if (Test-Path -LiteralPath (Join-Path $RSource 'bin/Rscript.exe')) {
         Copy-Item -LiteralPath $RSource -Destination (Join-Path $output 'R') -Recurse -Force
         Write-Host "Bundled R runtime from $RSource"
@@ -115,18 +114,23 @@ try {
         regutrace_commit = (& git -C $regutrace rev-parse HEAD)
         source = 'working files, including uncommitted edits'
         exe_sha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
-        worker_sha256 = (Get-FileHash -LiteralPath $workerExe -Algorithm SHA256).Hash
-        regutrace_sha256 = (Get-FileHash -LiteralPath $reguExe -Algorithm SHA256).Hash
+        worker_sha256 = (Get-FileHash -LiteralPath (Join-Path $output 'rs-wgcna-worker.exe') -Algorithm SHA256).Hash
+        regutrace_sha256 = (Get-FileHash -LiteralPath (Join-Path $output 'regutrace.exe') -Algorithm SHA256).Hash
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'build-info.json') -Encoding utf8
     Set-Content -LiteralPath (Join-Path $BuildRoot 'latest-app.txt') -Value $output -Encoding utf8
     Write-Host "Windows build: $exe"
     if ($Launch) {
-        # Use the embedded, freshly built Windows worker, never a stale override.
+        # Use the freshly built sidecars, never stale env overrides.
         $oldWorker = $env:WGCNA_WORKER
+        $oldRegutrace = $env:WGCNA_REGUTRACE
         try {
             Remove-Item Env:WGCNA_WORKER -ErrorAction SilentlyContinue
+            Remove-Item Env:WGCNA_REGUTRACE -ErrorAction SilentlyContinue
             Start-Process -FilePath $exe -WorkingDirectory $output | Out-Null
-        } finally { $env:WGCNA_WORKER = $oldWorker }
+        } finally {
+            $env:WGCNA_WORKER = $oldWorker
+            $env:WGCNA_REGUTRACE = $oldRegutrace
+        }
     }
 } finally {
     foreach ($name in $variables) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }

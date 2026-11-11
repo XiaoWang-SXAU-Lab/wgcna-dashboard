@@ -13,6 +13,8 @@ export const useProjectStore = defineStore('project', () => {
   const dirty = ref(false)
   const draftDirty = ref(false)
   const working = ref(false)
+  const uploading = ref(0)
+  const session = ref(0)
   const results = ref<Partial<Record<StepName, unknown>>>({})
   // Step → execution_id of the loaded result, so `currentResult` can verify the
   // cached numbers match the CURRENT execution (not a late same-project response).
@@ -27,7 +29,7 @@ export const useProjectStore = defineStore('project', () => {
   let pendingSave: Promise<void> | undefined
   let resultsKey = ''
   const id = computed(() => current.value?.state.id ?? '')
-  const busy = computed(() => working.value || !!current.value?.busy)
+  const busy = computed(() => working.value || uploading.value > 0 || !!current.value?.busy)
 
   watch(() => draft.value.filter.data_type, () => {
     if (!hydrating && draft.value.filter.data_type !== 'count' && draft.value.filter.normalize_method === 'vst') draft.value.filter.normalize_method = 'log2p1'
@@ -73,7 +75,7 @@ export const useProjectStore = defineStore('project', () => {
 
   function hydrate(response: ProjectResponse) {
     hydrating = true
-    sessionGen++; stateGen++
+    sessionGen++; stateGen++; session.value++
     results.value = {}; resultsKey = ''; resultMeta.value = {}
     current.value = response
     const defaults = defaultParams()
@@ -91,7 +93,7 @@ export const useProjectStore = defineStore('project', () => {
     if (!current.value) return
     await flush()
     await projectRequest(`/${id.value}/close`, 'POST')
-    sessionGen++; stateGen++
+    sessionGen++; stateGen++; session.value++
     current.value = null; dirty.value = false; draftDirty.value = false
     results.value = {}; resultsKey = ''; resultMeta.value = {}
   }
@@ -108,11 +110,20 @@ export const useProjectStore = defineStore('project', () => {
     dirty.value = true; await flush(); await loadRecent()
   }
   async function importFile(role: string, file: File) {
-    await flush()
-    stateGen++
-    const fd = new FormData(); fd.append('file', file)
-    current.value = await projectRequest<ProjectResponse>(`/${id.value}/inputs/${role}`, 'POST', fd)
-    stateGen++ // landing: a read issued during this mutation must not overwrite it
+    uploading.value += 1
+    try {
+      await flush()
+      const sess = sessionGen
+      const pid = id.value
+      const ver = ++stateGen
+      const fd = new FormData(); fd.append('file', file)
+      const resp = await projectRequest<ProjectResponse>(`/${pid}/inputs/${role}`, 'POST', fd)
+      if (sess !== sessionGen || pid !== id.value || ver !== stateGen) return
+      current.value = resp
+      stateGen++ // landing: a read issued during this mutation must not overwrite it
+    } finally {
+      uploading.value -= 1
+    }
   }
   async function loadDemo() {
     await flush()
@@ -199,5 +210,5 @@ export const useProjectStore = defineStore('project', () => {
     return true
   }
 
-  return { current, draft, card, ui, recent, error, saving, dirty, draftDirty, busy, results, resultMeta, id, flush, open, create, close, loadRecent, importFile, loadDemo, refresh, run, cancel, loadResults, stepStatus, currentResult }
+  return { current, draft, card, ui, recent, error, saving, dirty, draftDirty, busy, session, results, resultMeta, id, flush, open, create, close, loadRecent, importFile, loadDemo, refresh, run, cancel, loadResults, stepStatus, currentResult }
 })

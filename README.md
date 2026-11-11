@@ -38,14 +38,22 @@ installation is required**.
 
 To build from source, see [Build](#build) below.
 
+## Code signing policy
+
+We have applied for Windows code signing through [SignPath Foundation](https://signpath.org/).
+The application is pending. See the [code signing policy](CODE_SIGNING_POLICY.md)
+for the planned release process. macOS builds use ad-hoc signing and are not
+notarized by Apple.
+
 ---
 
 ## Overview
 
 `rsWGCNA Dashboard` is a **B/S (browser/server) application** that wraps the
 pure-Rust [`rs-wgcna`](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna) kernel in a
-friendly web UI. It ships as a **single self-contained binary** (frontend assets
-and the Rust worker are embedded), so users install nothing but the executable.
+friendly web UI. The frontend is embedded in **one Go executable**; the Rust
+worker and ReguTrace scanner are installed as **sidecar executables** next to
+it (never extracted from the app at runtime).
 
 | Layer | Tech |
 |---|---|
@@ -77,6 +85,9 @@ and the Rust worker are embedded), so users install nothing but the executable.
   download PNG/SVG for every chart.
   In Module Explorer, expand **Edge stability (optional)** below the network
   to see how often selected edges exceed the TOM threshold in valid resamples.
+- **ReguTrace TF–target prior**: full evidence export as SQLite/TSV/CSV/gzip/
+  JSONL, optional Data Import prior upload, and a Module Explorer upstream-TF
+  view. The ReguTrace toolkit remains independent of WGCNA project execution.
 - **Publication-quality plots**: SFT and dendrogram render to PDF/SVG.
 - **AI navigator**: multi-vendor LLM (OpenAI-compatible), local vector RAG over
   the codebase, encrypted API key, streaming rich-text Q&A, and one-click error
@@ -100,7 +111,7 @@ Rust worker (rs-wgcna-worker --job-dir --step)
 ```
 
 The backend manages jobs under a `WGCNA_JOBS_DIR`, streams progress over SSE,
-and spawns the embedded `rs-wgcna-worker` per step. The AI navigator answers
+and spawns the `rs-wgcna-worker` sidecar per step. The AI navigator answers
 questions about the codebase and WGCNA principles via a local vector index.
 
 ---
@@ -123,8 +134,10 @@ wgcna-dashboard/
 ## Build
 
 Windows and macOS builds use separate machine-local directories to avoid
-syncing incompatible dependencies and embedded workers. See [BUILDING.md](BUILDING.md).
+syncing incompatible dependencies and sidecar binaries. See [BUILDING.md](BUILDING.md).
 Requires Node, pnpm, Go (see `backend/go.mod`), and Rust.
+Public Windows releases require code signing and antivirus false-positive
+submission; see [docs/RELEASE-SECURITY.md](docs/RELEASE-SECURITY.md).
 
 ```bash
 # macOS: build outside the synchronized source tree

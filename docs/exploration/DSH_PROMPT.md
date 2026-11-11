@@ -1,3 +1,23 @@
+## SignPath application and Windows version resources
+
+- Dashboard `explore/project-copilot` @ `0b661ca`, worker `explore/project-copilot` @ `10ae0be`, ReguTrace `main` @ `54c78d5`. Existing local edits retained. No commit, push, tag or release.
+- Application submitted by maintainer. Local Windows build and CI stamp the unsigned executables with VERSIONINFO from Inno Setup AppVersion. Both XML files constrain product name and version. CI checks installer metadata before submitting it.
+- Codex's recorded local build `20261111-230610-17504b` was not present on this machine. Rebuilt as `20261111-231401-16e8e9`: three executables report rsWGCNA/0.6.0, hashes are recorded in STATE, main health and ReguTrace CLI pass.
+- Built a local test installer at `wgcna-dashboard/dist-windows/rsWGCNA-setup-0.6.0.exe`, copied to `_rsWGCNA-local/installer-test/rsWGCNA-setup-0.6.0-sidecar-test.exe` and to sync-disk `releases/v0.6.0-explore-0b661ca-10ae0be-54c78d5-sidecar-test/` (110,970,002 bytes, SHA-256 `18652CBE93007E01B58BEDA4DBF5D8D279DB154A39C1941FC37CE8114BA20ADA`) with the three EXEs and R 4.5.1. A silent install to a temporary directory verified R, sidecars, main health, the ReguTrace full-format export toolbar, the Data Import TF–target prior upload, the Module Explorer upstream-TF panel, and uninstall. The installer is unsigned; no hosted CI run or SignPath signing yet.
+- Repaired a workflow corruption in the Codex handoff: `windows:` job header and macOS DMG steps had been deleted, so Windows steps ran under `macos-14` and `release.needs` referenced a nonexistent `windows` job. The current workflow has separate `macos`/`windows` jobs and the Windows VERSIONINFO step is after all three EXEs are built.
+- Next verify exact Rust source refs for release, obtain commit/push authorization, and apply XML after SignPath onboarding. Keep public release disabled through the test tag.
+
+## Windows release verification and signing
+
+- Dashboard `explore/project-copilot` @ `0b661ca`, worker `explore/project-copilot` @ `10ae0be`, ReguTrace `main` @ `54c78d5`. Existing local edits retained.
+- Windows CI now builds both Rust binaries with the GNU toolchain and locked dependencies and tests ReguTrace in release mode. ReguTrace's CI example matches.
+- Tag signing uses the SignPath Foundation GitHub Action and the two artifact configurations in `.signpath/artifact-configurations/`; next apply to SignPath, configure `SIGNPATH_*` secrets/vars, run a tag build, and scan/install the final Windows package with Huorong enabled. macOS remains ad-hoc signed and not notarized. Local ReguTrace GNU release tests passed 61/61 with w64devkit and self-contained linking. YAML and GitHub Action wiring were checked; GitHub-hosted CI, production signing and final installer scans were not run.
+- The logged TrojanSpy/Stealer.jl detection occurred during debug linking. Keep the debug workflow and use the detection log for vendor review.
+
+## 最新（2026-11-12，Windows：Codex 导出/prior 复核修复）
+
+请先读 [HANDOFF.md](HANDOFF.md) 顶部最新节。Codex 只读复核发现 ReguTrace 全量导出、prior 查询、Data Import 上传、Module Explorer 上游 TF 面板的 P1/P2；已在两仓库工作树修复：Rust 原子发布（Windows `ReplaceFileW`）、文本/JSONL 数值校验、gzip 显式 finalize、prior 只读与 hard-link 别名拒绝、`validate-db` 完整性/六索引定义/全行类型检查；Go 导出 generation 缓存与唯一 partial、`evidence.<generation>.tsv`、严格 numeric/JSON EOF 检查；前端 stale response 防护。最后一轮 focused Codex 复核 final3 给出 **V2/V4 PASS**，V2/V4 范围无剩余 P0/P1；V1/V3/V5 在前一轮 PASS。验证：Rust release 64/64、`go test ./...`、`go vet ./...`、`vue-tsc -b`、`vite build` PASS。未提交、未推送、未重建安装器。
+
 # 给 DSH / Codex 的接续 Prompt
 
 ## 最新（2026-11-11 上午，Claude @ 办公室 Mac：macOS 包 + CI 修复）

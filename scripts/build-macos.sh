@@ -43,8 +43,6 @@ export CGO_ENABLED=1 CI=true
   node node_modules/vue-tsc/bin/vue-tsc.js -b
   node node_modules/vite/bin/vite.js build
 )
-cp "$CARGO_TARGET_DIR/release/rs-wgcna-worker" "$run/dashboard/backend/internal/worker/worker-bin"
-cp "$root/cargo-target-regutrace/release/regutrace" "$run/dashboard/backend/internal/regutrace/regutrace-bin"
 cp -R "$run/dashboard/frontend/dist" "$run/dashboard/backend/internal/web/dist"
 mkdir -p "$run/app"
 (

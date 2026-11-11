@@ -372,21 +372,39 @@ func (p *Project) Resolve(a Artifact) (string, error) {
 
 // Import copies a data file into an immutable, project-relative location.
 func (p *Project) Import(role string, source io.Reader) (State, error) {
+	return p.ImportFile(role, role+".tsv", source)
+}
+
+// ImportFile copies a named data file into the project. Most roles use a
+// canonical TSV name; tf_target stores the canonical SQLite database produced
+// by the ReguTrace converter.
+func (p *Project) ImportFile(role, filename string, source io.Reader) (State, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
 		return State{}, errors.New("project closed")
 	}
 	switch role {
-	case "expr", "trait", "sample_info", "annotation", "gene2go", "gene2kegg":
+	case "expr", "trait", "sample_info", "annotation", "gene2go", "gene2kegg", "tf_target":
 	default:
 		return State{}, errors.New("unsupported input role")
+	}
+	filename = filepath.Base(filename)
+	if filename == "." || filename == "" || filename == string(filepath.Separator) {
+		return State{}, errors.New("invalid input filename")
+	}
+	if role == "tf_target" {
+		if strings.ToLower(filepath.Ext(filename)) != ".db" {
+			return State{}, errors.New("tf_target input must be a canonical SQLite .db file")
+		}
+	} else {
+		filename = role + ".tsv"
 	}
 	dir, err := p.safeDirectory("inputs/" + identifier())
 	if err != nil {
 		return State{}, err
 	}
-	name := filepath.Join(dir, role+".tsv")
+	name := filepath.Join(dir, filename)
 	f, err := os.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return State{}, err

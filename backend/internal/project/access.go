@@ -103,6 +103,17 @@ func (p *Project) Input(role string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+// InputPath returns the verified on-disk path of an imported input.
+func (p *Project) InputPath(role string) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	a, ok := p.state.Inputs[role]
+	if !ok {
+		return "", errors.New("input not imported")
+	}
+	return p.Resolve(a)
+}
+
 // Progress returns the latest worker progress, or the zero value before a run.
 func (p *Project) Progress() Progress { p.mu.Lock(); defer p.mu.Unlock(); return p.progress }
 

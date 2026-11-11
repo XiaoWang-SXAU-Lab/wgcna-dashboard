@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import type { EChartsOption } from 'echarts'
 import { useProjectStore } from '../stores/project'
-import type { AnnotationRow, DetailResult, EnrichResult, ExpressionResult, HubPriorityResult, HubResult, MtaitResult, ModulesResult, NetEdge, NetworkResult, ReanResult, SampleInfo } from '../api/client'
+import type { AnnotationRow, DetailResult, EnrichResult, ExpressionResult, HubPriorityResult, HubResult, MtaitResult, ModulesResult, NetEdge, NetworkResult, ReanResult, SampleInfo, TfTargetUpstreamRow } from '../api/client'
+import { getTfTargetUpstream } from '../api/client'
 import { getAnnotation, getEnrich, getExpression, getSampleInfo, projectOutputUrl } from '../api/projects'
 import { locale } from '../utils/i18n'
 import GsMmScatter from '../components/GsMmScatter.vue'
@@ -17,7 +18,7 @@ import type { NetLayout, SizeBasis, LabelMode, NodeColorMode } from '../componen
 import { makePoints, optionFromPoints } from '../utils/enrichmentChart'
 import { hclustAverage } from '../utils/hclust'
 
-type Tab = 'detail' | 'network' | 'priority' | 'annotation' | 'go' | 'kegg'
+type Tab = 'detail' | 'network' | 'priority' | 'annotation' | 'go' | 'kegg' | 'prior'
 
 const store = useProjectStore()
 const text = (zh: string, en: string) => locale.value === 'zh' ? zh : en
@@ -275,6 +276,61 @@ const showExportEnrich = ref(false)
 const enrichType = computed<'go' | 'kegg'>(() => (tab.value === 'kegg' ? 'kegg' : 'go'))
 const selectedModuleId = computed(() => store.draft.module_detail.select_module as string)
 
+const priorRows = ref<TfTargetUpstreamRow[]>([])
+const priorGeneCount = ref(0)
+const priorLoading = ref(false)
+const priorError = ref('')
+const priorModuleGenes = computed(() => {
+  const net = network.value
+  const moduleId = selectedModuleId.value
+  if (!net || !moduleId) return []
+  const genes: string[] = []
+  net.genes.forEach((gene, i) => { if (net.colors[i] === moduleId) genes.push(gene) })
+  return genes
+})
+const priorChecksum = computed(() => store.current?.state.inputs?.tf_target?.sha256 ?? '')
+let priorRequest = 0
+const priorDisplayRows = computed(() => priorRows.value.map((r) => ({
+  ...r,
+  best_p: r.best_p == null ? '—' : r.best_p.toExponential(2),
+  evidence_levels: r.evidence_levels || '—',
+})))
+async function loadPriorData() {
+  const request = ++priorRequest
+  priorError.value = ''
+  priorRows.value = []
+  priorGeneCount.value = 0
+  if (!store.id || !selectedModuleId.value) {
+    priorLoading.value = false
+    return
+  }
+  if (!priorModuleGenes.value.length) {
+    priorLoading.value = false
+    priorError.value = text('当前模块没有可查询的基因列表；请先运行网络分析。', 'No gene list for this module; run the network step first.')
+    return
+  }
+  const projectId = store.id
+  const genes = [...priorModuleGenes.value]
+  priorLoading.value = true
+  try {
+    const result = await getTfTargetUpstream(projectId, genes)
+    if (request !== priorRequest) return
+    priorRows.value = result.rows
+    priorGeneCount.value = result.gene_count
+  } catch (e) {
+    if (request === priorRequest) priorError.value = String(e)
+  } finally {
+    if (request === priorRequest) priorLoading.value = false
+  }
+}
+watch([tab, priorModuleGenes, () => store.id, priorChecksum], ([t]) => {
+  if (t === 'prior') void loadPriorData()
+  else {
+    priorRequest++
+    priorLoading.value = false
+  }
+})
+
 // User-editable per-node labels (overrides the auto symbol/gene_name/id).
 const labelOverrides = ref<Record<string, string>>({})
 const nodeInfoOpen = ref(false)
@@ -312,24 +368,82 @@ const enrichRows = computed(() => filteredEnrich.value.map((r) => ({
   p_adjust: r['p.adjust'].toExponential(2), count: r.count,
 })))
 
+let annotationRequest = 0
+let priorityAnnotationRequest = 0
+let enrichRequest = 0
+let termRequest = 0
+
 async function loadAnnotation() {
+  const request = ++annotationRequest
+  const projectId = store.id
   const m = selectedModuleId.value
-  if (!store.id || !m) { annotationRows.value = []; return }
+  if (!projectId || !m) {
+    annotationRows.value = []
+    annotationLoading.value = false
+    return
+  }
   annotationLoading.value = true
-  try { annotationRows.value = await getAnnotation(store.id, m) } catch { annotationRows.value = [] } finally { annotationLoading.value = false }
+  try {
+    const rows = await getAnnotation(projectId, m)
+    if (request === annotationRequest && store.id === projectId && selectedModuleId.value === m) annotationRows.value = rows
+  } catch {
+    if (request === annotationRequest && store.id === projectId && selectedModuleId.value === m) annotationRows.value = []
+  } finally {
+    if (request === annotationRequest) annotationLoading.value = false
+  }
 }
 async function loadPriorityAnnotation(module?: string) {
+  const request = ++priorityAnnotationRequest
+  const projectId = store.id
   const m = module || (store.draft.hub_priority.select_module as string)
-  if (!store.id || !m) { priorityAnnotationRows.value = []; return }
+  if (!projectId || !m) {
+    priorityAnnotationRows.value = []
+    priorityAnnotationLoading.value = false
+    return
+  }
   priorityAnnotationLoading.value = true
-  try { priorityAnnotationRows.value = await getAnnotation(store.id, m) } catch { priorityAnnotationRows.value = [] } finally { priorityAnnotationLoading.value = false }
+  try {
+    const rows = await getAnnotation(projectId, m)
+    if (request === priorityAnnotationRequest && store.id === projectId && (store.draft.hub_priority.select_module as string) === m) {
+      priorityAnnotationRows.value = rows
+    }
+  } catch {
+    if (request === priorityAnnotationRequest && store.id === projectId && (store.draft.hub_priority.select_module as string) === m) {
+      priorityAnnotationRows.value = []
+    }
+  } finally {
+    if (request === priorityAnnotationRequest) priorityAnnotationLoading.value = false
+  }
+}
+function enrichSelectionCurrent(request: number, projectId: string, m: string, type: 'go' | 'kegg', fdr: number, top: number, maxCount: number) {
+  return request === enrichRequest && store.id === projectId && selectedModuleId.value === m &&
+    enrichType.value === type && enrichFdr.value === fdr && enrichTop.value === top &&
+    (maxCountOn.value ? 500 : 0) === maxCount
 }
 async function loadEnrich() {
+  const request = ++enrichRequest
+  const projectId = store.id
   const m = selectedModuleId.value
-  if (!store.id || !m) return
+  const type = enrichType.value
+  const fdr = enrichFdr.value
+  const top = enrichTop.value
+  const maxCount = maxCountOn.value ? 500 : 0
+  if (!projectId || !m) {
+    enrichLoading.value = false
+    return
+  }
   enrichLoading.value = true
-  try { enrichResults.value = await getEnrich(store.id, m, enrichType.value, enrichFdr.value, enrichTop.value, maxCountOn.value ? 500 : 0) }
-  catch (e) { store.error = String(e); enrichResults.value = [] } finally { enrichLoading.value = false }
+  try {
+    const rows = await getEnrich(projectId, m, type, fdr, top, maxCount)
+    if (enrichSelectionCurrent(request, projectId, m, type, fdr, top, maxCount)) enrichResults.value = rows
+  } catch (e) {
+    if (enrichSelectionCurrent(request, projectId, m, type, fdr, top, maxCount)) {
+      store.error = String(e)
+      enrichResults.value = []
+    }
+  } finally {
+    if (request === enrichRequest) enrichLoading.value = false
+  }
 }
 watch(selectedModuleId, (m) => { if (m) { void loadAnnotation(); enrichResults.value = [] } }, { immediate: true })
 watch(() => tab.value, (t) => {
@@ -351,12 +465,30 @@ watch(
 const selectedTerm = ref<{ termId: string; description: string; source: string; genes: string[] } | null>(null)
 const termExpr = ref<ExpressionResult | null>(null)
 const termExprLoading = ref(false)
+watch([selectedModuleId, () => store.id], () => {
+  termRequest++
+  selectedTerm.value = null
+  termExpr.value = null
+  termExprLoading.value = false
+})
 
 async function selectTerm(termId: string, description: string, genes: string[], source: string) {
-  if (!genes?.length) return
+  if (!genes?.length || !store.id) return
+  const request = ++termRequest
+  const projectId = store.id
   selectedTerm.value = { termId, description, source, genes }
   termExprLoading.value = true
-  try { termExpr.value = await getExpression(store.id, genes) } catch (e) { store.error = String(e); termExpr.value = null } finally { termExprLoading.value = false }
+  try {
+    const result = await getExpression(projectId, genes)
+    if (request === termRequest && store.id === projectId) termExpr.value = result
+  } catch (e) {
+    if (request === termRequest && store.id === projectId) {
+      store.error = String(e)
+      termExpr.value = null
+    }
+  } finally {
+    if (request === termRequest) termExprLoading.value = false
+  }
 }
 function onChartClick(params: any) {
   const d = params.data
@@ -373,9 +505,19 @@ const termGeneRows = computed(() => (termExpr.value?.rows ?? []).map((r) => ({
 })))
 
 const sampleInfos = ref<SampleInfo[]>([])
-watch(() => store.current?.state.inputs.sample_info?.sha256, async () => {
-  if (!store.id || !store.current?.state.inputs.sample_info) { sampleInfos.value = []; return }
-  try { sampleInfos.value = await getSampleInfo(store.id) } catch { sampleInfos.value = [] }
+let sampleInfoRequest = 0
+watch([() => store.current?.state.inputs?.sample_info?.sha256, () => store.session], async () => {
+  const request = ++sampleInfoRequest
+  const session = store.session
+  const projectId = store.id
+  const checksum = store.current?.state.inputs?.sample_info?.sha256 ?? ''
+  if (!projectId || !checksum) { sampleInfos.value = []; return }
+  try {
+    const rows = await getSampleInfo(projectId)
+    if (request === sampleInfoRequest && store.session === session && store.id === projectId && (store.current?.state.inputs?.sample_info?.sha256 ?? '') === checksum) sampleInfos.value = rows
+  } catch {
+    if (request === sampleInfoRequest && store.session === session && store.id === projectId && (store.current?.state.inputs?.sample_info?.sha256 ?? '') === checksum) sampleInfos.value = []
+  }
 }, { immediate: true })
 const sampleColumns = computed(() => {
   if (!sampleInfos.value.length) return []
@@ -481,10 +623,10 @@ const termHeatOption = computed<EChartsOption>(() => {
     <template #sidebar>
       <div class="d-flex flex-column gap-2">
         <div class="nav nav-pills flex-column gap-1 mb-1">
-          <button v-for="tk in (['detail', 'network', 'priority', 'annotation', 'go', 'kegg'] as Tab[])" :key="tk"
+          <button v-for="tk in (['detail', 'network', 'priority', 'annotation', 'go', 'kegg', 'prior'] as Tab[])" :key="tk"
             class="nav-link text-start" :class="{ active: tab === tk }" @click="tab = tk">
-            <i class="bi me-1" :class="{ detail: 'bi-grid-1x2', network: 'bi-diagram-3', priority: 'bi-trophy', annotation: 'bi-tags', go: 'bi-circle', kegg: 'bi-diagram-2' }[tk]"></i>
-            {{ text({ detail: '模块详情', network: '模块内网络（Hub）', priority: '候选优先级', annotation: '基因注释', go: 'GO 富集', kegg: 'KEGG 富集' }[tk]!, { detail: 'Module detail', network: 'Intra-module (hub)', priority: 'Candidate priority', annotation: 'Annotation', go: 'GO', kegg: 'KEGG' }[tk]!) }}
+            <i class="bi me-1" :class="{ detail: 'bi-grid-1x2', network: 'bi-diagram-3', priority: 'bi-trophy', annotation: 'bi-tags', go: 'bi-circle', kegg: 'bi-diagram-2', prior: 'bi-arrow-up-right-circle' }[tk]"></i>
+            {{ text({ detail: '模块详情', network: '模块内网络（Hub）', priority: '候选优先级', annotation: '基因注释', go: 'GO 富集', kegg: 'KEGG 富集', prior: '上游 TF（ReguTrace）' }[tk]!, { detail: 'Module detail', network: 'Intra-module (hub)', priority: 'Candidate priority', annotation: 'Annotation', go: 'GO', kegg: 'KEGG', prior: 'Upstream TFs (ReguTrace)' }[tk]!) }}
           </button>
         </div>
         <hr class="my-1" />
@@ -827,6 +969,31 @@ const termHeatOption = computed<EChartsOption>(() => {
         { key: 'gene_name', label: 'Gene name' },
         { key: 'description', label: 'Description' },
       ]" :rows="annotationRows" scroll-height="560px" filename="module_annotation" />
+    </template>
+
+    <template v-else-if="tab === 'prior'">
+      <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+        <div>
+          <h6 class="mb-1">{{ text('模块上游 TF（ReguTrace prior）', 'Upstream TFs for this module (ReguTrace prior)') }}</h6>
+          <div class="small text-muted">
+            {{ text('只查询当前模块基因；prior 来自 Data Import，独立于 WGCNA worker。', 'Queries only the current module genes; the prior comes from Data Import and is independent of the WGCNA worker.') }}
+            <span v-if="selectedModuleId">· {{ selectedModuleId }} · {{ priorGeneCount.toLocaleString() }} {{ text('个基因', 'genes') }}</span>
+          </div>
+        </div>
+        <span v-if="priorLoading" class="spinner-border spinner-border-sm ms-auto"></span>
+      </div>
+      <div v-if="priorError" class="alert alert-warning small">{{ priorError }}</div>
+      <SimpleTable v-else-if="priorDisplayRows.length" :columns="[
+        { key: 'tf_id', label: 'TF ID' },
+        { key: 'tf_symbol', label: 'TF symbol' },
+        { key: 'module_targets', label: text('模块内 target 数', 'Module targets') },
+        { key: 'n_sites', label: text('位点数', 'Sites') },
+        { key: 'best_p', label: 'best p' },
+        { key: 'evidence_levels', label: text('证据级别', 'Evidence levels') },
+      ]" :rows="priorDisplayRows" scroll-height="560px" :filename="'tf_target_upstream_' + (selectedModuleId || 'module')" />
+      <p v-else class="text-muted small">
+        {{ text('没有匹配结果。请确认 Data Import 已导入 TF–target prior，且模块基因 ID 与 prior 的 target_id 一致。', 'No matching rows. Confirm a TF–target prior was imported in Data Import and module gene IDs match prior target_id values.') }}
+      </p>
     </template>
 
     <template v-else>

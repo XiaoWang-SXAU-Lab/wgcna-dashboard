@@ -72,6 +72,7 @@ func (h *ProjectHandler) Register(mux *http.ServeMux) {
 		"GET /api/projects/{id}/annotation":                h.projectAnnotation,
 		"GET /api/projects/{id}/enrich":                    h.projectEnrich,
 		"GET /api/projects/{id}/expression":                h.projectExpression,
+		"POST /api/projects/{id}/tf-target/upstream":       h.tfTargetUpstream,
 		"GET /api/projects/{id}/outputs/{step}/{basename}": h.downloadOutput,
 		"GET /api/projects/{id}/report/hub-priority":       h.candidateReport,
 		"GET /api/projects/{id}/evidence/hub-priority":     h.hubPriorityEvidence,
@@ -305,6 +306,10 @@ func (h *ProjectHandler) save(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectHandler) importInput(w http.ResponseWriter, r *http.Request) {
 	s := h.session(w, r)
 	if s == nil {
+		return
+	}
+	if r.PathValue("role") == "tf_target" {
+		h.importTFTarget(w, r, s)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 512<<20)

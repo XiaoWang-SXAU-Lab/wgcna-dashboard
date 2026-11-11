@@ -1,6 +1,7 @@
 package regutrace
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -89,8 +90,27 @@ func TestManagerEndToEnd(t *testing.T) {
 	if len(view.Hits) == 0 || view.Sequence == "" {
 		t.Fatalf("promoter view = %+v", view)
 	}
+	mgr.mu.RLock()
+	evidencePath := mgr.jobs[job.ID].evidencePath
+	mgr.mu.RUnlock()
+	if !strings.HasSuffix(evidencePath, "evidence.1.tsv") {
+		t.Fatalf("evidence path = %q", evidencePath)
+	}
 	if _, _, err := mgr.ExportPath(job.ID, "evidence"); err != nil {
 		t.Fatal(err)
+	}
+	extensions := map[string]string{"sqlite": ".db", "csv": ".csv", "tsv.gz": ".tsv.gz"}
+	for _, format := range []string{"sqlite", "csv", "tsv.gz"} {
+		path, name, err := mgr.ExportFormat(context.Background(), job.ID, "evidence", format)
+		if err != nil {
+			t.Fatalf("export %s: %v", format, err)
+		}
+		if !strings.Contains(name, "evidence") || !strings.HasSuffix(name, extensions[format]) {
+			t.Fatalf("export %s name = %q", format, name)
+		}
+		if info, err := os.Stat(path); err != nil || info.Size() == 0 {
+			t.Fatalf("export %s path %q: %v", format, path, err)
+		}
 	}
 }
 

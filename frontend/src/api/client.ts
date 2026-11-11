@@ -895,6 +895,33 @@ export async function getRegutracePromoter(id: string, target: string): Promise<
   return res.json()
 }
 
-export function regutraceExportUrl(id: string, kind: 'evidence' | 'report' | 'promoters' | 'log'): string {
-  return `${BASE}/toolkits/regutrace/jobs/${id}/export?kind=${kind}`
+export type RegutraceExportFormat = 'sqlite' | 'tsv' | 'csv' | 'tsv.gz' | 'csv.gz' | 'jsonl.gz'
+
+export function regutraceExportUrl(
+  id: string,
+  kind: 'evidence' | 'report' | 'promoters' | 'log',
+  format?: RegutraceExportFormat,
+): string {
+  const p = new URLSearchParams({ kind })
+  if (format) p.set('format', format)
+  return `${BASE}/toolkits/regutrace/jobs/${id}/export?${p.toString()}`
+}
+
+export interface TfTargetUpstreamRow {
+  tf_id: string
+  tf_symbol: string
+  module_targets: number
+  n_sites: number
+  best_p?: number | null
+  evidence_levels?: string
+}
+
+export async function getTfTargetUpstream(id: string, genes: string[]): Promise<{ gene_count: number; rows: TfTargetUpstreamRow[] }> {
+  const res = await fetch(`${BASE}/projects/${id}/tf-target/upstream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ genes }),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
 }

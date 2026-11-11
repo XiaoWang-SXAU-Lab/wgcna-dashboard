@@ -1,15 +1,11 @@
 /frontend/node_modules
 /frontend/dist
 /backend/bin
-/backend/internal/worker/worker-bin
-/backend/internal/regutrace/regutrace-bin
 /backend/internal/web/dist
 *.log
 .DS_Store
 /frontend/tsconfig.tsbuildinfo
 /wgcna-dashboard
-/wgcna-dashboard.exe
-/wgcna-dashboard-preview.exe
 /rsWGCNA-windows-restored.exe
 /dist-windows
 /build

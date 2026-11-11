@@ -213,9 +213,10 @@ func (h *RegutraceHandler) promoter(w http.ResponseWriter, r *http.Request) {
 	view, err := h.mgr.PromoterView(r.PathValue("id"), target)
 	if err != nil {
 		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "not found") {
+		switch {
+		case errors.Is(err, regutrace.ErrNotFound):
 			status = http.StatusNotFound
-		} else if strings.Contains(err.Error(), "has not completed") {
+		case errors.Is(err, regutrace.ErrNotCompleted):
 			status = http.StatusConflict
 		}
 		http.Error(w, err.Error(), status)
@@ -229,9 +230,19 @@ func (h *RegutraceHandler) export(w http.ResponseWriter, r *http.Request) {
 	if kind == "" {
 		kind = "evidence"
 	}
-	path, name, err := h.mgr.ExportPath(r.PathValue("id"), kind)
+	format := r.URL.Query().Get("format")
+	path, name, err := h.mgr.ExportFormat(r.Context(), r.PathValue("id"), kind, format)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, regutrace.ErrNotFound):
+			status = http.StatusNotFound
+		case errors.Is(err, regutrace.ErrUnsupportedFormat):
+			status = http.StatusBadRequest
+		case errors.Is(err, regutrace.ErrNotCompleted):
+			status = http.StatusConflict
+		}
+		http.Error(w, err.Error(), status)
 		return
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))

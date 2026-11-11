@@ -1,5 +1,6 @@
 // Command server is the WGCNA dashboard: HTTP API + Rust worker orchestration
-// + embedded frontend, wrapped in a native WebView window (single binary).
+// + embedded frontend, wrapped in a native WebView window. Native Rust helpers
+// are installed as sidecars next to this executable.
 package main
 
 import (
@@ -9,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -132,32 +132,25 @@ func openWindow(baseURL string) {
 	w.Run()
 }
 
-// resolveWorker prefers the WGCNA_WORKER env var (dev), then falls back to the
-// embedded worker binary (release builds).
+// resolveWorker locates WGCNA_WORKER or the rs-wgcna-worker sidecar next to the
+// application. Sidecars are shipped by the installer; no EXE is released to a
+// temporary directory at runtime.
 func resolveWorker() string {
-	if p := os.Getenv("WGCNA_WORKER"); p != "" {
-		return p
-	}
-	p, err := worker.Extract()
+	p, err := worker.Resolve()
 	if err != nil {
-		log.Fatalf("no worker available: %v (set WGCNA_WORKER, or build with -tags release)", err)
+		log.Fatalf("no worker available: %v", err)
 	}
 	return p
 }
 
-// resolveRegutrace prefers WGCNA_REGUTRACE (dev), then the embedded binary
-// (release builds), then PATH. A missing binary is non-fatal: the toolkit
-// reports an actionable error when a job is started.
+// resolveRegutrace locates WGCNA_REGUTRACE or the regutrace sidecar next to the
+// application. A missing binary is non-fatal: the toolkit reports an actionable
+// error when a job is started.
 func resolveRegutrace() string {
-	if p := os.Getenv("WGCNA_REGUTRACE"); p != "" {
+	p, err := regutrace.Resolve()
+	if err == nil {
 		return p
 	}
-	if p, err := regutrace.Extract(); err == nil {
-		return p
-	}
-	if p, err := exec.LookPath("regutrace"); err == nil {
-		return p
-	}
-	log.Printf("warning: no ReguTrace binary available (set WGCNA_REGUTRACE or build with -tags release)")
+	log.Printf("warning: no ReguTrace binary available: %v", err)
 	return ""
 }

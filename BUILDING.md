@@ -78,7 +78,7 @@ bash scripts/build-macos.sh
 或按现有发布布局把 R 放在程序旁；单独构建 EXE 不会自动安装 R。
 
 同步软件应排除 `.git/`、`node_modules/`、`target/`、`dist/`、
-`backend/internal/web/dist/`、`backend/internal/worker/worker-bin` 和本机临时产物。
+`backend/internal/web/dist/` 和本机临时产物。
 源码、锁文件和脚本可以同步；Git 历史更适合通过远端 push/pull 传递。
 当前脚本已将新产物移出同步盘，但不自动修改同步客户端规则或删除历史文件。
 如需要共享成品，请分别使用 `windows-x64/`、`macos-arm64/` 等目录。

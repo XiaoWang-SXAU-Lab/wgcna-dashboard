@@ -3,10 +3,15 @@
 All notable changes to the wgcna-dashboard are documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — 2026-11-05
+## [Unreleased] — 2026-11-12
 
 ### Added
 
+- **ReguTrace full-result exports and TF–target prior**: download the full hit table as
+  SQLite (indexed `hits` + `pairs`), TSV/CSV, gzip, or JSONL.gz. Data Import can
+  optionally ingest a ReguTrace prior (SQLite/TSV/CSV/gzip) without invalidating
+  existing WGCNA steps; Module Explorer adds an upstream-TF view for the selected
+  module. The ReguTrace toolkit remains independent of project execution.
 - **Persistent project workspace**: create/open/recent projects, revisioned
   drafts and results, project-level question card, per-step execution
   provenance, safe reopening, and stale-result detection.
@@ -29,6 +34,12 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Windows/macOS packages now ship the Rust worker and ReguTrace as **sidecar
+  executables** next to the app. The Go binary no longer embeds native
+  executables or writes them to a temporary directory at runtime, removing the
+  dropper-like pattern that triggered antivirus false positives. Windows release
+  signing uses SignPath Foundation (pending approval); macOS remains ad-hoc
+  signed and not notarized. See `docs/RELEASE-SECURITY.md`.
 - Module Explorer shows the TOM-weighted network by default. Edge stability is
   a collapsed, optional check below the network, with CSV export.
 - Data Import `sample_percentage` is now a **0–1 slider**. `0` disables
@@ -215,11 +226,11 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Publication-quality SFT plot (PDF/SVG download).
 - AI navigator: multi-vendor LLM (OpenAI-compatible), local vector RAG,
   encrypted API key, streaming Q&A, error diagnosis.
-- Single-binary deployment (frontend + Rust worker embedded).
+- Single-binary deployment (frontend + Rust worker embedded; historical — current builds ship the worker and ReguTrace as sidecars).
 - EN/CN i18n with collapsible drawer sidebars.
 
 ## Build
 
 ```bash
-make build            # single binary (needs Node + Rust + Go)
+make build            # app executable (needs Node + Rust + Go); release scripts add sidecars
 ```

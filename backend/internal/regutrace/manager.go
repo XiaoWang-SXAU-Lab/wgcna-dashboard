@@ -128,6 +128,8 @@ type Uploads struct {
 type jobState struct {
 	Job
 	dir              string
+	generation       uint64
+	evidencePath     string
 	cancel           context.CancelFunc
 	genomePath       string
 	gffPath          string
@@ -147,6 +149,7 @@ type Manager struct {
 	bin string
 
 	mu        sync.RWMutex
+	exportMu  sync.Mutex
 	jobs      map[string]*jobState
 	libraries []LibraryInfo
 }
@@ -439,7 +442,10 @@ func (m *Manager) Start(id string, params Params, mode string) (Job, error) {
 		return Job{}, fmt.Errorf("unknown mode %q", mode)
 	}
 	if m.bin == "" {
-		return Job{}, errors.New("ReguTrace binary is not available; set WGCNA_REGUTRACE or build with -tags release")
+		return Job{}, fmt.Errorf(
+			"ReguTrace binary is not available; place %s next to the application or set WGCNA_REGUTRACE",
+			binaryName(),
+		)
 	}
 	params, err := normalizeParams(params)
 	if err != nil {
@@ -456,6 +462,10 @@ func (m *Manager) Start(id string, params Params, mode string) (Job, error) {
 		return Job{}, errors.New("job is already running")
 	}
 	js.Params = params
+	if mode == "run" {
+		js.generation++
+		js.evidencePath = filepath.Join(js.dir, fmt.Sprintf("evidence.%d.tsv", js.generation))
+	}
 	js.Error = ""
 	js.Diagnostics = nil
 	js.Progress = 0
@@ -558,7 +568,7 @@ func (m *Manager) buildArgs(js *jobState, mode string) []string {
 	}
 	if mode == "run" {
 		args = append(args,
-			"--out", filepath.Join(js.dir, "evidence.tsv"),
+			"--out", js.evidencePath,
 			"--promoters-out", filepath.Join(js.dir, "promoters.fa"),
 			"--progress-json", filepath.Join(js.dir, "progress.json"),
 			"--stream",
@@ -633,7 +643,7 @@ func (m *Manager) finish(js *jobState, mode string, runErr error, logText string
 		return
 	}
 	data, err := buildDataset(
-		filepath.Join(js.dir, "evidence.tsv"),
+		js.evidencePath,
 		js.motifs,
 		js.annotations,
 		len(promoters),
@@ -708,10 +718,10 @@ func (m *Manager) Query(id string, opts QueryOptions) (QueryResult, error) {
 	defer m.mu.RUnlock()
 	js, ok := m.jobs[id]
 	if !ok {
-		return QueryResult{}, errors.New("job not found")
+		return QueryResult{}, fmt.Errorf("%w: job not found", ErrNotFound)
 	}
 	if js.Status != "succeeded" {
-		return QueryResult{}, errors.New("job has not completed a scan")
+		return QueryResult{}, ErrNotCompleted
 	}
 	return js.query(opts), nil
 }
@@ -722,10 +732,10 @@ func (m *Manager) PromoterView(id, target string) (*PromoterView, error) {
 	defer m.mu.RUnlock()
 	js, ok := m.jobs[id]
 	if !ok {
-		return nil, errors.New("job not found")
+		return nil, fmt.Errorf("%w: job not found", ErrNotFound)
 	}
 	if js.Status != "succeeded" {
-		return nil, errors.New("job has not completed a scan")
+		return nil, ErrNotCompleted
 	}
 	return js.promoterView(target)
 }
@@ -736,7 +746,7 @@ func (m *Manager) ExportPath(id, kind string) (string, string, error) {
 	defer m.mu.RUnlock()
 	js, ok := m.jobs[id]
 	if !ok {
-		return "", "", errors.New("job not found")
+		return "", "", fmt.Errorf("%w: job not found", ErrNotFound)
 	}
 	name := ""
 	switch kind {
@@ -749,11 +759,14 @@ func (m *Manager) ExportPath(id, kind string) (string, string, error) {
 	case "log":
 		name = "run.log"
 	default:
-		return "", "", errors.New("unknown export kind")
+		return "", "", fmt.Errorf("%w: unknown export kind %q", ErrUnsupportedFormat, kind)
 	}
 	path := filepath.Join(js.dir, name)
+	if kind == "evidence" && js.evidencePath != "" {
+		path = js.evidencePath
+	}
 	if _, err := os.Stat(path); err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("%w: %s artifact missing", ErrNotFound, kind)
 	}
 	return path, "regutrace-" + id + "-" + name, nil
 }

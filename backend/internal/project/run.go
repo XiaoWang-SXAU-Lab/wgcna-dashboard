@@ -100,10 +100,17 @@ func (p *Project) checkStep(name, engine string, reasons map[string]string) stri
 	if !sameJSON(step.Params, p.state.Draft[name]) {
 		return "parameters changed"
 	}
-	if len(step.Inputs) != len(p.state.Inputs) {
+	workerInputCount := len(p.state.Inputs)
+	if _, ok := p.state.Inputs["tf_target"]; ok {
+		workerInputCount--
+	}
+	if len(step.Inputs) != workerInputCount {
 		return "inputs changed"
 	}
 	for role, a := range p.state.Inputs {
+		if role == "tf_target" {
+			continue
+		}
 		if step.Inputs[role] != a.SHA256 {
 			return "inputs changed"
 		}
@@ -187,6 +194,9 @@ func (p *Project) Run(ctx context.Context, name, worker, stagingRoot string, thr
 	// Preserve all validated upstream artifacts under worker-compatible names.
 	artifacts := []Artifact{}
 	for role, a := range p.state.Inputs {
+		if role == "tf_target" {
+			continue
+		}
 		src, e := p.Resolve(a)
 		if e != nil {
 			p.mu.Unlock()
@@ -218,6 +228,9 @@ func (p *Project) Run(ctx context.Context, name, worker, stagingRoot string, thr
 	}
 	record := Step{ExecutionID: identifier(), Status: "running", Params: append(json.RawMessage{}, p.state.Draft[name]...), Engine: engine, Inputs: map[string]string{}, Upstream: map[string]string{}, StartedAt: time.Now().UTC()}
 	for role, a := range p.state.Inputs {
+		if role == "tf_target" {
+			continue
+		}
 		record.Inputs[role] = a.SHA256
 	}
 	for _, dep := range dependencies[name] {

@@ -12,6 +12,7 @@ import {
   regutraceExportUrl,
   startRegutraceJob,
   type RegutraceCountItem,
+  type RegutraceExportFormat,
   type RegutraceInfo,
   type RegutraceJob,
   type RegutraceParams,
@@ -77,6 +78,7 @@ const queryLabel = ref('')
 const querySection = ref<HTMLElement>()
 
 const chartMode = ref<'tf' | 'motif'>('tf')
+const exportFormat = ref<RegutraceExportFormat>('sqlite')
 
 const promoter = ref<RegutracePromoterView | null>(null)
 const promoterBusy = ref(false)
@@ -789,6 +791,44 @@ onBeforeUnmount(() => {
     </div>
 
     <template v-if="summary">
+      <div class="d-flex align-items-start flex-wrap gap-2 mb-3">
+        <div>
+          <h5 class="mb-1">{{ text('本次 ReguTrace 结果', 'ReguTrace results') }}</h5>
+          <div class="small text-muted">
+            {{ text('独立 toolkit，不依赖 WGCNA 项目，也不要求先执行项目流程。', 'Standalone toolkit; it does not depend on a WGCNA project or a project run.') }}
+            <span v-if="job?.id">· job <code>{{ job.id }}</code></span>
+          </div>
+        </div>
+        <div class="ms-auto d-flex flex-wrap gap-2 align-items-center">
+          <div class="input-group input-group-sm" style="width: 330px">
+            <span class="input-group-text">{{ text('下载全量结果', 'Full export') }}</span>
+            <select v-model="exportFormat" class="form-select" :aria-label="text('导出格式', 'Export format')">
+              <option value="sqlite">SQLite (.db)</option>
+              <option value="tsv">TSV (.tsv)</option>
+              <option value="csv">CSV (.csv)</option>
+              <option value="tsv.gz">TSV gzip (.tsv.gz)</option>
+              <option value="csv.gz">CSV gzip (.csv.gz)</option>
+              <option value="jsonl.gz">JSONL gzip (.jsonl.gz)</option>
+            </select>
+            <a class="btn btn-primary" :href="regutraceExportUrl(job!.id, 'evidence', exportFormat)" download
+               :title="text('下载全量证据表；SQLite 可查询，CSV/TSV 可能超过 1 GB', 'Download the full evidence table; SQLite is queryable, CSV/TSV may exceed 1 GB')">
+              <i class="bi bi-download me-1"></i>{{ text('下载', 'Download') }}
+            </a>
+          </div>
+          <a class="btn btn-sm btn-outline-secondary" :href="regutraceExportUrl(job!.id, 'promoters')" download
+             :title="text('下载本次扫描的启动子 FASTA', 'Download promoter FASTA for this scan')">
+            <i class="bi bi-download me-1"></i>{{ text('启动子 FASTA', 'Promoter FASTA') }}
+          </a>
+          <a class="btn btn-sm btn-outline-secondary" :href="regutraceExportUrl(job!.id, 'report')" download
+             :title="text('下载参数、诊断和运行摘要 JSON', 'Download parameters, diagnostics and run summary as JSON')">
+            <i class="bi bi-download me-1"></i>{{ text('报告 JSON', 'Report JSON') }}
+          </a>
+        </div>
+      </div>
+      <p class="small text-muted mb-3">
+        {{ text('SQLite 推荐用于查询和 Data Import；CSV/TSV 是全量 hit 表，Excel 最多只能打开 1,048,576 行。', 'SQLite is recommended for querying and Data Import; CSV/TSV are full hit tables and Excel is limited to 1,048,576 rows.') }}
+      </p>
+
       <div class="row g-2 mb-3">
         <div class="col-6 col-md-3"><div class="stat-tile"><div class="stat-value">{{ summary.genes.toLocaleString() }}</div><div class="stat-label">{{ text('基因 / promoters', 'Genes / promoters') }}</div></div></div>
         <div class="col-6 col-md-3"><div class="stat-tile"><div class="stat-value">{{ summary.motif_hits.toLocaleString() }}</div><div class="stat-label">{{ text('motif 结合位点', 'Motif hits') }}</div></div></div>
@@ -826,8 +866,7 @@ onBeforeUnmount(() => {
         <div class="card-body">
           <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
             <h6 class="mb-0">{{ text('自由查询', 'Free query') }}</h6>
-            <span class="small text-muted">{{ text('不打印全量关系表；先查询再下载。', 'No full table; query first, download when needed.') }}</span>
-            <a class="btn btn-sm btn-outline-secondary ms-auto" :href="regutraceExportUrl(job!.id, 'evidence')" download><i class="bi bi-download me-1"></i>{{ text('下载完整证据表', 'Download full evidence') }}</a>
+            <span class="small text-muted">{{ text('不打印全量关系表；完整结果用结果顶部的下载按钮。', 'No full table here; use the download buttons at the top of the results.') }}</span>
           </div>
           <div class="row g-2 align-items-end mb-2">
             <div class="col-12 col-md-3">

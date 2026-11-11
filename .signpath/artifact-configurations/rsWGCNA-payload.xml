@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration: Windows application payload.
+
+  Upload a GitHub Actions artifact containing these three files at its root:
+    rsWGCNA.exe
+    rs-wgcna-worker.exe
+    regutrace.exe
+
+  Create a matching Artifact Configuration in the SignPath project UI with
+  slug `rsWGCNA-payload` and paste this XML.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="rsWGCNA.exe" product-name="rsWGCNA" product-version="0.6.0">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="rs-wgcna-worker.exe" product-name="rsWGCNA" product-version="0.6.0">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="regutrace.exe" product-name="rsWGCNA" product-version="0.6.0">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

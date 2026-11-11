@@ -9,7 +9,7 @@
 [![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8.svg)](https://go.dev)
 [![Vue](https://img.shields.io/badge/Vue-3-42b883.svg)](https://vuejs.org)
 [![Rust worker](https://img.shields.io/badge/Rust-worker-rs--wgcna-orange.svg)](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna)
-[![单二进制](https://img.shields.io/badge/部署-单二进制-lightgrey.svg)](#构建)
+[![部署](https://img.shields.io/badge/部署-sidecar%20安装包-lightgrey.svg)](#构建)
 
 > [`rs-wgcna`](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna) 的图形界面：上传数据、调参，生成交互图表和结果表格，无需使用命令行。部分绘图需要随发行包提供的 R 运行环境。
 
@@ -35,14 +35,20 @@
 
 从源码构建见下文[构建](#构建)。
 
+## 代码签名政策
+
+Windows 发布包已向 [SignPath Foundation](https://signpath.org/) 申请代码签名，
+目前等待审核。计划中的发布流程见[代码签名政策](CODE_SIGNING_POLICY.md)。
+macOS 构建使用 ad-hoc 签名，未经 Apple 公证。
+
 ---
 
 ## 概览
 
 `rsWGCNA Dashboard` 是一个 **B/S（浏览器/服务器）应用**，把纯 Rust 的
 [`rs-wgcna`](https://github.com/XiaoWang-SXAU-Lab/rs-wgcna) 内核包进友好的 Web
-界面。它以**单个自包含二进制**发布（前端资源 + Rust worker 全部内嵌），用户只需运行
-一个可执行文件。
+界面。前端资源内嵌在**一个 Go 可执行文件**中；Rust worker 和 ReguTrace
+扫描器作为 **sidecar 可执行文件**安装在主程序旁边（运行时不再从主程序释放到临时目录）。
 
 | 层 | 技术 |
 |---|---|
@@ -67,6 +73,9 @@
   AG Grid 基因表；每个图都可缩放、换色、下载 PNG/SVG。
   如需查看已选连接对样本重采样的敏感程度，可在模块解析的网络下方展开
   **边稳定性（可选）**，查看有效重复中超过 TOM 阈值的比例。
+- **ReguTrace TF–target prior**：全量证据支持 SQLite/TSV/CSV/gzip/JSONL 导出；
+  Data Import 可选上传 prior；Module Explorer 增加“上游 TF”面板。ReguTrace
+  toolkit 仍独立于 WGCNA 项目执行。
 - **可发表级绘图**：SFT 与树状图导出 PDF/SVG。
 - **AI 领航员**：多厂商 LLM（OpenAI 兼容）+ 本地向量 RAG + 加密 API key +
   流式富文本问答 + 一键错误诊断。
@@ -87,7 +96,7 @@ Go 后端 (API + 作业调度 + 文件 + AI 领航员)
 Rust worker (rs-wgcna-worker --job-dir --step)
 ```
 
-后端在 `WGCNA_JOBS_DIR` 下管理作业，通过 SSE 推送进度，并按步调用内嵌的
+后端在 `WGCNA_JOBS_DIR` 下管理作业，通过 SSE 推送进度，并按步调用 sidecar
 `rs-wgcna-worker`。AI 领航员基于本地向量索引回答代码库与 WGCNA 原理相关问题。
 
 ---
@@ -113,7 +122,7 @@ Windows 与 macOS 使用各自的本机构建目录，避免同步依赖和引�
 完整环境及输出位置见 [BUILDING.md](BUILDING.md)。需要 Node、pnpm、Go（版本以 `backend/go.mod` 为准）和 Rust。
 
 ```bash
-# macOS：在同步盘外构建，内嵌前端 + Rust worker
+# macOS：在同步盘外构建（前端内嵌，worker/ReguTrace 作为 sidecar 输出）
 bash scripts/build-macos.sh
 ```
 
