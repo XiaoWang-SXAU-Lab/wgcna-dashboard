@@ -80,40 +80,33 @@ jobs:
           sudo /Library/Frameworks/R.framework/Resources/bin/Rscript -e 'install.packages(c("jsonlite","ggplot2","patchwork","circlize","igraph","svglite"), repos="https://cloud.r-project.org")'
           sudo /Library/Frameworks/R.framework/Resources/bin/Rscript -e 'if (!requireNamespace("BiocManager", quietly=TRUE)) install.packages("BiocManager", repos="https://cloud.r-project.org"); BiocManager::install("ComplexHeatmap", ask=FALSE, update=FALSE)'
 
-      - name: Assemble app bundle and ad-hoc sign
+      - name: Fetch ReguTrace reference packs
+        env:
+          PACKS_URL: ${{ vars.RSWGCNA_REFERENCE_PACKS_URL }}
         run: |
-          mkdir -p build/macos/rsWGCNA.app/Contents/MacOS
-          mkdir -p build/macos/rsWGCNA.app/Contents/Resources
-          mkdir -p build/macos/rsWGCNA.app/Contents/Frameworks
-          cp build/macos/rsWGCNA build/macos/rsWGCNA.app/Contents/MacOS/rsWGCNA
-          cp build/macos/rs-wgcna-worker build/macos/rsWGCNA.app/Contents/MacOS/rs-wgcna-worker
-          cp build/macos/regutrace build/macos/rsWGCNA.app/Contents/MacOS/regutrace
-          cp packaging/Info.plist build/macos/rsWGCNA.app/Contents/Info.plist
-          cp packaging/icon.icns build/macos/rsWGCNA.app/Contents/Resources/icon.icns
-          cp -R /Library/Frameworks/R.framework build/macos/rsWGCNA.app/Contents/Frameworks/
-          FR="build/macos/rsWGCNA.app/Contents/Frameworks/R.framework"
-          MACOS_DIR="build/macos/rsWGCNA.app/Contents/MacOS"
-          # Framework-root symlinks (Headers/PrivateHeaders/R/Resources) cannot be
-          # sealed by codesign; Rscript does not need them at runtime.
-          find "$FR" -maxdepth 1 -type l -delete
-          codesign --force --deep -s - "$FR"
-          codesign --force -s - "$MACOS_DIR/rs-wgcna-worker"
-          codesign --force -s - "$MACOS_DIR/regutrace"
-          codesign --force -s - build/macos/rsWGCNA.app
+          if [ -z "$PACKS_URL" ]; then
+            echo 'Set repository variable RSWGCNA_REFERENCE_PACKS_URL to a ZIP of the four pack directories.' >&2
+            exit 1
+          fi
+          mkdir -p build/macos/pack-source
+          curl -fL --retry 3 "$PACKS_URL" -o build/macos/packs.zip
+          unzip -q build/macos/packs.zip -d build/macos/pack-source
 
-      - name: Create DMG
+      - name: Prepare macOS ReguTrace tools
+        run: bash scripts/prepare-macos-regutrace-tools.sh build/macos/tools
+
+      - name: Assemble app, sign, and create DMG
         run: |
-          mkdir -p build/macos/stage
-          cp -R build/macos/rsWGCNA.app build/macos/stage/
-          ln -s /Applications build/macos/stage/Applications
-          hdiutil create -volname rsWGCNA \
-            -srcfolder build/macos/stage \
-            -ov -format UDZO build/macos/rsWGCNA-0.6.0.dmg
+          WGCNA_PACK_SOURCE="$PWD/build/macos/pack-source" \
+          WGCNA_TOOL_SOURCE="$PWD/build/macos/tools" \
+          WGCNA_R_FRAMEWORK="/Library/Frameworks/R.framework" \
+          WGCNA_OUTPUT_DIR="$PWD/build/macos" \
+          bash scripts/build-macos-package.sh "$PWD/build/macos"
 
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: build/macos/rsWGCNA-0.6.0.dmg
+          path: build/macos/*.dmg
 
   windows:
     runs-on: windows-2022
@@ -233,6 +226,33 @@ jobs:
           New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\dist-windows\R" -Force | Out-Null
           Copy-Item 'C:\R\*' "$env:GITHUB_WORKSPACE\dist-windows\R" -Recurse -Force
 
+      - name: Bundle ReguTrace packs and tools
+        shell: pwsh
+        env:
+          PACKS_URL: ${{ vars.RSWGCNA_REFERENCE_PACKS_URL }}
+          TOOLS_URL: ${{ vars.RSWGCNA_WIN_TOOLS_URL }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PACKS_URL) -or [string]::IsNullOrWhiteSpace($env:TOOLS_URL)) {
+            throw 'Set repository variables RSWGCNA_REFERENCE_PACKS_URL (four pack directories) and RSWGCNA_WIN_TOOLS_URL (hmmer-win + blast-win, including Cygwin source/license).'
+          }
+          $root = Join-Path $env:GITHUB_WORKSPACE 'regutrace-assets'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          Invoke-WebRequest -Uri $env:PACKS_URL -OutFile (Join-Path $root 'packs.zip')
+          Invoke-WebRequest -Uri $env:TOOLS_URL -OutFile (Join-Path $root 'tools.zip')
+          Expand-Archive -LiteralPath (Join-Path $root 'packs.zip') -DestinationPath (Join-Path $root 'pack-source') -Force
+          Expand-Archive -LiteralPath (Join-Path $root 'tools.zip') -DestinationPath (Join-Path $root 'tool-source') -Force
+          foreach ($name in @('plant-jaspar-2024-rbh','nematode-beta-2026-11-15-r2','drosophila-beta-2026-11-15','yeast-2026-11-15')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $root "pack-source/$name/manifest.json"))) {
+              throw "pack archive is missing $name/manifest.json"
+            }
+          }
+          foreach ($name in @('hmmer-win','blast-win')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $root "tool-source/$name"))) {
+              throw "tool archive is missing $name/"
+            }
+          }
+          ./scripts/bundle-regutrace-assets.ps1 -Output dist-windows -PackSource (Join-Path $root 'pack-source') -ToolSource (Join-Path $root 'tool-source')
+
       - name: Check SignPath configuration
         id: signpath
         if: startsWith(github.ref, 'refs/tags/')
@@ -292,6 +312,26 @@ jobs:
           foreach ($file in $files) {
             Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $target $file.Name) -Force
           }
+
+      - name: Write Windows build-info
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:GITHUB_WORKSPACE 'dist-windows'
+          $info = [ordered]@{
+            platform = 'windows-x64'
+            built_at = (Get-Date -Format o)
+            dashboard_commit = (& git -C "$env:GITHUB_WORKSPACE" rev-parse HEAD)
+            worker_commit = (& git -C "$env:GITHUB_WORKSPACE/rs_WGCNA" rev-parse HEAD)
+            regutrace_commit = (& git -C "$env:GITHUB_WORKSPACE/regutrace" rev-parse HEAD)
+            source = 'GitHub Actions'
+            exe_sha256 = (Get-FileHash -LiteralPath (Join-Path $output 'rsWGCNA.exe') -Algorithm SHA256).Hash
+            worker_sha256 = (Get-FileHash -LiteralPath (Join-Path $output 'rs-wgcna-worker.exe') -Algorithm SHA256).Hash
+            regutrace_sha256 = (Get-FileHash -LiteralPath (Join-Path $output 'regutrace.exe') -Algorithm SHA256).Hash
+            packs = @('plant-jaspar-2024-rbh','nematode-beta-2026-11-15-r2','drosophila-beta-2026-11-15','yeast-2026-11-15')
+            tools_manifest_sha256 = (Get-FileHash -LiteralPath (Join-Path $output 'tools/manifest.json') -Algorithm SHA256).Hash
+            third_party_notices_sha256 = (Get-FileHash -LiteralPath (Join-Path $output 'THIRD_PARTY_NOTICES.md') -Algorithm SHA256).Hash
+          }
+          $info | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'build-info.json') -Encoding utf8
 
       - name: Build installer (Inno Setup)
         shell: pwsh
