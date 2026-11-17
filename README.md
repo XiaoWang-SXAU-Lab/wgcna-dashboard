@@ -25,7 +25,9 @@
 Prebuilt desktop packages are published on the
 [Releases](https://github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/releases) page.
 They bundle the R runtime used for publication exports, so **no separate R
-installation is required**.
+installation is required**. The installers also bundle the ReguTrace reference
+packs plus HMMER and NCBI BLAST+, so reference-pack mode only needs the genome,
+GFF3 and protein FASTA; users do not install tools or set `WGCNA_*` paths.
 
 - **Windows** — `rsWGCNA-setup-0.6.0.exe`: a standard Inno Setup installer
   (no admin rights needed). Installs to `%LOCALAPPDATA%\rsWGCNA` with Start
@@ -174,3 +176,7 @@ Windows (PowerShell):
 ## License
 
 [MIT](LICENSE) © 2026 Shawn Wang (Xiao Wang-SXAU-Lab) and contributors
+
+### Plant ReguTrace workflow
+
+Upload the genome, GFF3, CDS or protein FASTA, and gene annotations to run the plant workflow. ReguTrace uses PlantTFHunter family rules, transfers JASPAR matrices through same-family reciprocal protein best hits, then scans local promoters. See the [plant workflow and HF1 results](docs/REGUTRACE-PLANT-WORKFLOW.md).

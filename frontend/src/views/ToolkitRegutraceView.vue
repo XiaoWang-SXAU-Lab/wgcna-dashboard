@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { EChartsOption } from 'echarts'
 import {
@@ -8,10 +8,13 @@ import {
   getRegutraceInfo,
   getRegutraceJob,
   getRegutracePromoter,
+  getRegutraceSiteEvidence,
+  getRegutraceTFView,
   queryRegutrace,
   regutraceExportUrl,
   startRegutraceJob,
   type RegutraceCountItem,
+  type RegutraceDiagnostic,
   type RegutraceExportFormat,
   type RegutraceInfo,
   type RegutraceJob,
@@ -19,11 +22,15 @@ import {
   type RegutracePromoterHit,
   type RegutracePromoterView,
   type RegutraceQueryRow,
+  type RegutraceTFInfo,
+  type RegutraceTFView,
 } from '../api/client'
 import { locale } from '../utils/i18n'
+import { analyzeError } from '../utils/aiBus'
 import SidebarDrawer from '../components/SidebarDrawer.vue'
 import SimpleTable from '../components/SimpleTable.vue'
 import EChart from '../components/EChart.vue'
+import RegutraceTFEvidence from '../components/RegutraceTFEvidence.vue'
 
 const text = (zh: string, en: string) => locale.value === 'zh' ? zh : en
 const route = useRoute()
@@ -33,7 +40,17 @@ const genomeFile = ref<File | null>(null)
 const gffFile = ref<File | null>(null)
 const motifsFile = ref<File | null>(null)
 const tfMapFile = ref<File | null>(null)
+const tfGenesFile = ref<File | null>(null)
+const proteinsFile = ref<File | null>(null)
+const sequenceType = ref<"pep" | "cds">("pep")
+const hmmFile = ref<File | null>(null)
+const familyMapFile = ref<File | null>(null)
+const traceFile = ref<File | null>(null)
 const annotationFile = ref<File | null>(null)
+const referencePack = ref('')
+const customPackFile = ref<File | null>(null)
+type ScanMode = 'pack' | 'manual' | 'custom'
+const scanMode = ref<ScanMode>('pack')
 const kingdom = ref('plants')
 const info = ref<RegutraceInfo | null>(null)
 
@@ -52,6 +69,7 @@ const downstream = ref(0)
 const pvalue = ref(1e-4)
 const background = ref<[number, number, number, number]>([0.25, 0.25, 0.25, 0.25])
 const threads = ref(0)
+const includeFallback = ref(false)
 
 const job = ref<RegutraceJob | null>(null)
 const jobId = ref('')
@@ -84,16 +102,31 @@ const promoter = ref<RegutracePromoterView | null>(null)
 const promoterBusy = ref(false)
 const promoterError = ref('')
 const selectedHit = ref<RegutracePromoterHit | null>(null)
+const siteEvidence = ref<RegutraceQueryRow[]>([])
+const siteEvidenceBusy = ref(false)
+const siteEvidenceError = ref('')
+let siteEvidenceSeq = 0
 const siteLimit = ref(30)
 const siteTf = ref('')
 const hover = ref<{ x: number; y: number; hit: RegutracePromoterHit } | null>(null)
 const trackWrap = ref<HTMLElement>()
 const promoterSection = ref<HTMLElement>()
+const tfSection = ref<HTMLElement>()
+const selectedTfId = ref('')
+const tfView = ref<RegutraceTFView | null>(null)
+const tfBusy = ref(false)
+const tfError = ref('')
+let tfSeq = 0
 
 const running = computed(() => job.value?.status === 'validating' || job.value?.status === 'running')
 const busy = computed(() => uploadBusy.value || actionBusy.value || running.value)
 const summary = computed(() => job.value?.summary ?? null)
 const diagnostics = computed(() => job.value?.diagnostics ?? null)
+const priorReady = computed(() => {
+  const inputs = job.value?.inputs
+  if (!inputs) return false
+  return !!inputs.reference_pack || (!!inputs.tf_genes && !!inputs.tf_map)
+})
 const selectedLibrary = computed(() => {
   const found = info.value?.libraries?.find((lib) => lib.key === kingdom.value)
   if (found) return found
@@ -114,14 +147,27 @@ const kingdomOptions = computed(() => [
   { key: 'protists', label: text('原生生物 / Protists（需上传 motif）', 'Protists (upload motifs)') },
   { key: 'custom', label: text('其他 / 自定义 JASPAR PFM', 'Other / custom JASPAR PFM') },
 ])
-const motifReady = computed(() => !!selectedLibrary.value || !!motifsFile.value)
-const filesReady = computed(() => !!genomeFile.value && !!gffFile.value && motifReady.value)
+const packMode = computed(() => scanMode.value === 'pack')
+const customMode = computed(() => scanMode.value === 'custom')
+const pipelineMode = computed(() => scanMode.value !== 'manual')
+const plantReferenceKey = "plant-jaspar-2024-rbh"
+const selectedPack = computed(() => info.value?.packs?.find((pack) => pack.key === referencePack.value) ?? null)
+const toolWarning = computed(() => (info.value?.tools ?? []).filter((tool) => tool.status !== 'ok'))
+const motifReady = computed(() => pipelineMode.value || !!selectedLibrary.value || !!motifsFile.value)
+const proteinsReady = computed(() => !pipelineMode.value || !!proteinsFile.value)
+const packReady = computed(() => {
+  if (packMode.value) return !!referencePack.value
+  if (customMode.value) return !!customPackFile.value
+  return true
+})
+const filesReady = computed(() => (referencePack.value !== plantReferenceKey || !!annotationFile.value) && !!genomeFile.value && !!gffFile.value && motifReady.value && proteinsReady.value && packReady.value)
 const paramsDirty = computed(() => {
   if (!job.value) return false
   const p = job.value.params
   return p.promoter_len !== promoterLen.value || p.downstream !== downstream.value ||
     Math.abs(p.pvalue - pvalue.value) > 1e-15 || p.threads !== threads.value ||
-    p.background.some((v, i) => Math.abs(v - background.value[i]) > 1e-12)
+    p.background.some((v, i) => Math.abs(v - background.value[i]) > 1e-12) ||
+    !!p.include_single_domain_fallback !== includeFallback.value
 })
 
 const statusLabel = computed(() => statusText(job.value?.status))
@@ -159,6 +205,34 @@ const overlayMessage = computed(() => uploadBusy.value
   ? text('正在上传 genome / GFF3 / motif 文件…', 'Uploading genome / GFF3 / motif files…')
   : (job.value?.message || '…'))
 
+const familyFilter = ref('')
+const catalogueSearch = ref('')
+const cataloguePage = ref(1)
+const cataloguePageSize = 25
+const catalogueFamilies = computed(() => {
+  const counts = new Map<string, { identified: number; mapped: number; other: number }>()
+  for (const item of summary.value?.tf_catalogue ?? []) {
+    const key = item.family || text('未分家族', 'Unassigned')
+    const count = counts.get(key) ?? { identified: 0, mapped: 0, other: 0 }
+    if (item.status === 'identified') {
+      count.identified++
+      if (item.motifs.length) count.mapped++
+    } else count.other++
+    counts.set(key, count)
+  }
+  return [...counts.entries()].sort((a, b) => b[1].identified - a[1].identified || a[0].localeCompare(b[0]))
+})
+const maxFamilyCount = computed(() => Math.max(1, ...catalogueFamilies.value.map(([, n]) => n.identified + n.other)))
+const filteredCatalogue = computed(() => {
+  const key = catalogueSearch.value.trim().toLowerCase()
+  return (summary.value?.tf_catalogue ?? []).filter(item =>
+    (!familyFilter.value || (item.family || text('未分家族', 'Unassigned')) === familyFilter.value)
+    && (!key || [item.id, item.name, item.description, ...item.motifs].some(v => v?.toLowerCase().includes(key))))
+})
+const cataloguePageCount = computed(() => Math.max(1, Math.ceil(filteredCatalogue.value.length / cataloguePageSize)))
+const catalogueRows = computed(() => filteredCatalogue.value.slice(
+  (cataloguePage.value - 1) * cataloguePageSize, cataloguePage.value * cataloguePageSize))
+watch([familyFilter, catalogueSearch, summary], () => { cataloguePage.value = 1 })
 const chartItems = computed<RegutraceCountItem[]>(() => {
   if (!summary.value) return []
   return chartMode.value === 'tf' ? summary.value.top_tfs : summary.value.top_motifs
@@ -205,7 +279,7 @@ const chartHeight = computed(() => `${Math.max(230, chartDisplayItems.value.leng
 const tfOptions = computed(() => {
   if (!promoter.value) return []
   const names = new Set<string>()
-  for (const h of promoter.value.hits) for (const tf of h.tfs) names.add(tf.symbol || tf.id)
+  for (const h of promoter.value.hits) for (const tf of h.tfs) names.add(tf.name || tf.symbol || tf.id)
   return [...names].sort()
 })
 const promoterHits = computed(() => {
@@ -213,7 +287,7 @@ const promoterHits = computed(() => {
   const filter = siteTf.value.trim().toLowerCase()
   const list = promoter.value.hits.filter((h) => {
     if (!filter) return true
-    return h.tfs.some((tf) => (tf.symbol || tf.id).toLowerCase().includes(filter))
+    return h.tfs.some((tf) => (tf.name || tf.symbol || tf.id).toLowerCase().includes(filter))
   })
   list.sort((a, b) => {
     const ap = a.p_value ?? 2
@@ -226,7 +300,7 @@ const promoterHits = computed(() => {
 const totalSites = computed(() => {
   if (!promoter.value) return 0
   const filter = siteTf.value.trim().toLowerCase()
-  return promoter.value.hits.filter((h) => !filter || h.tfs.some((tf) => (tf.symbol || tf.id).toLowerCase().includes(filter))).length
+  return promoter.value.hits.filter((h) => !filter || h.tfs.some((tf) => (tf.name || tf.symbol || tf.id).toLowerCase().includes(filter))).length
 })
 const siteOptions = [
   { value: 20, label: '20' },
@@ -294,11 +368,17 @@ const rulerTicks = computed(() => {
 })
 
 const queryColumns = [
-  { key: 'tf_symbol', label: 'TF' },
+  {
+    key: 'tf_name',
+    label: text('TF 基因名', 'TF gene'),
+    fmt: (_v: any, row: Record<string, any>) => row.tf_name || row.tf_symbol || row.tf_id,
+  },
+  { key: 'tf_id', label: 'TF ID' },
   { key: 'tf_family', label: text('家族', 'Family') },
   { key: 'target_symbol', label: text('靶基因', 'Target') },
   { key: 'target_id', label: 'Target ID' },
-  { key: 'target_description', label: text('注释', 'Annotation') },
+  { key: 'tf_description', label: text('TF 注释', 'TF annotation') },
+  { key: 'target_description', label: text('靶基因注释', 'Target annotation') },
   { key: 'motif_id', label: 'Motif' },
   { key: 'score', label: 'Score', fmt: (v: any) => v == null ? '—' : Number(v).toFixed(2) },
   { key: 'p_value', label: 'p', fmt: (v: any) => formatP(v) },
@@ -363,12 +443,18 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] ?? c))
 }
 
-function onFile(target: 'genome' | 'gff' | 'motifs' | 'tfMap' | 'annotation', event: Event) {
+function onFile(target: 'genome' | 'gff' | 'motifs' | 'tfMap' | 'tfGenes' | 'proteins' | 'hmm' | 'familyMap' | 'trace' | 'customPack' | 'annotation', event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0] ?? null
   if (target === 'genome') genomeFile.value = file
   if (target === 'gff') gffFile.value = file
   if (target === 'motifs') motifsFile.value = file
   if (target === 'tfMap') tfMapFile.value = file
+  if (target === 'tfGenes') tfGenesFile.value = file
+  if (target === 'proteins') proteinsFile.value = file
+  if (target === 'hmm') hmmFile.value = file
+  if (target === 'familyMap') familyMapFile.value = file
+  if (target === 'trace') traceFile.value = file
+  if (target === 'customPack') customPackFile.value = file
   if (target === 'annotation') annotationFile.value = file
   resetJob()
 }
@@ -394,12 +480,32 @@ function resetJob() {
   queryTotal.value = 0
   promoter.value = null
   selectedHit.value = null
+  siteEvidenceSeq++
+  siteEvidence.value = []
+  siteEvidenceError.value = ''
   lastResultJob = ''
   syncJobQuery(null)
 }
 
 function onKingdomChange() {
   if (selectedLibrary.value) motifsFile.value = null
+  resetJob()
+}
+
+function setScanMode(mode: ScanMode) {
+  if (mode === 'pack' && !(info.value?.packs?.length)) return
+  scanMode.value = mode
+  if (mode !== 'pack') referencePack.value = ''
+  resetJob()
+}
+
+function onPackChange() {
+  const pack = selectedPack.value
+  if (pack) {
+    scanMode.value = 'pack'
+    if (pack.promoter_len) promoterLen.value = pack.promoter_len
+    if (pack.pvalue) pvalue.value = pack.pvalue
+  }
   resetJob()
 }
 
@@ -411,23 +517,36 @@ function currentParams(): RegutraceParams {
     pvalue: pvalue.value,
     background: [...background.value] as [number, number, number, number],
     threads: Number.isFinite(requestedThreads) ? Math.max(0, Math.trunc(requestedThreads)) : 0,
+    include_single_domain_fallback: includeFallback.value,
   }
 }
 
 async function ensureJob(): Promise<string> {
   if (jobId.value) return jobId.value
   if (!genomeFile.value || !gffFile.value) throw new Error(text('请先选择 genome FASTA 和 GFF3。', 'Choose a genome FASTA and GFF3 first.'))
+  if (packMode.value && !referencePack.value) throw new Error(text('请先选择参考 pack。', 'Choose a reference pack first.'))
+  if (customMode.value && !customPackFile.value) throw new Error(text('请上传自定义 pack ZIP。', 'Choose a custom pack ZIP first.'))
+  if (referencePack.value === plantReferenceKey && !annotationFile.value) throw new Error(text('请上传注释表。', 'Upload an annotation table.'))
+  if (pipelineMode.value && !proteinsFile.value) throw new Error(text('reference/custom pack 模式需要代表性蛋白 FASTA。', 'Reference/custom pack mode requires a representative protein FASTA.'))
   const lib = selectedLibrary.value
-  if (!lib && !motifsFile.value) throw new Error(text('该物种族没有内置 JASPAR 库，请上传自定义 JASPAR PFM。', 'No bundled JASPAR library for this taxon; upload a custom JASPAR PFM.'))
+  if (!pipelineMode.value && !lib && !motifsFile.value) throw new Error(text('该物种族没有内置 JASPAR 库，请上传自定义 JASPAR PFM。', 'No bundled JASPAR library for this taxon; upload a custom JASPAR PFM.'))
   uploadBusy.value = true
   uploadProgress.value = 0
   try {
     const j = await createRegutraceJob({
       genome: genomeFile.value,
       gff: gffFile.value,
-      motifs: lib ? null : motifsFile.value,
-      motifLibrary: lib?.key,
-      tfMap: tfMapFile.value,
+      motifs: pipelineMode.value ? null : (lib ? null : motifsFile.value),
+      motifLibrary: pipelineMode.value ? undefined : lib?.key,
+      tfMap: pipelineMode.value ? null : tfMapFile.value,
+      tfGenes: pipelineMode.value ? null : tfGenesFile.value,
+      proteins: !pipelineMode.value || sequenceType.value === "pep" ? proteinsFile.value : null,
+      cds: pipelineMode.value && sequenceType.value === "cds" ? proteinsFile.value : null,
+      hmm: pipelineMode.value ? null : hmmFile.value,
+      familyMap: pipelineMode.value ? null : familyMapFile.value,
+      trace: pipelineMode.value ? null : traceFile.value,
+      referencePack: packMode.value ? (referencePack.value || undefined) : undefined,
+      customPack: customMode.value ? customPackFile.value : null,
       annotation: annotationFile.value,
     }, (f) => { uploadProgress.value = f })
     job.value = j
@@ -452,6 +571,9 @@ async function start(mode: 'validate' | 'run') {
       queryTotal.value = 0
       promoter.value = null
       selectedHit.value = null
+      siteEvidenceSeq++
+      siteEvidence.value = []
+      siteEvidenceError.value = ''
     }
     startPoll()
   } catch (e) {
@@ -569,25 +691,75 @@ function onChartClick(params: unknown) {
   nextTick(() => querySection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
 }
 
-async function openPromoter(targetId: string) {
+async function loadTFView(tfId: string, targetId = '') {
+  if (!job.value || !tfId) return
+  const seq = ++tfSeq
+  selectedTfId.value = tfId
+  tfBusy.value = true
+  tfError.value = ''
+  tfView.value = null
+  try {
+    const view = await getRegutraceTFView(job.value.id, tfId, targetId || undefined)
+    if (seq === tfSeq) tfView.value = view
+  } catch (e) {
+    if (seq === tfSeq) tfError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    if (seq === tfSeq) tfBusy.value = false
+  }
+}
+
+async function openPromoter(targetId: string, tfId = '') {
   if (!job.value || !targetId) return
   promoterBusy.value = true
   promoterError.value = ''
   selectedHit.value = null
+  siteEvidenceSeq++
+  siteEvidence.value = []
+  siteEvidenceError.value = ''
   siteTf.value = ''
+  const tfLoad = tfId ? loadTFView(tfId, targetId) : Promise.resolve()
   try {
     promoter.value = await getRegutracePromoter(job.value.id, targetId)
-    void router.replace({ query: { ...route.query, job: job.value.id, target: targetId } })
-    nextTick(() => promoterSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    const query: Record<string, string> = {}
+    for (const [key, value] of Object.entries(route.query)) {
+      if (typeof value === 'string') query[key] = value
+    }
+    query.job = job.value.id
+    query.target = targetId
+    if (tfId) query.tf = tfId
+    else delete query.tf
+    void router.replace({ query })
+    nextTick(() => {
+      const target = tfId ? tfSection.value : promoterSection.value
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   } catch (e) {
     promoterError.value = e instanceof Error ? e.message : String(e)
   } finally {
+    await tfLoad
     promoterBusy.value = false
   }
 }
 
 function onQueryRowClick(row: Record<string, any>) {
-  void openPromoter(String(row.target_id ?? ''))
+  void openPromoter(String(row.target_id ?? ''), String(row.tf_id ?? ''))
+}
+
+function selectTF(tfId: string) {
+  if (!tfId) return
+  void loadTFView(tfId, promoter.value?.target_id ?? '')
+  nextTick(() => tfSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+}
+
+function focusMotif(motifId: string) {
+  const hit = promoter.value?.hits.find((item) => item.motif_id === motifId &&
+    (!selectedTfId.value || item.tfs.some((tf) => tf.id === selectedTfId.value))) ??
+    promoter.value?.hits.find((item) => item.motif_id === motifId)
+  if (hit) {
+    selectedHit.value = hit
+    void loadSiteEvidence(hit)
+  }
+  promoterSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 function showHover(event: Event, hit: RegutracePromoterHit) {
@@ -603,7 +775,82 @@ function showHover(event: Event, hit: RegutracePromoterHit) {
 }
 
 function hoverTfs(hit: RegutracePromoterHit): string {
-  return hit.tfs.map((t) => t.symbol || t.id).join(', ')
+  return hit.tfs.map((t) => t.name || t.symbol || t.id).join(', ')
+}
+
+function donorLabel(tf: RegutraceTFInfo): string {
+  const donors = tf.donors ?? []
+  if (!donors.length) return '—'
+  return donors.map((d) => {
+    const head = d.tf_symbol || d.tf_id
+    const family = d.tf_family ? ` (${d.tf_family})` : ''
+    const id = d.tf_symbol && d.tf_symbol !== d.tf_id ? ` · ${d.tf_id}` : ''
+    return `${head}${family}${id}`
+  }).join('; ')
+}
+
+function selectHit(hit: RegutracePromoterHit) {
+  selectedHit.value = hit
+  void loadSiteEvidence(hit)
+}
+
+async function selectSiteFromQuery() {
+  if (!promoter.value) return
+  const motif = typeof route.query.motif === 'string' ? route.query.motif : ''
+  const hitStart = Number(route.query.hit_start)
+  const hitEnd = Number(route.query.hit_end)
+  const strand = typeof route.query.strand === 'string' ? route.query.strand : ''
+  if (!motif || !Number.isFinite(hitStart) || !Number.isFinite(hitEnd)) return
+  const hit = promoter.value.hits.find((h) =>
+    h.motif_id === motif && h.start === hitStart && h.end === hitEnd && (!strand || h.strand === strand),
+  )
+  if (!hit) return
+  selectedHit.value = hit
+  await loadSiteEvidence(hit)
+}
+
+async function loadSiteEvidence(hit: RegutracePromoterHit) {
+  if (!job.value || !promoter.value) return
+  const seq = ++siteEvidenceSeq
+  siteEvidenceBusy.value = true
+  siteEvidenceError.value = ''
+  siteEvidence.value = []
+  try {
+    const p = promoter.value
+    const res = await getRegutraceSiteEvidence(job.value.id, {
+      target: p.target_id,
+      motif: hit.motif_id,
+      promoter_start: hit.promoter_start ?? p.start,
+      promoter_end: hit.promoter_end ?? p.end,
+      hit_start: hit.start,
+      hit_end: hit.end,
+      strand: hit.strand,
+    })
+    if (seq !== siteEvidenceSeq) return
+    siteEvidence.value = res.rows
+  } catch (e) {
+    if (seq !== siteEvidenceSeq) return
+    siteEvidenceError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    if (seq === siteEvidenceSeq) siteEvidenceBusy.value = false
+  }
+}
+
+function evidenceDonor(tfId: string): string {
+  const tf = selectedHit.value?.tfs.find((t) => t.id === tfId)
+  return tf ? donorLabel(tf) : '—'
+}
+
+function rowPromoter(row: RegutraceQueryRow): string {
+  return row.promoter_start !== undefined && row.promoter_end !== undefined
+    ? `${row.promoter_start}-${row.promoter_end}`
+    : '—'
+}
+
+function rowSite(row: RegutraceQueryRow): string {
+  return row.hit_start !== undefined && row.hit_end !== undefined
+    ? `${row.hit_start}-${row.hit_end}(${row.strand ?? '?'})`
+    : '—'
 }
 
 function baseSpans(seq: string) {
@@ -613,6 +860,48 @@ function baseSpans(seq: string) {
 async function copyDiagnostics() {
   if (!job.value?.diagnostics) return
   try { await navigator.clipboard.writeText(JSON.stringify(job.value.diagnostics, null, 2)) } catch { /* clipboard unavailable */ }
+}
+
+function askAIAboutDiagnostic(d: RegutraceDiagnostic) {
+  const lines = [
+    `ReguTrace input diagnostic: ${d.code} (${d.severity})`,
+    d.message,
+    d.file ? `${text('文件', 'File')}: ${d.file}${d.line ? `:${d.line}` : ''}` : '',
+    d.context && Object.keys(d.context).length ? `${text('上下文', 'Context')}: ${JSON.stringify(d.context)}` : '',
+    d.suggestion ? `${text('建议', 'Suggested action')}: ${d.suggestion}` : '',
+    text(
+      '请解释这个 ID 不匹配的原因，并给出可执行的修正步骤；如果需要映射表，请生成 transcript/protein ID → gene ID 的映射方案，不要手工乱改 ID。',
+      'Explain why the IDs do not match and give an actionable fix. If a mapping table is needed, propose a transcript/protein ID → gene ID mapping; do not rename IDs by hand.',
+    ),
+  ].filter(Boolean)
+  analyzeError(lines.join('\n'), {
+    regutraceJobId: job.value?.id,
+    kind: d.code === 'ANNOTATION_ID_MISMATCH' ? 'id_mismatch' : 'diagnostic',
+  })
+}
+
+function askAIAboutFailure() {
+  if (!job.value?.error) return
+  const error = job.value.error
+  const hasIDMismatch = !!job.value.diagnostics?.diagnostics.some((d) => d.code === 'ANNOTATION_ID_MISMATCH') ||
+    /ANNOTATION_ID_MISMATCH|do not match|missing from gene map/i.test(error)
+  analyzeError(
+    text(
+      `ReguTrace 运行失败：\n${error}\n\n请判断是否由注释文件/eggNOG/CDS 的 ID 与 GFF ID 不匹配导致，并给出修正步骤或映射表方案。`,
+      `ReguTrace failed:\n${error}\n\nDetermine whether annotation/eggNOG/CDS IDs do not match GFF IDs, and give a fix or mapping-table plan.`,
+    ),
+    {
+      regutraceJobId: job.value?.id,
+      kind: hasIDMismatch ? 'id_mismatch' : 'job_failure',
+    },
+  )
+}
+
+function onIDMapApplied(event: Event) {
+  const detail = (event as CustomEvent<{ jobId?: string }>).detail
+  if (detail?.jobId && detail.jobId === jobId.value) {
+    void start('run')
+  }
 }
 
 function copySequence(seq: string) {
@@ -625,11 +914,18 @@ function applyJobParams(j: RegutraceJob) {
   pvalue.value = j.params.pvalue
   background.value = [...j.params.background] as [number, number, number, number]
   threads.value = j.params.threads ?? 0
+  includeFallback.value = !!j.params.include_single_domain_fallback
 }
 
 onMounted(async () => {
   clockTimer = window.setInterval(() => { now.value = Date.now() }, 1000)
+  window.addEventListener('regutrace-idmap-applied', onIDMapApplied)
   try { info.value = await getRegutraceInfo() } catch { /* optional */ }
+  if (info.value && !(info.value.packs?.length)) scanMode.value = 'manual'
+  if (typeof route.query.job !== "string" && info.value?.packs?.some((pack) => pack.key === plantReferenceKey)) {
+    referencePack.value = plantReferenceKey
+    onPackChange()
+  }
   const q = route.query.job
   if (typeof q === 'string' && q) {
     jobId.value = q
@@ -637,14 +933,31 @@ onMounted(async () => {
       const j = await getRegutraceJob(q)
       job.value = j
       const key = j.inputs.motif_library_key
-      if (key && kingdomOptions.value.some((o) => o.key === key)) kingdom.value = key
-      else if (key === 'custom') kingdom.value = 'custom'
+      if (j.inputs.reference_pack === 'custom') {
+        scanMode.value = 'custom'
+        referencePack.value = ''
+      } else if (j.inputs.reference_pack) {
+        scanMode.value = 'pack'
+        referencePack.value = j.inputs.reference_pack
+      } else {
+        scanMode.value = 'manual'
+        referencePack.value = ''
+        if (key && kingdomOptions.value.some((o) => o.key === key)) kingdom.value = key
+        else if (key === 'custom') kingdom.value = 'custom'
+      }
+      sequenceType.value = j.inputs.cds ? "cds" : "pep"
       applyJobParams(j)
       if (j.status === 'succeeded') {
         lastResultJob = j.id
         await initialQuery(j)
         const target = route.query.target
-        if (typeof target === 'string' && target) await openPromoter(target)
+        const tf = route.query.tf
+        if (typeof target === 'string' && target) {
+          await openPromoter(target, typeof tf === 'string' ? tf : '')
+          await selectSiteFromQuery()
+        } else if (typeof tf === 'string' && tf) {
+          await loadTFView(tf)
+        }
       } else if (j.status === 'validating' || j.status === 'running') {
         progressOpen.value = true
         startPoll()
@@ -657,6 +970,7 @@ onMounted(async () => {
 })
 onBeforeUnmount(() => {
   stopPoll()
+  window.removeEventListener('regutrace-idmap-applied', onIDMapApplied)
   if (clockTimer !== undefined) window.clearInterval(clockTimer)
 })
 </script>
@@ -668,6 +982,36 @@ onBeforeUnmount(() => {
       <p class="text-muted small mb-3">
         {{ text('本地扫描 promoter 上的 PWM 结合位点，输出带坐标的 TF–target 候选证据。结果级别为 D（计算预测），不是体内 binding 证据。', 'Scan promoter PWM sites locally and produce coordinate-aware TF–target candidates. Results are level D (computational prediction), not in vivo binding evidence.') }}
       </p>
+
+      <div class="mb-3">
+        <label class="form-label small mb-1">{{ text('分析模式', 'Analysis mode') }}</label>
+        <div class="btn-group w-100 flex-wrap" role="group" aria-label="ReguTrace analysis mode">
+          <button type="button" class="btn btn-sm" :class="packMode ? 'btn-primary' : 'btn-outline-primary'"
+            :disabled="!info?.packs?.length" @click="setScanMode('pack')">
+            <i class="bi bi-box-seam me-1"></i>{{ text('自动预测', 'Automatic prediction') }}
+          </button>
+          <button type="button" class="btn btn-sm" :class="customMode ? 'btn-success' : 'btn-outline-success'"
+            @click="setScanMode('custom')">
+            <i class="bi bi-boxes me-1"></i>{{ text('自定义 pack', 'Custom pack') }}
+          </button>
+          <button type="button" class="btn btn-sm" :class="scanMode === 'manual' ? 'btn-secondary' : 'btn-outline-secondary'"
+            @click="setScanMode('manual')">
+            <i class="bi bi-sliders me-1"></i>{{ text('高级：手动扫描', 'Advanced: manual scan') }}
+          </button>
+        </div>
+        <p v-if="packMode && referencePack === plantReferenceKey" class="small text-muted mt-1 mb-0">
+          {{ text('上传基因组、GFF、CDS 或蛋白 FASTA，以及注释表。自动鉴定 TF，在同家族找参考 TF，转移 JASPAR 代表矩阵并扫描启动子。', 'Upload a genome, GFF, CDS or protein FASTA, and annotation table. ReguTrace identifies local TFs, finds reference TFs in the same family, transfers representative JASPAR matrices, and scans promoters.') }}
+        </p>
+        <p v-else-if="packMode" class="small text-muted mt-1 mb-0">
+          {{ text('先用参考 pack 从蛋白鉴定本地 TF gene，再做 motif 映射和启动子扫描；结果可用于 WGCNA prior。', 'Identify local TF genes from proteins with a reference pack, then map motifs and scan promoters; results can be used as a WGCNA prior.') }}
+        </p>
+        <p v-else-if="customMode" class="small text-muted mt-1 mb-0">
+          {{ text('上传一个完整自定义 pack ZIP（HMM、规则、参考 map、参考 DBD、DBD models、motifs），再提供 genome/GFF/protein。适合没有内置 pack 的非模式物种；pack 在本地解压、校验 SHA-256 后运行。', 'Upload a complete custom pack ZIP (HMM, rules, reference map, reference DBDs, DBD models, motifs), then provide genome/GFF/protein. This is the route for non-model species without a bundled pack; the pack is extracted locally and SHA-256-verified before running.') }}
+        </p>
+        <div v-else class="alert alert-warning small py-2 mt-2 mb-0">
+          {{ text('手动扫描默认只用 motif 名作为 TF；没有 TF gene ID、gene name 或 domain。只有 motif 命中，通常不能直接作为 WGCNA prior。', 'Manual scan uses motif names as TF IDs by default: no TF gene ID, gene name or domain. It reports motif hits and is usually not usable as a WGCNA prior.') }}
+        </div>
+      </div>
 
       <div class="mb-3">
         <label class="form-label small mb-1">Genome FASTA <span class="text-danger">*</span></label>
@@ -682,7 +1026,39 @@ onBeforeUnmount(() => {
         </label>
       </div>
 
-      <div class="mb-3">
+      <div v-if="packMode" class="mb-3">
+        <label class="form-label small mb-1">{{ text('参考类群', 'Reference taxon') }} <span class="text-danger">*</span></label>
+        <select v-model="referencePack" class="form-select form-select-sm" @change="onPackChange">
+          <option value="" disabled>{{ text('选择参考 pack', 'Choose a reference pack') }}</option>
+          <option v-for="pack in info?.packs ?? []" :key="pack.key" :value="pack.key">
+            {{ pack.key === plantReferenceKey ? text("植物 · JASPAR", "Plants · JASPAR") : pack.key }}<template v-if="pack.species"> · {{ pack.species }}</template>
+          </option>
+        </select>
+        <p v-if="selectedPack" class="small text-muted mt-1 mb-0">
+          {{ text('pack 提供 HMM、规则、参考 map、DBD 和 JASPAR motifs；只需给 genome、GFF3 和代表性蛋白。运行时自动完成 TF 鉴定、motif 映射、扫描和 trace 表。安装包已内置 HMMER/BLASTP，无需配置；高级用户仍可用 WGCNA_HMMERSEARCH/WGCNA_BLASTP 覆盖。', 'The pack supplies HMM, rules, reference map, DBD models and JASPAR motifs; provide only genome, GFF3 and representative proteins. TF identification, motif mapping, scanning and trace tables run automatically. The installer bundles HMMER/BLASTP, so no setup is needed; advanced users can override with WGCNA_HMMERSEARCH/WGCNA_BLASTP.') }}
+        </p>
+      </div>
+      <div v-if="customMode" class="mb-3">
+        <label class="form-label small mb-1">{{ text('自定义 pack ZIP（必需）', 'Custom pack ZIP (required)') }} <span class="text-danger">*</span></label>
+        <label class="btn btn-outline-success w-100 text-truncate btn-sm">
+          <i class="bi bi-upload me-1"></i>{{ customPackFile ? customPackFile.name : text('选择 custom-pack.zip', 'Choose custom-pack.zip') }}
+          <input type="file" accept=".zip,application/zip" class="d-none" @change="onFile('customPack', $event)" />
+        </label>
+        <p class="small text-muted mt-1 mb-0">
+          {{ text('ZIP 根目录需有 manifest.json，包含 hmm、rules、reference_map、reference_domains、dbd_models、motifs 六个文件及 checksums。可直接压缩 pack 文件夹；我们会安全解压到本机 job 目录并校验哈希。', 'The ZIP root needs manifest.json with files and checksums for hmm, rules, reference_map, reference_domains, dbd_models and motifs. Zipping the pack folder itself is also accepted; extraction is sandboxed to the job directory and hashes are verified.') }}
+        </p>
+      </div>
+      <p v-if="info && !(info.packs?.length) && packMode" class="small text-warning mt-1 mb-2">
+        {{ text('服务器没有发现参考 pack；设置 WGCNA_REGUTRACE_PACKS 或使用“自定义 pack”上传 ZIP。', 'No server-side reference packs found; set WGCNA_REGUTRACE_PACKS or upload a ZIP through Custom pack.') }}
+      </p>
+      <p v-if="info?.tools?.length" class="small mt-1 mb-2" :class="toolWarning.length ? 'text-danger' : 'text-muted'">
+        {{ text('内置工具', 'Bundled tools') }}:
+        <span v-for="(tool, i) in info.tools" :key="tool.name">
+          {{ tool.name }} {{ tool.version || '?' }} ({{ tool.status }})<span v-if="i < info.tools.length - 1"> · </span>
+        </span>
+      </p>
+
+      <div v-if="!pipelineMode" class="mb-3">
         <label class="form-label small mb-1">{{ text('Kingdom / 类群（选择 motif 库）', 'Kingdom / taxon (selects motif library)') }}</label>
         <select v-model="kingdom" class="form-select form-select-sm mb-1" @change="onKingdomChange">
           <option v-for="opt in kingdomOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
@@ -717,20 +1093,69 @@ onBeforeUnmount(() => {
         </details>
       </div>
 
-      <details class="mb-3">
-        <summary class="small fw-semibold">{{ text('可选输入与参数', 'Optional inputs and parameters') }}</summary>
+      <details class="mb-3" :open="pipelineMode">
+        <summary class="small fw-semibold">{{ pipelineMode ? text('CDS / 蛋白序列、注释及参数', 'CDS / proteins, annotation, and parameters') : text('可选输入与参数', 'Optional inputs and parameters') }}</summary>
         <div class="mt-2">
+          <label v-if="pipelineMode" for="regutrace-sequence-type" class="form-label small mb-1">{{ text('TF 序列格式', 'TF sequence type') }}</label>
+          <select v-if="pipelineMode" id="regutrace-sequence-type" v-model="sequenceType" class="form-select form-select-sm mb-2"
+            @change="proteinsFile = null; resetJob()">
+            <option value="pep">{{ text('蛋白序列（PEP FASTA）', 'Protein (PEP FASTA)') }}</option>
+            <option value="cds">{{ text('编码序列（CDS FASTA）', 'Coding sequences (CDS FASTA)') }}</option>
+          </select>
+          <label v-if="!pipelineMode" class="form-label small mb-1">{{ pipelineMode ? text('代表性蛋白 FASTA（reference/custom pack 必需）', 'Representative protein FASTA (required for reference/custom pack)') : text('代表性蛋白 FASTA + HMM（可选，自动鉴定 TF）', 'Representative proteins + HMM (optional, identifies TFs)') }}</label>
+          <div class="row g-1 mb-1">
+            <div :class="pipelineMode ? 'col-12' : 'col-6'">
+              <label class="btn btn-outline-secondary w-100 text-truncate btn-sm mb-0">
+                <i class="bi bi-upload me-1"></i>{{ proteinsFile ? proteinsFile.name : (pipelineMode && sequenceType === 'cds' ? 'CDS FASTA' : 'PEP FASTA') }}
+                <input type="file" :key="pipelineMode ? sequenceType : 'manual'" accept=".fa,.fasta,.faa,.pep,.fna,.cds,.gz" class="d-none" @change="onFile('proteins', $event)" />
+              </label>
+            </div>
+            <div v-if="!pipelineMode" class="col-6">
+              <label class="btn btn-outline-secondary w-100 text-truncate btn-sm mb-0">
+                <i class="bi bi-upload me-1"></i>{{ hmmFile ? hmmFile.name : text('TF HMM 文件', 'TF HMM file') }}
+                <input type="file" accept=".hmm,.h3m" class="d-none" @change="onFile('hmm', $event)" />
+              </label>
+            </div>
+          </div>
+          <template v-if="!pipelineMode">
+          <label class="btn btn-outline-secondary w-100 text-truncate btn-sm mb-2">
+            <i class="bi bi-upload me-1"></i>{{ familyMapFile ? familyMapFile.name : text('HMM→family 映射（可选）', 'HMM→family map (optional)') }}
+            <input type="file" accept=".tsv,.txt,.gz" class="d-none" @change="onFile('familyMap', $event)" />
+          </label>
+          <p class="small text-muted mb-2">{{ text('蛋白一个基因一条代表序列；HMMER3 HMM 文件由用户提供。运行时先鉴定 TF，再生成 tf_genes.tsv；需要同时提供 tf_map。', 'One representative protein per gene; HMMER3 HMM file is supplied by the user. TF identification runs before scanning and produces tf_genes.tsv; tf_map is also required.') }}</p>
+          </template>
+
+          <template v-if="!pipelineMode">
+          <label class="form-label small mb-1">{{ text('TF 鉴定表 tf_genes.tsv（可选）', 'TF catalogue tf_genes.tsv (optional)') }}</label>
+          <label class="btn btn-outline-secondary w-100 text-truncate btn-sm mb-2">
+            <i class="bi bi-upload me-1"></i>{{ tfGenesFile ? tfGenesFile.name : text('上传 tf_genes.tsv', 'Upload tf_genes.tsv') }}
+            <input type="file" accept=".tsv,.txt,.gz" class="d-none" @change="onFile('tfGenes', $event)" />
+          </label>
+          <p class="small text-muted mb-2">{{ text('提供本物种已鉴定的 TF-GeneID 表；必须和 tf_map 一起使用，未鉴定或无 motif 的 TF 不产生预测边。', 'Provide the species TF–GeneID catalogue; use it with tf_map. Unidentified or unmapped TFs produce no prediction edges.') }}</p>
+          </template>
+
+          <template v-if="!pipelineMode">
           <label class="form-label small mb-1">TF–motif map ({{ text('可选', 'optional') }})</label>
           <label class="btn btn-outline-secondary w-100 text-truncate btn-sm mb-2">
             <i class="bi bi-upload me-1"></i>{{ tfMapFile ? tfMapFile.name : text('上传 tf_map.tsv', 'Upload tf_map.tsv') }}
             <input type="file" accept=".tsv,.txt,.gz" class="d-none" @change="onFile('tfMap', $event)" />
           </label>
-          <p class="small text-muted mb-2">{{ text('不传时用 motif header name 作为 TF ID；上传后可得到 tf_id / symbol / family。', 'Without it, the motif header name is used as the TF ID. Upload it to get tf_id / symbol / family.') }}</p>
+          <p class="small text-muted mb-2">{{ text('不传时用 motif header name 作为 TF ID；上传 tf_genes 后，tf_map 的 tf_id 必须来自已鉴定基因。', 'Without it the motif header name is used as the TF ID. With tf_genes, every tf_map tf_id must be an identified catalogue gene.') }}</p>
+          </template>
+
+          <template v-if="!pipelineMode">
+          <label class="form-label small mb-1">{{ text('TF–motif 追溯表 tf_motif_trace.tsv（可选）', 'TF–motif trace table tf_motif_trace.tsv (optional)') }}</label>
+          <label class="btn btn-outline-secondary w-100 text-truncate btn-sm mb-2">
+            <i class="bi bi-upload me-1"></i>{{ traceFile ? traceFile.name : text('上传 tf_motif_trace.tsv', 'Upload tf_motif_trace.tsv') }}
+            <input type="file" accept=".tsv,.txt,.gz" class="d-none" @change="onFile('trace', $event)" />
+          </label>
+          <p class="small text-muted mb-2">{{ text('从与本次 tf_map/evidence 同一运行的 CLI pipeline/trace 输出上传；详情页只用 reference_donors 给本次 tf_map 中已有的 donor 补充 symbol/family，不会新增或替换 donor ID。不上传时显示 tf_map 的 donor ID。', 'Upload the CLI pipeline/trace output from the same run as this tf_map/evidence. The detail page uses reference_donors only to add symbol/family to donor IDs already present in tf_map; it never adds or replaces a donor ID. Without it, the detail page shows tf_map donor IDs only.') }}</p>
+          </template>
 
           <label class="form-label small mb-1">{{ text('Annotation（可选）', 'Annotation (optional)') }}</label>
           <label class="btn btn-outline-secondary w-100 text-truncate btn-sm mb-2">
-            <i class="bi bi-upload me-1"></i>{{ annotationFile ? annotationFile.name : text('eggNOG .annotations 或注释 TSV', 'eggNOG .annotations or annotation TSV') }}
-            <input type="file" accept=".tsv,.txt,.annotations,.gz" class="d-none" @change="onFile('annotation', $event)" />
+            <i class="bi bi-upload me-1"></i>{{ annotationFile ? annotationFile.name : text('上传注释表（TSV 或 eggNOG）', 'Upload annotation (TSV or eggNOG)') }}
+            <input type="file" accept=".tsv,.txt,.xls,.annotations,.gz" class="d-none" @change="onFile('annotation', $event)" />
           </label>
           <p class="small text-muted mb-2">{{ text('自动识别 eggNOG 或 gene_id / symbol / description TSV；没有注释时使用 GFF 的 Name。', 'Auto-detects eggNOG or a gene_id / symbol / description TSV. Without it, the GFF Name is used.') }}</p>
 
@@ -749,15 +1174,20 @@ onBeforeUnmount(() => {
           <label class="form-label small mb-1 mt-2">{{ text('扫描线程数', 'Scan threads') }}</label>
           <input v-model.number="threads" type="number" min="0" max="256" step="1" class="form-control form-control-sm" />
           <p class="small text-muted mt-1 mb-0">{{ text('0 = 自动（CPU 核数 − 1）；1 = 单线程。', '0 = auto (CPU cores − 1); 1 = serial.') }}</p>
+          <div v-if="referencePack !== plantReferenceKey" class="form-check mt-2">
+            <input id="rt-include-fallback" v-model="includeFallback" class="form-check-input" type="checkbox" />
+            <label class="form-check-label small" for="rt-include-fallback">{{ text('纳入单域回退映射（single_domain_fallback）', 'Include single-domain fallback mappings') }}</label>
+            <div class="small text-muted">{{ text('默认只扫描完整架构；纳入后会增加候选，也会增加歧义。', 'Default scans full architectures only; including fallback adds candidates and ambiguity.') }}</div>
+          </div>
         </div>
       </details>
 
       <div class="d-grid gap-2">
-        <button class="btn btn-outline-primary btn-sm" :disabled="!filesReady || busy" @click="start('validate')">
+        <button v-if="!pipelineMode" class="btn btn-outline-primary btn-sm" :disabled="!filesReady || busy" @click="start('validate')">
           <i class="bi bi-check2-circle me-1"></i>{{ text('检查输入', 'Validate inputs') }}
         </button>
         <button class="btn btn-primary btn-sm" :disabled="!filesReady || busy" @click="start('run')">
-          <i class="bi bi-play-fill me-1"></i>{{ text('运行 ReguTrace', 'Run ReguTrace') }}
+          <i class="bi bi-play-fill me-1"></i>{{ pipelineMode ? text('运行 ReguTrace', 'Run ReguTrace') : text('运行 ReguTrace', 'Run ReguTrace') }}
         </button>
       </div>
 
@@ -785,6 +1215,9 @@ onBeforeUnmount(() => {
     <div v-if="job?.status === 'failed'" class="alert alert-danger">
       <div class="fw-semibold mb-1"><i class="bi bi-x-circle me-1"></i>{{ text('运行失败', 'Run failed') }}</div>
       <div class="small" style="white-space: pre-wrap">{{ job.error }}</div>
+      <button v-if="job.error" class="btn btn-sm btn-outline-light mt-2" @click="askAIAboutFailure">
+        <i class="bi bi-stars me-1"></i>{{ text('让 AI 助手分析 ID / 输入问题', 'Ask AI assistant about IDs / inputs') }}
+      </button>
     </div>
     <div v-if="job?.status === 'validated'" class="alert alert-info small">
       <i class="bi bi-check2-circle me-1"></i>{{ text('输入校验通过。可以点击左侧“运行 ReguTrace”开始扫描。', 'Inputs validated. Click Run ReguTrace on the left to start the scan.') }}
@@ -797,6 +1230,8 @@ onBeforeUnmount(() => {
           <div class="small text-muted">
             {{ text('独立 toolkit，不依赖 WGCNA 项目，也不要求先执行项目流程。', 'Standalone toolkit; it does not depend on a WGCNA project or a project run.') }}
             <span v-if="job?.id">· job <code>{{ job.id }}</code></span>
+            <span v-if="priorReady" class="badge text-bg-success ms-2">{{ text('可用于 WGCNA prior', 'Prior-ready') }}</span>
+            <span v-else class="badge text-bg-warning ms-2">{{ text('仅 motif 候选，不可直接作 prior', 'Motif-only; not a prior') }}</span>
           </div>
         </div>
         <div class="ms-auto d-flex flex-wrap gap-2 align-items-center">
@@ -815,6 +1250,10 @@ onBeforeUnmount(() => {
               <i class="bi bi-download me-1"></i>{{ text('下载', 'Download') }}
             </a>
           </div>
+          <a v-if="priorReady" class="btn btn-sm btn-success" :href="regutraceExportUrl(job!.id, 'evidence', 'sqlite')" download
+             :title="text('下载包含 gene-level TF/target 的 SQLite，可在 Data Import 作为 TF–target prior 上传', 'Download the gene-level SQLite prior; upload it in Data Import as a TF–target prior')">
+            <i class="bi bi-database-down me-1"></i>{{ text('WGCNA prior (SQLite)', 'WGCNA prior (SQLite)') }}
+          </a>
           <a class="btn btn-sm btn-outline-secondary" :href="regutraceExportUrl(job!.id, 'promoters')" download
              :title="text('下载本次扫描的启动子 FASTA', 'Download promoter FASTA for this scan')">
             <i class="bi bi-download me-1"></i>{{ text('启动子 FASTA', 'Promoter FASTA') }}
@@ -833,11 +1272,12 @@ onBeforeUnmount(() => {
         <div class="col-6 col-md-3"><div class="stat-tile"><div class="stat-value">{{ summary.genes.toLocaleString() }}</div><div class="stat-label">{{ text('基因 / promoters', 'Genes / promoters') }}</div></div></div>
         <div class="col-6 col-md-3"><div class="stat-tile"><div class="stat-value">{{ summary.motif_hits.toLocaleString() }}</div><div class="stat-label">{{ text('motif 结合位点', 'Motif hits') }}</div></div></div>
         <div class="col-6 col-md-3"><div class="stat-tile"><div class="stat-value">{{ summary.tf_target_pairs.toLocaleString() }}</div><div class="stat-label">{{ text('TF–target 关系（去重）', 'TF–target pairs') }}</div></div></div>
-        <div class="col-6 col-md-3"><div class="stat-tile"><div class="stat-value">{{ summary.unique_tfs.toLocaleString() }}</div><div class="stat-label">{{ text('TF 数', 'TFs') }}</div></div></div>
+        <div class="col-6 col-md-3"><div class="stat-tile"><div class="stat-value">{{ (summary.tf_identified ?? summary.unique_tfs).toLocaleString() }}</div><div class="stat-label">{{ text('已鉴定 TF', 'Identified TFs') }}</div></div></div>
       </div>
 
       <div class="row g-2 mb-3 small text-muted">
         <div class="col-12">
+          <template v-if="summary.tf_mapped != null">{{ text('已映射 TF', 'Mapped TFs') }} {{ summary.tf_mapped.toLocaleString() }} · {{ text('已扫描矩阵', 'Matrices scanned') }} {{ summary.motifs_scanned?.toLocaleString() }} · </template>
           {{ text('Motif 库', 'Motif library') }}: {{ summary.motif_library_size.toLocaleString() }}
           · {{ text('有命中 motif', 'motifs with hits') }}: {{ summary.motifs_with_hits.toLocaleString() }}
           · {{ text('唯一 target', 'unique targets') }}: {{ summary.unique_targets.toLocaleString() }}
@@ -847,7 +1287,47 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="card mb-3">
+      <div v-if="summary.tf_identified != null" class="card mb-3">
+        <div class="card-body">
+          <h6>{{ text('转录因子家族分布（全量）', 'Transcription factor families') }}</h6>
+          <p class="small text-muted">{{ text('深色为已获 motif，浅色为其余已鉴定 TF，灰色为待判定。点击家族筛选目录。', 'Dark bars show mapped TFs, light bars show other identified TFs, and gray shows unresolved candidates. Select a family to filter the catalogue.') }}</p>
+          <div style="max-height: 25rem; overflow: auto" class="mb-3">
+            <button v-for="[name, n] in catalogueFamilies" :key="name" type="button"
+              class="btn btn-sm d-flex align-items-center gap-2 w-100 text-start"
+              :class="familyFilter === name ? 'btn-outline-primary' : 'btn-light'"
+              @click="familyFilter = familyFilter === name ? '' : name">
+              <span style="width: 12rem">{{ name }}</span>
+              <span class="d-flex flex-grow-1" style="height: .7rem">
+                <span class="bg-primary rounded-start" :style="{width: (100 * n.mapped / maxFamilyCount) + '%'}"></span>
+                <span class="bg-info" :style="{width: (100 * (n.identified - n.mapped) / maxFamilyCount) + '%'}"></span>
+                <span class="bg-secondary rounded-end" :style="{width: (100 * n.other / maxFamilyCount) + '%'}"></span>
+              </span>
+              <span class="text-nowrap">{{ n.mapped }} / {{ n.identified }}<template v-if="n.other"> + {{ n.other }}</template></span>
+            </button>
+          </div>
+          <div class="d-flex gap-2 mb-2">
+            <input v-model="catalogueSearch" class="form-control form-control-sm" :aria-label="text('搜索转录因子', 'Search TFs')" :placeholder="text('搜索基因 ID、名称、注释或 motif', 'Search ID, name, annotation or motif')" />
+            <button v-if="familyFilter" class="btn btn-sm btn-outline-secondary" @click="familyFilter = ''">{{ familyFilter }} ×</button>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead><tr><th>TF</th><th>{{ text('家族', 'Family') }}</th><th>{{ text('鉴定状态', 'Status') }}</th><th>JASPAR motif</th><th>{{ text('注释', 'Annotation') }}</th><th>{{ text('下游', 'Targets') }}</th></tr></thead>
+              <tbody><tr v-for="item in catalogueRows" :key="item.id">
+                <td><button class="btn btn-link btn-sm p-0" @click="loadTFView(item.id); nextTick(() => tfSection?.scrollIntoView({block:'start'}))">{{ item.name }}</button><small v-if="item.name !== item.id" class="d-block text-muted">{{ item.id }}</small></td>
+                <td>{{ item.family }}</td><td>{{ item.status }}</td><td>{{ item.motifs.join(', ') || '—' }}</td><td>{{ item.description || '—' }}</td>
+                <td><button class="btn btn-sm btn-outline-secondary" :disabled="!item.motifs.length" @click="queryByTf(item.id)">{{ text('查靶标', 'View targets') }}</button></td>
+              </tr></tbody>
+            </table>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <button class="btn btn-sm btn-outline-secondary" :disabled="cataloguePage <= 1" @click="cataloguePage--">{{ text('上一页', 'Previous') }}</button>
+            <span class="small">{{ cataloguePage }} / {{ cataloguePageCount }} · {{ filteredCatalogue.length }} TF</span>
+            <button class="btn btn-sm btn-outline-secondary" :disabled="cataloguePage >= cataloguePageCount" @click="cataloguePage++">{{ text('下一页', 'Next') }}</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="summary.tf_identified == null" class="card mb-3">
         <div class="card-body">
           <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
             <h6 class="mb-0">{{ text('TF / motif 的 target 数', 'Targets per TF / motif') }}</h6>
@@ -914,6 +1394,27 @@ onBeforeUnmount(() => {
       </div>
     </template>
 
+    <div v-if="tfView || tfBusy || tfError" ref="tfSection" class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <h6 class="mb-0">{{ text('TF 基因结构与 domain 证据', 'TF gene structure and domain evidence') }}</h6>
+          <span class="badge text-bg-light border">GFF + HMMER</span>
+          <span class="small text-muted ms-auto">{{ text('点击 exon/CDS/UTR/domain 查看坐标；domain 投影到 CDS 为近似坐标。', 'Click exon/CDS/UTR/domain for coordinates; CDS projections are approximate.') }}</span>
+        </div>
+        <div v-if="tfBusy" class="text-muted small"><span class="spinner-border spinner-border-sm me-2"></span>{{ text('读取 GFF 结构和 domain…', 'Reading GFF structure and domains…') }}</div>
+        <div v-else-if="tfError" class="alert alert-warning small mb-0">{{ tfError }}</div>
+        <RegutraceTFEvidence
+          v-else-if="tfView"
+          :view="tfView"
+          :promoter="promoter"
+          :tf-id="selectedTfId"
+          :selected-hit="selectedHit"
+          @select-hit="selectHit"
+          @focus-motif="focusMotif"
+        />
+      </div>
+    </div>
+
     <div v-if="promoterBusy" class="text-muted small mb-2"><span class="spinner-border spinner-border-sm me-2"></span>{{ text('加载 promoter…', 'Loading promoter…') }}</div>
     <div v-if="promoterError" class="alert alert-warning small">{{ promoterError }}</div>
 
@@ -961,8 +1462,8 @@ onBeforeUnmount(() => {
                 tabindex="0"
                 @mouseenter="showHover($event, site.hit)"
                 @focus="showHover($event, site.hit)"
-                @click="selectedHit = site.hit"
-                @keydown.enter="selectedHit = site.hit"
+                @click="selectHit(site.hit)"
+                @keydown.enter="selectHit(site.hit)"
               />
             </g>
             <text x="40" :y="track.baseline - 10" class="rt-strand-label">+</text>
@@ -980,17 +1481,24 @@ onBeforeUnmount(() => {
           <div class="d-flex align-items-start flex-wrap gap-2">
             <div>
               <div class="fw-semibold">{{ text('位点详情', 'Site details') }}</div>
-              <div class="small text-muted">{{ selectedHit.motif_id }} {{ selectedHit.motif_name }} · {{ selectedHit.strand }} · {{ selectedHit.start }}-{{ selectedHit.end }}</div>
+              <div class="small text-muted">
+                {{ selectedHit.motif_id }} {{ selectedHit.motif_name }} · {{ selectedHit.strand }} · {{ selectedHit.start }}-{{ selectedHit.end }}
+                · promoter {{ selectedHit.promoter_start ?? promoter?.start ?? '—' }}-{{ selectedHit.promoter_end ?? promoter?.end ?? '—' }}
+              </div>
             </div>
             <button class="btn btn-sm btn-outline-secondary ms-auto" @click="copySequence(selectedHit.matched_site)"><i class="bi bi-clipboard me-1"></i>{{ text('复制序列', 'Copy sequence') }}</button>
           </div>
           <div class="row g-2 mt-1">
             <div class="col-12 col-md-6">
-              <div class="small text-muted">{{ text('TF', 'TFs') }}</div>
+              <div class="small text-muted">{{ text('TF', 'TFs') }} <span class="badge text-bg-secondary">{{ selectedHit.tfs.length }}</span></div>
               <div v-for="tf in selectedHit.tfs" :key="tf.id" class="small">
-                <span class="fw-semibold">{{ tf.symbol || tf.id }}</span>
+                <span class="fw-semibold">{{ tf.name || tf.symbol || tf.id }}</span>
                 <span v-if="tf.family" class="text-muted"> · {{ tf.family }}</span>
                 <span class="text-muted"> · {{ tf.id }}</span>
+                <button class="btn btn-sm btn-link p-0 ms-1" :title="text('查看 TF 基因结构和 domain', 'View TF gene structure and domains')" @click="selectTF(tf.id)">
+                  <i class="bi bi-diagram-3"></i>
+                </button>
+                <div class="text-muted ms-3">{{ text('donor', 'donor') }}: {{ donorLabel(tf) }}</div>
               </div>
             </div>
             <div class="col-12 col-md-6">
@@ -1014,6 +1522,43 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="small text-muted mt-2">p = {{ formatP(selectedHit.p_value) }} · score = {{ selectedHit.score?.toFixed(2) ?? '—' }}</div>
+          <div class="mt-3 border-top pt-2">
+            <div class="d-flex align-items-center gap-2">
+              <div class="fw-semibold small">{{ text('原始 evidence 行', 'Raw evidence rows') }}</div>
+              <span class="badge text-bg-secondary">{{ siteEvidence.length }}</span>
+            </div>
+            <div v-if="siteEvidenceBusy" class="small text-muted mt-1"><span class="spinner-border spinner-border-sm me-1"></span>{{ text('查询原始位点证据…', 'Loading raw site evidence…') }}</div>
+            <div v-else-if="siteEvidenceError" class="alert alert-warning small mt-2 mb-0">{{ siteEvidenceError }}</div>
+            <div v-else-if="!siteEvidence.length" class="small text-muted mt-1">{{ text('没有匹配的原始 evidence 行。', 'No matching raw evidence rows.') }}</div>
+            <div v-else class="table-responsive mt-2">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th>{{ text('TF', 'TF') }}</th>
+                    <th>{{ text('donor', 'donor') }}</th>
+                    <th>{{ text('级别', 'level') }}</th>
+                    <th>{{ text('方法', 'method') }}</th>
+                    <th>{{ text('promoter', 'promoter') }}</th>
+                    <th>{{ text('位点', 'site') }}</th>
+                    <th>score</th>
+                    <th>p</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, i) in siteEvidence" :key="`${row.tf_id}-${row.promoter_start}-${row.promoter_end}-${row.hit_start}-${row.hit_end}-${i}`">
+                    <td class="small"><span class="fw-semibold">{{ row.tf_symbol || row.tf_id }}</span><div class="text-muted">{{ row.tf_id }}</div></td>
+                    <td class="small">{{ evidenceDonor(row.tf_id) }}</td>
+                    <td class="small">{{ row.evidence_level || '—' }}</td>
+                    <td class="small">{{ row.method || row.evidence_type || '—' }}<div v-if="row.source" class="text-muted">{{ row.source }}</div></td>
+                    <td class="small font-monospace">{{ rowPromoter(row) }}</td>
+                    <td class="small font-monospace">{{ rowSite(row) }}</td>
+                    <td class="small">{{ row.score?.toFixed(2) ?? '—' }}</td>
+                    <td class="small">{{ formatP(row.p_value) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
         <p v-else class="small text-muted mt-2 mb-0">{{ text('点击一个位点查看 TF 和序列。', 'Click a site to see TF and sequence.') }}</p>
       </div>
@@ -1036,7 +1581,13 @@ onBeforeUnmount(() => {
           <span class="badge" :class="d.severity === 'error' ? 'text-bg-danger' : d.severity === 'warning' ? 'text-bg-warning' : 'text-bg-info'">{{ d.severity }}</span>
           <span class="fw-semibold small ms-2">{{ d.code }}</span>
           <span class="small ms-2">{{ d.message }}</span>
+          <button v-if="d.severity === 'error'" class="btn btn-sm btn-outline-primary ms-2 py-0" @click="askAIAboutDiagnostic(d)">
+            <i class="bi bi-stars me-1"></i>{{ text('让 AI 助手分析', 'Ask AI assistant') }}
+          </button>
           <div v-if="d.suggestion" class="small text-muted ms-4">{{ d.suggestion }}</div>
+          <div v-if="d.code === 'ANNOTATION_ID_MISMATCH'" class="small text-danger ms-4">
+            {{ text('注释 ID 与 GFF 基因 ID 没有重合。常见原因是 eggNOG 使用 transcript/protein ID（如 Fta_1G0000020.1），而 GFF 使用 gene ID（Fta_1G0000020）。可以点“让 AI 助手分析”生成映射方案。', 'Annotation IDs have zero overlap with GFF gene IDs. eggNOG often uses transcript/protein IDs (e.g. Fta_1G0000020.1) while GFF uses gene IDs (Fta_1G0000020). Use “Ask AI assistant” to plan a mapping.') }}
+          </div>
         </div>
         <p v-if="diagnostics.diagnostics.length > 40" class="small text-muted mb-0">{{ text('仅显示前 40 条；完整 JSON 可下载。', 'Showing the first 40; download the JSON for all.') }}</p>
       </div>

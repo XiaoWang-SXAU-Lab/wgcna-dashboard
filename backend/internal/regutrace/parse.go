@@ -125,6 +125,77 @@ func sanitizeCell(s string) string {
 	return strings.TrimSpace(s)
 }
 
+func cleanAnnotationValue(s string) string {
+	s = sanitizeCell(s)
+	if s == "-" {
+		return ""
+	}
+	return s
+}
+
+// stripNumericVersion turns a transcript/protein identifier such as
+// "Fta_1G0000020.1" or "AT1G01010.1" into its gene-level identifier. It only
+// strips a final all-numeric dot-suffix; IDs such as "Glyma.01G000100" keep
+// their dot segment.
+func stripNumericVersion(id string) (string, bool) {
+	i := strings.LastIndexByte(id, '.')
+	if i <= 0 || i == len(id)-1 {
+		return "", false
+	}
+	for _, r := range id[i+1:] {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+	}
+	return id[:i], true
+}
+
+func annotationValueScore(entry AnnotationEntry) int {
+	score := 0
+	if entry.Symbol != "" {
+		score += 2
+	}
+	if entry.Description != "" {
+		score++
+	}
+	return score
+}
+
+// withVersionAliases adds gene-level aliases for annotation tables keyed by
+// transcript/protein IDs. Exact keys always win; aliases are only added when
+// the gene-level key is not present. Multiple isoforms are resolved
+// deterministically in favor of the richest symbol/description.
+func withVersionAliases(exact map[string]AnnotationEntry) map[string]AnnotationEntry {
+	out := make(map[string]AnnotationEntry, len(exact))
+	for key, entry := range exact {
+		out[key] = entry
+	}
+	keys := make([]string, 0, len(exact))
+	for key := range exact {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, id := range keys {
+		entry := exact[id]
+		base := id
+		for {
+			next, ok := stripNumericVersion(base)
+			if !ok {
+				break
+			}
+			if _, isExact := exact[next]; isExact {
+				break
+			}
+			existing, exists := out[next]
+			if !exists || annotationValueScore(entry) > annotationValueScore(existing) {
+				out[next] = entry
+			}
+			base = next
+		}
+	}
+	return out
+}
+
 func readMaybeGzip(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -182,6 +253,8 @@ func parseAnnotation(data []byte) (map[string]AnnotationEntry, []byte, string, e
 	geneCol := findColumn(header, "query", "gene_id", "gene", "id", "target_id", "locus", "locus_tag")
 	symbolCol := findColumn(header, "preferred_name", "symbol", "gene_name", "gene_symbol", "name", "target_name")
 	descCol := findColumn(header, "description", "desc", "product", "function", "annotation", "target_description")
+	swissCol := findColumn(header, "swissprot_annotation")
+	nrCol := findColumn(header, "nr_annotation")
 	if geneCol < 0 {
 		return nil, nil, "", errors.New("annotation table needs a query/gene_id column")
 	}
@@ -190,18 +263,27 @@ func parseAnnotation(data []byte) (map[string]AnnotationEntry, []byte, string, e
 	if isEggnog {
 		source = "eggnog"
 	}
-	if symbolCol < 0 && descCol < 0 {
+	if symbolCol < 0 && descCol < 0 && swissCol < 0 && nrCol < 0 {
 		return nil, nil, "", errors.New("annotation table needs a symbol/preferred_name or description column")
 	}
 
 	ann := map[string]AnnotationEntry{}
 	for _, rec := range records[headerIdx+1:] {
 		gene := sanitizeCell(cell(rec, geneCol))
-		if gene == "" {
+		if gene == "" || strings.HasPrefix(gene, "#") {
 			continue
 		}
-		symbol := sanitizeCell(cell(rec, symbolCol))
-		desc := sanitizeCell(cell(rec, descCol))
+		symbol := cleanAnnotationValue(cell(rec, symbolCol))
+		desc := cleanAnnotationValue(cell(rec, descCol))
+		if desc == "" || desc == "--" {
+			desc = cleanAnnotationValue(cell(rec, swissCol))
+		}
+		if desc == "" || desc == "--" {
+			desc = cleanAnnotationValue(cell(rec, nrCol))
+		}
+		if desc == "--" {
+			desc = ""
+		}
 		if _, exists := ann[gene]; exists {
 			continue
 		}
@@ -217,13 +299,17 @@ func parseAnnotation(data []byte) (map[string]AnnotationEntry, []byte, string, e
 	}
 	sort.Strings(genes)
 	var out strings.Builder
-	out.WriteString("gene_id\tsymbol\n")
+	out.WriteString("gene_id\tsymbol\tdescription\n")
 	for _, gene := range genes {
-		symbol := ann[gene].Symbol
+		entry := ann[gene]
+		symbol := entry.Symbol
 		if symbol == "" {
 			symbol = gene
+			if base, ok := stripNumericVersion(gene); ok {
+				symbol = base
+			}
 		}
-		out.WriteString(gene + "\t" + symbol + "\n")
+		out.WriteString(gene + "\t" + symbol + "\t" + entry.Description + "\n")
 	}
 	return ann, []byte(out.String()), source, nil
 }
@@ -621,21 +707,25 @@ type CountItem struct {
 
 // Summary is the compact result overview returned to the dashboard.
 type Summary struct {
-	Genes            int         `json:"genes"`
-	Promoters        int         `json:"promoters"`
-	MotifLibrarySize int         `json:"motif_library_size"`
-	MotifsWithHits   int         `json:"motifs_with_hits"`
-	MotifHits        int         `json:"motif_hits"`
-	TFTargetPairs    int         `json:"tf_target_pairs"`
-	TFTargetEdges    int         `json:"tf_target_edges"`
-	UniqueTFs        int         `json:"unique_tfs"`
-	UniqueTargets    int         `json:"unique_targets"`
-	UniqueMotifs     int         `json:"unique_motifs"`
-	EvidenceLevelD   int         `json:"evidence_level_d"`
-	Threads          int         `json:"threads,omitempty"`
-	AnnotationSource string      `json:"annotation_source"`
-	TopTFs           []CountItem `json:"top_tfs"`
-	TopMotifs        []CountItem `json:"top_motifs"`
+	TFCatalogue      []TFCatalogueItem `json:"tf_catalogue,omitempty"`
+	TFIdentified     *int              `json:"tf_identified,omitempty"`
+	TFMapped         *int              `json:"tf_mapped,omitempty"`
+	MotifsScanned    *int              `json:"motifs_scanned,omitempty"`
+	Genes            int               `json:"genes"`
+	Promoters        int               `json:"promoters"`
+	MotifLibrarySize int               `json:"motif_library_size"`
+	MotifsWithHits   int               `json:"motifs_with_hits"`
+	MotifHits        int               `json:"motif_hits"`
+	TFTargetPairs    int               `json:"tf_target_pairs"`
+	TFTargetEdges    int               `json:"tf_target_edges"`
+	UniqueTFs        int               `json:"unique_tfs"`
+	UniqueTargets    int               `json:"unique_targets"`
+	UniqueMotifs     int               `json:"unique_motifs"`
+	EvidenceLevelD   int               `json:"evidence_level_d"`
+	Threads          int               `json:"threads,omitempty"`
+	AnnotationSource string            `json:"annotation_source"`
+	TopTFs           []CountItem       `json:"top_tfs"`
+	TopMotifs        []CountItem       `json:"top_motifs"`
 }
 
 type hitSet map[string]bool
@@ -644,7 +734,14 @@ func hitKey(e Edge) string {
 	if e.HitStart == nil || e.HitEnd == nil {
 		return ""
 	}
-	return fmt.Sprintf("%s|%s|%d|%d|%s", e.TargetID, e.MotifID, *e.HitStart, *e.HitEnd, e.Strand)
+	var promoterStart, promoterEnd uint64
+	if e.PromoterStart != nil {
+		promoterStart = *e.PromoterStart
+	}
+	if e.PromoterEnd != nil {
+		promoterEnd = *e.PromoterEnd
+	}
+	return fmt.Sprintf("%s|%s|%d|%d|%s|%d|%d", e.TargetID, e.MotifID, *e.HitStart, *e.HitEnd, e.Strand, promoterStart, promoterEnd)
 }
 
 type targetBits []uint64

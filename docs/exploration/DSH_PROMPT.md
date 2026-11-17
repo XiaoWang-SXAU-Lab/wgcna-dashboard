@@ -1,3 +1,25 @@
+## 最新（2026-11-17，Windows：target 基因结构与 Custom pack，r8）
+
+请先读 [HANDOFF.md](HANDOFF.md) 顶部 r8 节。查询表分列 **TF gene** / **TF ID**；`GET /api/toolkits/regutrace/jobs/{id}/tf?tf=...&target=...` 返回 TF 结构和 `target_gene` GFF 模型。前端新增独立坐标的 **Target gene** 轨道（exon/CDS/UTR/intron），与 target promoter motif 分开；TF gene model、projected/protein domain、transcript 选择、1–8× 缩放保留。新增 **Custom pack** 模式：上传完整 pack ZIP（HMM、rules、reference map、reference domains、DBD models、motifs，含 SHA-256）加 genome/GFF/protein；ZIP 安全解压并校验后复用 `regutrace pipeline`，适合没有内置 pack 的非模式物种。干净安装自定义 pack job `1794849471509-a9dd06f51bd76577`（酵母 pack 内容 + Ensembl R64-1-1 输入）107,464 evidence；GCR1/CDC19 target 结构和 2 motif 正常，无 console error；synthetic target 2 exon/1 intron。r7 的植物 GFF `protein_id` 回退保留，真实 HF1 `Fta_1G0000630` 通过。r8 安装器 127,554,344 bytes，SHA-256 `07c304785c505ccd640c0fc1e8c42d161789e8bf5904c64947049e5822db757a`；安装在 `%LOCALAPPDATA%\rsWGCNA-install-tfview3`，292,446,010 bytes。Go/frontend 测试通过；Rust 未改。详见 `docs/REGUTRACE-TARGET-CUSTOM-2026-11-17.md`。未提交、未推送。
+
+## 最新（2026-11-16，Windows：安装包内置 pack/tools，已验收）
+
+Windows 安装包已内置四个参考 pack、HMMER 3.3.2、NCBI BLAST+ 2.17.0+ 和 R 4.5.1；`tools/manifest.json` 校验工具/DLL/Cygwin 源码与许可哈希。最终 r5 安装器 127,496,266 bytes，SHA-256 `5cf12a01bc86bc745621bc01cfb452f8f73fb2749688b3715fb4192c5dfe92bd`；含 eggNOG 注释、诊断/AI 指引、对话窗口 ID mapping，以及默认 Reference pack、Manual 高级降级、Prior-ready/Motif-only 和 WGCNA prior SQLite 下载；Codex 的 Detailed Guide 四面板/路线图已合入。酵母 pack job `1794846019764-d0be52ef57d765ae` 验证 Prior-ready 和下载按钮；Selenium 验证默认 pack、Manual 警告、Guide；卸载 exit 0。r1–r4 已取代。详见 `docs/REGUTRACE-PACK-DEFAULT-2026-11-17.md`、`docs/REGUTRACE-ID-MAPPING-UPLOAD-2026-11-16.md`、`docs/REGUTRACE-INPUT-DIAGNOSTICS-2026-11-16.md`。macOS 打包脚本已准备但未实机验收；GitHub release workflow 已接入资产变量和 bundler，但未配置 URL、未实跑。未提交、未推送。
+
+## 最新（2026-11-16，Windows：dashboard 参考 pack 模式）
+
+Dashboard 已接参考 pack：`/info` 列出 `WGCNA_REGUTRACE_PACKS` 下的 pack；选中后 job 只上传 genome/GFF/protein，后端跑 `regutrace pipeline`，读取 evidence/promoters/scan-report/tf_map/tf_genes/trace。手动 HMM/tf_map/motif/trace 上传在 pack 模式隐藏/拒绝。`WGCNA_HMMERSEARCH`/`WGCNA_BLASTP` 可传工具路径。pack 模式当前只支持蛋白 FASTA，CDS 仍缺；真实酵母 pack e2e 13 s 通过。未提交、未推送。
+
+## 最新（2026-11-15，Windows：ReguTrace 详情页追溯）
+
+请先读 HANDOFF 顶部最新节。ReguTrace dashboard 已支持可选 `tf_motif_trace.tsv` 上传；`tf_map` 是 donor ID 权威来源，trace 只给匹配的 donor 补 symbol/family，旧表/额外 donor 不会覆盖本次映射；`PromoterHit`/`hitKey` 已包含 promoter 窗口，新增 `/jobs/{id}/site` 全键原始 evidence 查询，详情页可直接看到 AstA-R2/odd 位点的三个候选 TF 和三条原始 evidence 行。验证：`go test ./internal/...`、`go vet`、ReguTrace HTTP integration、`pnpm build` 通过；`cmd/server` 的 webview 构建在本 shell 不可用，未改。未提交、未推送。状态：果蝇 AstA-R2 主验收已在 Chrome 通过；pack 模式的酵母/果蝇浏览器验收也已通过（Selenium 驱动真实表单，果蝇详情确认三候选/odd donor/三条 evidence）。只剩过期 trace 的 UI 复验待补。
+
+## 最新（2026-11-14，Windows：通用 TF 身份层 / HMMER 起步）
+
+请先读 [HANDOFF.md](HANDOFF.md) 顶部最新节。已从 Ensembl Organisms 下载并校验拟南芥 Araport11 代表蛋白（48,321 → 27,628 个基因），放在外部数据库目录 `D:\SynologyDrive\SynologyDrive\01_Database\02-Arabidopsis-thaliana`，仅作为 demo/验证数据，不做物种特例。
+
+代码已开始 P0：ReguTrace 新增 `tf_genes.tsv` 合同（稳定 gene_id，可选 symbol/family/status/source，重复拒绝）、CLI `--tf-genes` 和 mapped-only 门禁；有 `tf_genes` 时 `tf_map` 的每个 `tf_id` 必须是目录中 `identified` 的基因。仪表盘增加可选 TF 目录、代表性蛋白、HMM 和 family map 上传；运行时先执行 `identify-tfs`，再扫描，扫描前由 Rust 再校验。另加纯 Rust HMMER `identify-tfs`（`--proteins`, `--hmm`, 可选 `--family-map`, `--evalue`, `--min-coverage`），用户上传代表性蛋白即可，不翻译 CDS；HMM 模型/family pack 尚未内置或完成许可证审查，当前用外部 HMMER3 HMM 文件验证，HMM 仅接受 `.hmm`/`.h3m`。验证：Rust 5 CLI + 1 E2E + 60 core、Go 全量测试/相关 vet、前端 build 均 PASS；iTAK SBHMM_3 小测鉴定 142 个基因。未提交、未推送。下一步：许可的 TF HMM+规则 pack、小型 mapped demo prior、负例/覆盖测试。
+
 ## SignPath application and Windows version resources
 
 - Dashboard `explore/project-copilot` @ `0b661ca`, worker `explore/project-copilot` @ `10ae0be`, ReguTrace `main` @ `54c78d5`. Existing local edits retained. No commit, push, tag or release.
@@ -210,3 +232,7 @@ ready round rean-report-fix-20261103-10-fix已报告完成，但manifest包含�
 每次结束同时更新 HANDOFF 和本 DSH_PROMPT：两仓库状态、变更、真实测试结果、剩余风险及精确下一步。用户说交接/换机器/去办公室/回家继续/交给DSH时立即更新；若有额度工具，回合开始与阶段边界检查，适用窗口剩余<=20%或明确上下文告警时先保存交接。未知额度不等于0，不保证额度耗尽后还能写文件。无实质进展不重复刷新。提交/推送按用户授权，不自动合并 main。跨机器交接前停止写入、确认传输完成；下一台机器校验文件与提交状态再继续。
 
 ---
+
+## 本轮接续
+
+ReguTrace 植物主流程改为同家族双向最佳蛋白命中、每个参考 TF 一张 JASPAR 代表矩阵、扫描本地启动子。读取 HANDOFF.md 的 2026-11-17 RBH 条目和 ../REGUTRACE-PLANT-WORKFLOW.md。已完成真实 HF1 PEP CLI 和 CDS 浏览器验收，后续用本机预览检查交互，再走安装包验收。

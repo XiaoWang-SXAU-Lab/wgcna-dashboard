@@ -660,10 +660,32 @@ export interface RegutraceLibraryInfo {
   count: number
 }
 
+export interface RegutraceReferencePackInfo {
+  key: string
+  version: string
+  species?: string
+  assembly?: string
+  motif_scope?: string
+  tools?: Record<string, string>
+  promoter_len?: number
+  pvalue?: number
+  gene_biotype?: string
+}
+
+export interface RegutraceToolStatus {
+  name: string
+  version?: string
+  license?: string
+  status: 'ok' | 'missing' | 'checksum_mismatch' | 'error'
+  error?: string
+}
+
 export interface RegutraceInfo {
   motif_library: string
   motif_count: number
   libraries: RegutraceLibraryInfo[]
+  packs: RegutraceReferencePackInfo[]
+  tools?: RegutraceToolStatus[]
 }
 
 export interface RegutraceParams {
@@ -672,6 +694,7 @@ export interface RegutraceParams {
   pvalue: number
   background: [number, number, number, number]
   threads: number
+  include_single_domain_fallback?: boolean
 }
 
 export interface RegutraceInputs {
@@ -680,6 +703,13 @@ export interface RegutraceInputs {
   motifs: string
   motif_library_key?: string
   tf_map?: string
+  tf_genes?: string
+  proteins?: string
+  cds?: string
+  hmm?: string
+  family_map?: string
+  trace?: string
+  reference_pack?: string
   annotation?: string
   annotation_source: string
   genome_bytes: number
@@ -713,7 +743,20 @@ export interface RegutraceCountItem {
   edges: number
 }
 
+export interface RegutraceTFCatalogueItem {
+  id: string
+  name: string
+  family: string
+  status: string
+  description?: string
+  motifs: string[]
+}
+
 export interface RegutraceSummary {
+  tf_catalogue?: RegutraceTFCatalogueItem[]
+  tf_identified?: number
+  tf_mapped?: number
+  motifs_scanned?: number
   genes: number
   promoters: number
   motif_library_size: number
@@ -749,6 +792,8 @@ export interface RegutraceJob {
 export interface RegutraceQueryRow {
   tf_id: string
   tf_symbol: string
+  tf_name?: string
+  tf_description?: string
   tf_family?: string
   target_id: string
   target_symbol: string
@@ -780,10 +825,116 @@ export interface RegutraceQueryResult {
   rows: RegutraceQueryRow[]
 }
 
+export interface RegutraceDonorInfo {
+  tf_id: string
+  tf_symbol?: string
+  tf_family?: string
+}
+
 export interface RegutraceTFInfo {
   id: string
   symbol: string
+  name?: string
   family?: string
+  donors?: RegutraceDonorInfo[]
+}
+
+export interface RegutraceGFFSegment {
+  start: number
+  end: number
+  phase?: number
+}
+
+export interface RegutraceDomainInfo {
+  protein_id?: string
+  model_name?: string
+  model_accession?: string
+  family?: string
+  subfamily?: string
+  protein_start: number
+  protein_end: number
+  model_start?: number
+  model_end?: number
+  model_length?: number
+  full_evalue?: number
+  conditional_evalue?: number
+  independent_evalue?: number
+  domain_score?: number
+  genomic?: RegutraceGFFSegment[]
+}
+
+export interface RegutraceTranscriptModel {
+  id: string
+  name?: string
+  chrom?: string
+  start: number
+  end: number
+  strand: string
+  biotype?: string
+  protein_id?: string
+  exons: RegutraceGFFSegment[]
+  cds: RegutraceGFFSegment[]
+  five_utr?: RegutraceGFFSegment[]
+  three_utr?: RegutraceGFFSegment[]
+  projected_domains?: RegutraceDomainInfo[]
+  projection_note?: string
+}
+
+export interface RegutraceGeneModel {
+  gene_id: string
+  name?: string
+  chrom: string
+  start: number
+  end: number
+  strand: string
+  biotype?: string
+  transcripts: RegutraceTranscriptModel[]
+}
+
+export interface RegutraceTFProtein {
+  protein_id: string
+  length: number
+  domains: RegutraceDomainInfo[]
+}
+
+export interface RegutraceTFMotifMapping {
+  motif_id: string
+  motif_name?: string
+  reference_tf_id?: string
+  mapping_method?: string
+  domain_mode?: string
+  extraction_family?: string
+}
+
+export interface RegutraceTargetGeneView {
+  target_id: string
+  target_name: string
+  default_transcript?: string
+  gene?: RegutraceGeneModel
+}
+
+export interface RegutraceTFView {
+  available: boolean
+  reason?: string
+  tf_id: string
+  tf_name: string
+  tf_symbol?: string
+  tf_family?: string
+  tf_status?: string
+  tf_source?: string
+  default_transcript?: string
+  gene?: RegutraceGeneModel
+  proteins?: RegutraceTFProtein[]
+  motif_mappings?: RegutraceTFMotifMapping[]
+  target_gene?: RegutraceTargetGeneView
+}
+
+export async function getRegutraceTFView(id: string, tf: string, target?: string): Promise<RegutraceTFView> {
+  const params = new URLSearchParams({ tf })
+  if (target) params.set('target', target)
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/tf?${params}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
 }
 
 export interface RegutracePromoterHit {
@@ -792,6 +943,8 @@ export interface RegutracePromoterHit {
   consensus?: string
   start: number
   end: number
+  promoter_start?: number
+  promoter_end?: number
   genomic_start?: number
   genomic_end?: number
   strand: string
@@ -824,7 +977,7 @@ export async function getRegutraceInfo(): Promise<RegutraceInfo> {
 }
 
 export function createRegutraceJob(
-  files: { genome: File; gff: File; motifs?: File | null; motifLibrary?: string; tfMap?: File | null; annotation?: File | null },
+  files: { genome: File; gff: File; motifs?: File | null; motifLibrary?: string; tfMap?: File | null; tfGenes?: File | null; proteins?: File | null; cds?: File | null; hmm?: File | null; familyMap?: File | null; trace?: File | null; referencePack?: string; customPack?: File | null; annotation?: File | null },
   onProgress?: (fraction: number) => void,
 ): Promise<RegutraceJob> {
   return new Promise((resolve, reject) => {
@@ -834,6 +987,14 @@ export function createRegutraceJob(
     if (files.motifs) fd.append('motifs', files.motifs)
     if (files.motifLibrary) fd.append('motif_library', files.motifLibrary)
     if (files.tfMap) fd.append('tf_map', files.tfMap)
+    if (files.tfGenes) fd.append('tf_genes', files.tfGenes)
+    if (files.proteins) fd.append('proteins', files.proteins)
+    if (files.cds) fd.append('cds', files.cds)
+    if (files.hmm) fd.append('hmm', files.hmm)
+    if (files.familyMap) fd.append('family_map', files.familyMap)
+    if (files.trace) fd.append('trace', files.trace)
+    if (files.referencePack) fd.append('reference_pack', files.referencePack)
+    if (files.customPack) fd.append('custom_pack', files.customPack)
     if (files.annotation) fd.append('annotation', files.annotation)
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${BASE}/toolkits/regutrace/jobs`)
@@ -850,6 +1011,41 @@ export function createRegutraceJob(
     xhr.onerror = () => reject(new Error('upload failed'))
     xhr.send(fd)
   })
+}
+
+export interface RegutraceIDMapPreview {
+  rows: number
+  unique_sources: number
+  source_found: number
+  target_found: number
+  conflicts: number
+  duplicate_rows: number
+  mapped_targets: number
+  total_genes: number
+  coverage: number
+  annotation_entries: number
+  applied_sources?: number
+  overwritten?: number
+  repaired_rows?: number
+  unmatched_sources?: string[]
+  missing_targets?: string[]
+  conflict_examples?: string[]
+}
+
+async function regutraceIDMapRequest(id: string, action: 'preview' | 'apply', file: File): Promise<RegutraceIDMapPreview> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/id-map/${action}`, { method: 'POST', body: fd })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export function previewRegutraceIDMap(id: string, file: File): Promise<RegutraceIDMapPreview> {
+  return regutraceIDMapRequest(id, 'preview', file)
+}
+
+export function applyRegutraceIDMap(id: string, file: File): Promise<RegutraceIDMapPreview> {
+  return regutraceIDMapRequest(id, 'apply', file)
 }
 
 export async function startRegutraceJob(id: string, mode: 'validate' | 'run', params: RegutraceParams): Promise<RegutraceJob> {
@@ -891,6 +1087,38 @@ export async function queryRegutrace(
 
 export async function getRegutracePromoter(id: string, target: string): Promise<RegutracePromoterView> {
   const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/promoter?target=${encodeURIComponent(target)}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export interface RegutraceSiteEvidenceResult {
+  total: number
+  rows: RegutraceQueryRow[]
+}
+
+export interface RegutraceSiteQuery {
+  target: string
+  motif: string
+  promoter_start?: number
+  promoter_end?: number
+  hit_start?: number
+  hit_end?: number
+  strand?: string
+  tf?: string
+}
+
+export async function getRegutraceSiteEvidence(
+  id: string,
+  q: RegutraceSiteQuery,
+): Promise<RegutraceSiteEvidenceResult> {
+  const p = new URLSearchParams({ target: q.target, motif: q.motif })
+  if (q.promoter_start !== undefined) p.set('promoter_start', String(q.promoter_start))
+  if (q.promoter_end !== undefined) p.set('promoter_end', String(q.promoter_end))
+  if (q.hit_start !== undefined) p.set('hit_start', String(q.hit_start))
+  if (q.hit_end !== undefined) p.set('hit_end', String(q.hit_end))
+  if (q.strand) p.set('strand', q.strand)
+  if (q.tf) p.set('tf', q.tf)
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/site?${p}`)
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }

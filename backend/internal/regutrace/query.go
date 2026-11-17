@@ -22,6 +22,8 @@ type QueryOptions struct {
 type QueryRow struct {
 	TFID              string   `json:"tf_id"`
 	TFSymbol          string   `json:"tf_symbol"`
+	TFName            string   `json:"tf_name,omitempty"`
+	TFDescription     string   `json:"tf_description,omitempty"`
 	TFFamily          string   `json:"tf_family,omitempty"`
 	TargetID          string   `json:"target_id"`
 	TargetSymbol      string   `json:"target_symbol"`
@@ -54,29 +56,65 @@ type QueryResult struct {
 	Rows   []QueryRow `json:"rows"`
 }
 
+// DonorInfo is one reference-TF donor record from tf_motif_trace.tsv.
+// ID, Symbol and Family are kept together; they must not be reconstructed by
+// zipping separately sorted summary columns.
+type DonorInfo struct {
+	TFID     string `json:"tf_id"`
+	TFSymbol string `json:"tf_symbol,omitempty"`
+	TFFamily string `json:"tf_family,omitempty"`
+}
+
+func (d DonorInfo) key() string {
+	return d.TFID + "\x00" + d.TFSymbol + "\x00" + d.TFFamily
+}
+
+// SiteEvidenceOptions is the exact full-key lookup for one grouped binding
+// site. Promoter coordinates are part of the key, not optional decoration.
+type SiteEvidenceOptions struct {
+	TargetID      string
+	MotifID       string
+	PromoterStart *uint64
+	PromoterEnd   *uint64
+	HitStart      *uint64
+	HitEnd        *uint64
+	Strand        string
+	TFID          string
+}
+
+// SiteEvidenceResult is the raw evidence rows for one exact site.
+type SiteEvidenceResult struct {
+	Total int        `json:"total"`
+	Rows  []QueryRow `json:"rows"`
+}
+
 // TFInfo is the display payload for one TF at a binding site.
 type TFInfo struct {
-	ID     string `json:"id"`
-	Symbol string `json:"symbol"`
-	Family string `json:"family,omitempty"`
+	ID     string      `json:"id"`
+	Symbol string      `json:"symbol"`
+	Name   string      `json:"name,omitempty"`
+	Family string      `json:"family,omitempty"`
+	Donors []DonorInfo `json:"donors,omitempty"`
 }
 
 // PromoterHit is one grouped binding site on a promoter. Multiple TF rows that
 // share the same motif/coordinates are collapsed so the track is not overplotted.
 type PromoterHit struct {
-	MotifID      string   `json:"motif_id"`
-	MotifName    string   `json:"motif_name,omitempty"`
-	Consensus    string   `json:"consensus,omitempty"`
-	Start        uint64   `json:"start"`
-	End          uint64   `json:"end"`
-	GenomicStart uint64   `json:"genomic_start,omitempty"`
-	GenomicEnd   uint64   `json:"genomic_end,omitempty"`
-	Strand       string   `json:"strand"`
-	Score        *float64 `json:"score,omitempty"`
-	PValue       *float64 `json:"p_value,omitempty"`
-	Site         string   `json:"site"`
-	MatchedSite  string   `json:"matched_site"`
-	TFs          []TFInfo `json:"tfs"`
+	MotifID       string   `json:"motif_id"`
+	MotifName     string   `json:"motif_name,omitempty"`
+	Consensus     string   `json:"consensus,omitempty"`
+	Start         uint64   `json:"start"`
+	End           uint64   `json:"end"`
+	PromoterStart *uint64  `json:"promoter_start,omitempty"`
+	PromoterEnd   *uint64  `json:"promoter_end,omitempty"`
+	GenomicStart  uint64   `json:"genomic_start,omitempty"`
+	GenomicEnd    uint64   `json:"genomic_end,omitempty"`
+	Strand        string   `json:"strand"`
+	Score         *float64 `json:"score,omitempty"`
+	PValue        *float64 `json:"p_value,omitempty"`
+	Site          string   `json:"site"`
+	MatchedSite   string   `json:"matched_site"`
+	TFs           []TFInfo `json:"tfs"`
 }
 
 // PromoterView is the sequence + binding-site payload used by the promoter
@@ -133,7 +171,13 @@ func (j *jobState) annotationFor(targetID, fallbackSymbol string) (symbol, descr
 		}
 	}
 	if symbol == "" {
-		symbol = fallbackSymbol
+		// EggNOG/CLI fallbacks often use the versioned transcript ID. When the
+		// target itself is the gene-level ID, prefer that cleaner label.
+		if base, ok := stripNumericVersion(fallbackSymbol); ok && base == targetID {
+			symbol = targetID
+		} else {
+			symbol = fallbackSymbol
+		}
 	}
 	if symbol == "" {
 		symbol = targetID
@@ -146,6 +190,80 @@ func (j *jobState) annotationFor(targetID, fallbackSymbol string) (symbol, descr
 		}
 	}
 	return
+}
+
+func (j *jobState) resolveSiteTarget(target string) (string, bool) {
+	if _, ok := j.promoters[target]; ok {
+		return target, true
+	}
+	lower := strings.ToLower(target)
+	for id := range j.promoters {
+		if strings.ToLower(id) == lower {
+			return id, true
+		}
+	}
+	if j.data != nil {
+		return j.data.resolveTarget(target)
+	}
+	return "", false
+}
+
+// siteEvidence returns the original evidence rows for one exact full site key.
+// Supplying promoter_start/end is required by the dashboard detail view; rows
+// from a different promoter window never match.
+func (j *jobState) siteEvidence(opts SiteEvidenceOptions) (SiteEvidenceResult, error) {
+	if strings.TrimSpace(opts.TargetID) == "" || strings.TrimSpace(opts.MotifID) == "" {
+		return SiteEvidenceResult{}, fmt.Errorf("target and motif are required")
+	}
+	targetID, ok := j.resolveSiteTarget(opts.TargetID)
+	if !ok {
+		return SiteEvidenceResult{}, fmt.Errorf("target %q has no evidence in this run", opts.TargetID)
+	}
+	var sourceEdges []Edge
+	if j.data != nil {
+		edges, err := j.data.readTargetEdges(targetID)
+		if err != nil {
+			return SiteEvidenceResult{}, err
+		}
+		sourceEdges = edges
+	} else {
+		sourceEdges = j.edges
+	}
+	match := func(value, wanted *uint64) bool {
+		if wanted == nil {
+			return true
+		}
+		return value != nil && *value == *wanted
+	}
+	rows := make([]QueryRow, 0)
+	for _, e := range sourceEdges {
+		if e.TargetID != targetID || e.MotifID != opts.MotifID {
+			continue
+		}
+		if !match(e.PromoterStart, opts.PromoterStart) || !match(e.PromoterEnd, opts.PromoterEnd) {
+			continue
+		}
+		if !match(e.HitStart, opts.HitStart) || !match(e.HitEnd, opts.HitEnd) {
+			continue
+		}
+		if opts.Strand != "" && e.Strand != opts.Strand {
+			continue
+		}
+		if opts.TFID != "" && e.TFID != opts.TFID {
+			continue
+		}
+		rows = append(rows, j.queryRow(e))
+	}
+	sort.SliceStable(rows, func(i, k int) bool {
+		if rows[i].TFID != rows[k].TFID {
+			return rows[i].TFID < rows[k].TFID
+		}
+		if rows[i].EvidenceLevel != rows[k].EvidenceLevel {
+			return rows[i].EvidenceLevel < rows[k].EvidenceLevel
+		}
+		return rows[i].Method < rows[k].Method
+	})
+	return SiteEvidenceResult{Total: len(rows), Rows: rows}, nil
 }
 
 func (j *jobState) query(opts QueryOptions) QueryResult {
@@ -247,6 +365,8 @@ func (j *jobState) queryRow(e Edge) QueryRow {
 	return QueryRow{
 		TFID:              e.TFID,
 		TFSymbol:          e.TFSymbol,
+		TFName:            j.tfDisplayName(e.TFID, e.TFSymbol),
+		TFDescription:     j.annotations[e.TFID].Description,
 		TFFamily:          e.TFFamily,
 		TargetID:          e.TargetID,
 		TargetSymbol:      symbol,
@@ -338,7 +458,7 @@ func (j *jobState) queryDataset(opts QueryOptions) QueryResult {
 			symbol, desc, _ := j.annotationFor(e.TargetID, e.TargetSymbol)
 			score = textMatchScore([]string{e.TargetID, e.TargetSymbol, symbol, desc}, q)
 		} else {
-			score = textMatchScore([]string{e.TFID, e.TFSymbol}, q)
+			score = textMatchScore([]string{e.TFID, e.TFSymbol, j.tfDisplayName(e.TFID, e.TFSymbol)}, q)
 		}
 		if score >= 99 {
 			return nil
@@ -449,6 +569,28 @@ func reverseComplement(seq string) string {
 	return string(out)
 }
 
+func edgePromoterStart(e Edge, prom *Promoter) *uint64 {
+	if e.PromoterStart != nil {
+		return e.PromoterStart
+	}
+	if prom.Start > 0 {
+		v := prom.Start
+		return &v
+	}
+	return nil
+}
+
+func edgePromoterEnd(e Edge, prom *Promoter) *uint64 {
+	if e.PromoterEnd != nil {
+		return e.PromoterEnd
+	}
+	if prom.End > 0 {
+		v := prom.End
+		return &v
+	}
+	return nil
+}
+
 func (j *jobState) promoterView(targetID string) (*PromoterView, error) {
 	prom := j.promoters[targetID]
 	if prom == nil {
@@ -499,20 +641,31 @@ func (j *jobState) promoterView(targetID string) (*PromoterView, error) {
 		if e.TargetID != targetID || e.MotifID == "" || e.HitStart == nil || e.HitEnd == nil {
 			continue
 		}
+		// A target may have historical evidence from more than one promoter
+		// window. This view shows the selected promoter only; never merge the
+		// same relative coordinates across windows.
+		if e.PromoterStart != nil && prom.Start > 0 && *e.PromoterStart != prom.Start {
+			continue
+		}
+		if e.PromoterEnd != nil && prom.End > 0 && *e.PromoterEnd != prom.End {
+			continue
+		}
 		key := hitKey(e)
 		g := groups[key]
 		if g == nil {
 			meta := j.motifs[e.MotifID]
 			g = &group{
 				hit: PromoterHit{
-					MotifID:   e.MotifID,
-					MotifName: meta.Name,
-					Consensus: meta.Consensus,
-					Start:     *e.HitStart,
-					End:       *e.HitEnd,
-					Strand:    e.Strand,
-					Score:     e.Score,
-					PValue:    e.PValue,
+					MotifID:       e.MotifID,
+					MotifName:     meta.Name,
+					Consensus:     meta.Consensus,
+					Start:         *e.HitStart,
+					End:           *e.HitEnd,
+					PromoterStart: edgePromoterStart(e, prom),
+					PromoterEnd:   edgePromoterEnd(e, prom),
+					Strand:        e.Strand,
+					Score:         e.Score,
+					PValue:        e.PValue,
 				},
 				tfs: map[string]TFInfo{},
 			}
@@ -539,7 +692,11 @@ func (j *jobState) promoterView(targetID string) (*PromoterView, error) {
 			}
 			groups[key] = g
 		}
-		g.tfs[e.TFID] = TFInfo{ID: e.TFID, Symbol: e.TFSymbol, Family: e.TFFamily}
+		tf := TFInfo{ID: e.TFID, Symbol: e.TFSymbol, Name: j.tfDisplayName(e.TFID, e.TFSymbol), Family: e.TFFamily}
+		if donors, ok := j.donors[donorKey{TFID: e.TFID, MotifID: e.MotifID}]; ok {
+			tf.Donors = donors
+		}
+		g.tfs[e.TFID] = tf
 	}
 
 	hits := make([]PromoterHit, 0, len(groups))

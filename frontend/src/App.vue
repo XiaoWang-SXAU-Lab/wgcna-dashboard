@@ -4,10 +4,10 @@ import { useProjectStore } from './stores/project'
 import ChatWidget from './components/ChatWidget.vue'
 import ProgressOverlay from './components/ProgressOverlay.vue'
 import ProjectRunProgress from './components/ProjectRunProgress.vue'
-import { registerAnalyzer } from './utils/aiBus'
+import { registerAnalyzer, type AIErrorContext } from './utils/aiBus'
 import { locale, t, toggleLocale } from './utils/i18n'
 
-const chatWidget = ref<{ analyzeError: (err: string) => void }>()
+const chatWidget = ref<{ analyzeError: (err: string, context?: AIErrorContext) => void }>()
 const project = useProjectStore()
 const toolkitsOpen = ref(false)
 const toolkitsBtn = ref<HTMLElement>()
@@ -21,7 +21,7 @@ function toggleToolkits() {
 }
 
 onMounted(() => {
-  registerAnalyzer((err: string) => chatWidget.value?.analyzeError(err))
+  registerAnalyzer((err: string, context?: AIErrorContext) => chatWidget.value?.analyzeError(err, context))
   poll = setInterval(async () => {
     if (polling) return
     polling = true

@@ -2,9 +2,17 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
 import CatMascot from './CatMascot.vue'
 import { marked } from 'marked'
-import { chatStream, getAIConfig, saveAIConfig } from '../api/client'
+import {
+  applyRegutraceIDMap,
+  chatStream,
+  getAIConfig,
+  previewRegutraceIDMap,
+  saveAIConfig,
+  type RegutraceIDMapPreview,
+} from '../api/client'
 import { useWgcnaStore } from '../stores/wgcna'
 import { t } from '../utils/i18n'
+import type { AIErrorContext } from '../utils/aiBus'
 
 const props = defineProps<{ errorCtx?: string }>()
 const store = useWgcnaStore()
@@ -34,6 +42,18 @@ const hovering = ref(false)
 const composer = ref<HTMLTextAreaElement>()
 const launcher = ref<HTMLButtonElement>()
 const messageList = ref<HTMLDivElement>()
+const mappingInput = ref<HTMLInputElement>()
+
+interface MappingRequest {
+  jobId: string
+  errorText: string
+  file: File | null
+  preview: RegutraceIDMapPreview | null
+  busy: boolean
+  error: string
+}
+const mappingRequest = ref<MappingRequest | null>(null)
+const dragActive = ref(false)
 const petState = computed(() => failed.value ? 'error' : isThinking.value ? 'thinking' : streaming.value ? 'replying' : 'idle')
 const statusKey = computed(() => failed.value ? 'ai.pet.error' : isThinking.value ? 'ai.thinking' : streaming.value ? 'ai.replying' : happy.value ? 'ai.pet.happy' : 'ai.pet.ready')
 let happyTimer: ReturnType<typeof setTimeout> | undefined
@@ -177,10 +197,142 @@ function openPanel() {
 }
 
 // 供外部（错误诊断按钮）调用：打开面板并带错误上下文提问。
-function analyzeError(err: string) {
+function analyzeError(err: string, context?: AIErrorContext) {
   open.value = true
   loadConfig()
+  const jobId = context?.regutraceJobId
+  const needsMapping = !!jobId &&
+    (context?.kind === 'id_mismatch' || err.includes('ANNOTATION_ID_MISMATCH'))
+  if (needsMapping && jobId) {
+    if (mappingRequest.value?.jobId !== jobId) {
+      mappingRequest.value = {
+        jobId,
+        errorText: err,
+        file: null,
+        preview: null,
+        busy: false,
+        error: '',
+      }
+      messages.value.push({ role: 'assistant', content: t('ai.idMapAsk') })
+      nextTick(() => { if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight })
+    }
+    return
+  }
   sendQuestion(t('ai.promptError') + '\n\n' + err, err)
+}
+
+function chooseMappingFile() {
+  mappingInput.value?.click()
+}
+
+function onMappingInput(event: Event) {
+  const inputEl = event.target as HTMLInputElement
+  const file = inputEl.files?.[0]
+  inputEl.value = ''
+  if (file) void validateMappingFile(file)
+}
+
+function validMappingFile(file: File): boolean {
+  return /\.(tsv|csv|txt|gz)$/i.test(file.name) && file.size <= 100 * 1024 * 1024
+}
+
+async function validateMappingFile(file: File) {
+  const request = mappingRequest.value
+  if (!request) {
+    messages.value.push({ role: 'assistant', content: t('ai.idMapNoRequest') })
+    return
+  }
+  if (!validMappingFile(file)) {
+    request.error = t('ai.idMapDropHint')
+    return
+  }
+  request.file = file
+  request.preview = null
+  request.error = ''
+  request.busy = true
+  try {
+    request.preview = await previewRegutraceIDMap(request.jobId, file)
+  } catch (e) {
+    request.error = e instanceof Error ? e.message : String(e)
+  } finally {
+    request.busy = false
+    nextTick(() => { if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight })
+  }
+}
+
+function skipMapping() {
+  const request = mappingRequest.value
+  mappingRequest.value = null
+  if (request) {
+    void sendQuestion(t('ai.promptError') + '\n\n' + request.errorText, request.errorText)
+  }
+}
+
+function removeMapping() {
+  const request = mappingRequest.value
+  if (!request) return
+  request.file = null
+  request.preview = null
+  request.error = ''
+}
+
+function downloadMappingTemplate() {
+  const blob = new Blob(['original_id\tgene_id\nFta_1G0000020.1\tFta_1G0000020\n'], { type: 'text/tab-separated-values' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'id_mapping_template.tsv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function applyMapping() {
+  const request = mappingRequest.value
+  if (!request?.file || request.busy) return
+  request.busy = true
+  request.error = ''
+  try {
+    const result = await applyRegutraceIDMap(request.jobId, request.file)
+    mappingRequest.value = null
+    messages.value.push({
+      role: 'assistant',
+      content: `${t('ai.idMapApplied')}\n\n${t('ai.idMapRows')}: ${result.repaired_rows ?? result.rows}, ${t('ai.idMapCoverage')}: ${result.coverage.toFixed(1)}%`,
+    })
+    window.dispatchEvent(new CustomEvent('regutrace-idmap-applied', { detail: { jobId: request.jobId } }))
+  } catch (e) {
+    request.error = e instanceof Error ? e.message : String(e)
+  } finally {
+    request.busy = false
+  }
+}
+
+function onChatDragOver(event: DragEvent) {
+  if (!mappingRequest.value) return
+  const types = event.dataTransfer?.types ?? []
+  if (!types.includes('Files')) return
+  event.preventDefault()
+  dragActive.value = true
+}
+
+function onChatDragLeave(event: DragEvent) {
+  const related = event.relatedTarget as Node | null
+  if (related && (event.currentTarget as HTMLElement).contains(related)) return
+  dragActive.value = false
+}
+
+function onChatDrop(event: DragEvent) {
+  dragActive.value = false
+  if (!mappingRequest.value) {
+    const file = event.dataTransfer?.files?.[0]
+    if (file) messages.value.push({ role: 'assistant', content: t('ai.idMapNoRequest') })
+    return
+  }
+  const file = event.dataTransfer?.files?.[0]
+  if (file) void validateMappingFile(file)
+}
+
+function formatCoverage(value: number): string {
+  return `${value.toFixed(1)}%`
 }
 
 // --- 折叠时随机弹气泡提醒 ---
@@ -223,7 +375,11 @@ defineExpose({ analyzeError })
     {{ streaming ? t(statusKey) : hovering ? t('ai.pet.hello') : t(bubble) }}
   </div>
 
-  <div v-if="open" id="ai-chat-panel" class="chat" role="region" :aria-label="t('ai.title')" @keydown.esc.stop="closePanel">
+  <div v-if="open" id="ai-chat-panel" class="chat" role="region" :aria-label="t('ai.title')" @keydown.esc.stop="closePanel"
+    @dragover.prevent="onChatDragOver" @dragleave="onChatDragLeave" @drop.prevent="onChatDrop">
+    <div v-if="dragActive" class="mapping-drop-overlay">
+      <i class="bi bi-file-earmark-arrow-up me-2"></i>{{ t('ai.idMapDropHint') }}
+    </div>
     <header class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom bg-white">
       <div class="d-flex align-items-center gap-2">
         <button type="button" class="pet-button" :title="t('ai.pet.touch')" :aria-label="t('ai.pet.touch')" @click="petCat">
@@ -262,6 +418,54 @@ defineExpose({ analyzeError })
       <div v-for="(m, i) in messages" :key="i" :class="['msg', m.role]">
         <div v-if="m.role === 'assistant'" class="md-body" v-html="renderMarkdown(m.content)"></div>
         <template v-else>{{ m.content }}</template>
+      </div>
+      <div v-if="mappingRequest" class="mapping-card">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-table text-primary"></i>
+          <span class="fw-semibold small">{{ t('ai.idMapUploadTitle') }}</span>
+          <button v-if="!mappingRequest.busy" type="button" class="btn btn-link btn-sm ms-auto p-0 text-muted" @click="skipMapping">
+            {{ t('ai.idMapSkip') }}
+          </button>
+        </div>
+        <div v-if="!mappingRequest.file" class="mapping-dropzone" @click="chooseMappingFile" @keydown.enter.prevent="chooseMappingFile" tabindex="0" role="button">
+          <i class="bi bi-cloud-arrow-up me-1"></i>{{ t('ai.idMapDropHint') }}
+        </div>
+        <div v-else class="small">
+          <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-file-earmark-spreadsheet"></i>
+            <span class="text-truncate">{{ mappingRequest.file.name }}</span>
+            <span class="text-muted">{{ (mappingRequest.file.size / 1024).toFixed(1) }} KB</span>
+            <button v-if="!mappingRequest.busy" type="button" class="btn btn-link btn-sm ms-auto p-0 text-muted" @click="removeMapping">{{ t('ai.idMapRemove') }}</button>
+          </div>
+          <div v-if="mappingRequest.busy" class="text-muted mt-2">
+            <span class="spinner-border spinner-border-sm me-1"></span>{{ t('ai.idMapParsing') }}
+          </div>
+          <div v-else-if="mappingRequest.preview" class="mapping-stats mt-2">
+            <span>{{ t('ai.idMapRows') }} {{ mappingRequest.preview.rows }}</span>
+            <span>{{ t('ai.idMapSources') }} {{ mappingRequest.preview.source_found }}/{{ mappingRequest.preview.rows }}</span>
+            <span>{{ t('ai.idMapTargets') }} {{ mappingRequest.preview.target_found }}/{{ mappingRequest.preview.rows }}</span>
+            <span>{{ t('ai.idMapConflicts') }} {{ mappingRequest.preview.conflicts }}</span>
+            <span>{{ t('ai.idMapCoverage') }} {{ formatCoverage(mappingRequest.preview.coverage) }}</span>
+          </div>
+          <div v-if="mappingRequest.preview?.conflict_examples?.length" class="text-danger mt-1">
+            {{ mappingRequest.preview.conflict_examples.join('; ') }}
+          </div>
+          <div v-if="mappingRequest.preview?.missing_targets?.length" class="text-danger mt-1">
+            {{ mappingRequest.preview.missing_targets.join(', ') }}
+          </div>
+          <div v-if="mappingRequest.error" class="text-danger mt-1">{{ mappingRequest.error }}</div>
+          <div class="d-flex flex-wrap gap-2 mt-2">
+            <button type="button" class="btn btn-sm btn-primary" :disabled="mappingRequest.busy || !mappingRequest.preview || mappingRequest.preview.conflicts > 0 || (mappingRequest.preview.missing_targets?.length ?? 0) > 0" @click="applyMapping">
+              {{ t('ai.idMapApply') }}
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" @click="downloadMappingTemplate">{{ t('ai.idMapTemplate') }}</button>
+          </div>
+        </div>
+        <div v-if="!mappingRequest.file" class="d-flex flex-wrap gap-2 mt-2">
+          <button type="button" class="btn btn-sm btn-outline-primary" @click="chooseMappingFile">{{ t('ai.idMapChoose') }}</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" @click="downloadMappingTemplate">{{ t('ai.idMapTemplate') }}</button>
+        </div>
+        <input ref="mappingInput" type="file" accept=".tsv,.csv,.txt,.gz" class="d-none" @change="onMappingInput" />
       </div>
       <div v-if="isThinking" class="thinking align-self-start text-muted small">
         <span class="spinner-border spinner-border-sm me-2"></span>{{ t('ai.thinking') }}
@@ -378,6 +582,50 @@ defineExpose({ analyzeError })
   align-self: flex-start;
   background: #f1f5f9;
   margin-bottom: 0.4rem;
+}
+.mapping-card {
+  align-self: stretch;
+  border: 1px solid #cfe3f3;
+  background: #f8fbfe;
+  border-radius: 10px;
+  padding: 0.65rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+}
+.mapping-dropzone {
+  border: 1px dashed #8bb8d8;
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.8rem 0.6rem;
+  text-align: center;
+  color: #315d7a;
+  cursor: pointer;
+}
+.mapping-dropzone:hover,
+.mapping-dropzone:focus-visible {
+  background: #eef7fd;
+  outline: 2px solid #3182bd;
+  outline-offset: 1px;
+}
+.mapping-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  color: #456;
+}
+.mapping-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  text-align: center;
+  color: #1b5b85;
+  background: rgba(235, 247, 255, 0.94);
+  border: 2px dashed #3182bd;
+  pointer-events: none;
 }
 .thinking {
   padding: 0.45rem 0.65rem;

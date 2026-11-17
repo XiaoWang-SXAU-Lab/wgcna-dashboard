@@ -5,6 +5,14 @@ param(
     [string]$BuildRoot = (Join-Path $env:LOCALAPPDATA 'rsWGCNA-build/windows'),
     [string]$GccBin = (Join-Path $env:LOCALAPPDATA 'w64devkit/w64devkit/bin'),
     [string]$RSource,
+    [string]$PackSource,
+    [string]$ToolSource,
+    [string[]]$PackNames = @(
+        'plant-jaspar-2024-rbh',
+        'nematode-beta-2026-11-15-r2',
+        'drosophila-beta-2026-11-15',
+        'yeast-2026-11-15'
+    ),
     [switch]$Launch
 )
 $ErrorActionPreference = 'Stop'
@@ -107,6 +115,12 @@ try {
     } else {
         Write-Warning "R runtime not found at $RSource; R plots need WGCNA_RSCRIPT or PATH."
     }
+    if ($PackSource -and $ToolSource) {
+        & (Join-Path $PSScriptRoot 'bundle-regutrace-assets.ps1') -Output $output -PackSource $PackSource -PackNames $PackNames -ToolSource $ToolSource
+        if ($LASTEXITCODE -ne 0) { throw 'reference pack/tool bundling failed' }
+    } else {
+        Write-Warning 'PackSource/ToolSource not supplied; ReguTrace reference packs and HMMER/BLAST+ are not bundled.'
+    }
     [ordered]@{
         platform = 'windows-x64'; built_at = (Get-Date -Format o)
         dashboard_commit = (& git -C $dashboard rev-parse HEAD)
@@ -116,6 +130,9 @@ try {
         exe_sha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
         worker_sha256 = (Get-FileHash -LiteralPath (Join-Path $output 'rs-wgcna-worker.exe') -Algorithm SHA256).Hash
         regutrace_sha256 = (Get-FileHash -LiteralPath (Join-Path $output 'regutrace.exe') -Algorithm SHA256).Hash
+        packs = $PackNames
+        tools_manifest_sha256 = if (Test-Path -LiteralPath (Join-Path $output 'tools/manifest.json')) { (Get-FileHash -LiteralPath (Join-Path $output 'tools/manifest.json') -Algorithm SHA256).Hash } else { '' }
+        third_party_notices_sha256 = if (Test-Path -LiteralPath (Join-Path $output 'THIRD_PARTY_NOTICES.md')) { (Get-FileHash -LiteralPath (Join-Path $output 'THIRD_PARTY_NOTICES.md') -Algorithm SHA256).Hash } else { '' }
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'build-info.json') -Encoding utf8
     Set-Content -LiteralPath (Join-Path $BuildRoot 'latest-app.txt') -Value $output -Encoding utf8
     Write-Host "Windows build: $exe"

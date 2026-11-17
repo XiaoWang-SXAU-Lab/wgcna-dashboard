@@ -33,8 +33,6 @@ func main() {
 		jobsDir = filepath.Join(os.TempDir(), "wgcna-jobs")
 	}
 
-	manager := job.NewManager(jobsDir, workerBin, runtime.NumCPU())
-	handler := api.NewHandler(manager)
 	configRoot, err := os.UserConfigDir()
 	if err != nil {
 		log.Fatal(err)
@@ -46,7 +44,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	reguManager := regutrace.NewManager(filepath.Join(cacheRoot, "rsWGCNA-explore", "regutrace"), resolveRegutrace())
+	packRoot := resolvePackRoot(configRoot)
+	manager := job.NewManager(jobsDir, workerBin, runtime.NumCPU())
+	handler := api.NewHandler(manager)
+	reguManager := regutrace.NewManager(filepath.Join(cacheRoot, "rsWGCNA-explore", "regutrace"), resolveRegutrace(), packRoot)
+	if toolRoot := resolveBundledDir("tools"); toolRoot != "" {
+		reguManager.SetToolRoot(toolRoot)
+	}
 	reguHandler := api.NewRegutraceHandler(reguManager)
 	projects, err := api.NewProjectHandler(workerBin, filepath.Join(configRoot, "rsWGCNA-explore"), filepath.Join(cacheRoot, "rsWGCNA-explore", "staging"))
 	if err != nil {
@@ -130,6 +134,38 @@ func openWindow(baseURL string) {
 	configureFileDialogs(w.Window())
 	w.Navigate(baseURL)
 	w.Run()
+}
+
+// resolveBundledDir finds an installer-bundled directory next to the
+// executable. macOS .app builds place Resources one level above MacOS.
+func resolveBundledDir(name string) string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Dir(exe)
+	candidates := []string{filepath.Join(dir, name)}
+	if runtime.GOOS == "darwin" {
+		candidates = append(candidates, filepath.Join(dir, "..", "Resources", name))
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// resolvePackRoot prefers an explicit developer override, then installer
+// bundles, then the per-user configuration directory.
+func resolvePackRoot(configRoot string) string {
+	if value := strings.TrimSpace(os.Getenv("WGCNA_REGUTRACE_PACKS")); value != "" {
+		return value
+	}
+	if bundled := resolveBundledDir("packs"); bundled != "" {
+		return bundled
+	}
+	return filepath.Join(configRoot, "rsWGCNA-explore", "regutrace-packs")
 }
 
 // resolveWorker locates WGCNA_WORKER or the rs-wgcna-worker sidecar next to the

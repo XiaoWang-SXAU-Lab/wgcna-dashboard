@@ -29,6 +29,10 @@ Source: "..\dist-windows\rsWGCNA.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist-windows\regutrace.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist-windows\rs-wgcna-worker.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist-windows\R\*"; DestDir: "{app}\R"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist-windows\tools\*"; DestDir: "{app}\tools"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist-windows\packs\*"; DestDir: "{app}\packs"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist-windows\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist-windows\build-info.json"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\rsWGCNA"; Filename: "{app}\rsWGCNA.exe"

@@ -1,6 +1,16 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { locale } from '../utils/i18n'
 const text = (zh: string, en: string) => locale.value === 'zh' ? zh : en
+type GuidePanel = 'workflow' | 'eggnog' | 'blast' | 'regutrace'
+const activePanel = ref<GuidePanel>('workflow')
+
+const panels: { id: GuidePanel; icon: string; zh: string; en: string }[] = [
+  { id: 'workflow', icon: 'bi-diagram-3', zh: '注释工作流', en: 'Annotation workflow' },
+  { id: 'eggnog', icon: 'bi-table', zh: 'eggNOG 转换', en: 'eggNOG converter' },
+  { id: 'blast', icon: 'bi-search', zh: 'BLAST 合并', en: 'BLAST merge' },
+  { id: 'regutrace', icon: 'bi-bezier2', zh: 'ReguTrace', en: 'ReguTrace' },
+]
 
 const steps = [
   { n: 1, icon: 'bi-file-earmark-text', title: ['准备蛋白序列', 'Prepare protein sequences'], color: '#0ea5e9' },
@@ -13,14 +23,22 @@ const steps = [
 </script>
 
 <template>
-  <div class="guide mx-auto" style="max-width: 980px">
+  <div class="guide mx-auto" style="max-width: 1120px">
     <div class="mb-4 text-center">
-      <h3 class="mb-1">{{ text('从零生成基因注释：完整指引', 'From scratch to gene annotation: full guide') }}</h3>
-      <p class="text-muted mb-0">{{ text('适用于任意物种（以苦荞等非模式植物为例），最终产出 annotation.tsv / gene2go.tsv / gene2kegg.tsv 三张表。', 'Works for any species (e.g. non-model plants like tartary buckwheat); the final output is the three tables.') }}</p>
+      <h3 class="mb-1">{{ text('工具箱详细指南', 'Toolkit detailed guide') }}</h3>
+      <p class="text-muted mb-0">{{ text('按工具选择说明。注释整理和 TF–target 预测是不同任务，各自有独立输入、步骤和结果。', 'Choose a toolkit to see its inputs, workflow, and outputs. Gene annotation and TF–target prediction are separate tasks.') }}</p>
     </div>
 
+    <nav class="guide-tabs mb-4" aria-label="Toolkit guide panels">
+      <button v-for="panel in panels" :key="panel.id" type="button" class="guide-tab"
+        :class="{ active: activePanel === panel.id }" :aria-pressed="activePanel === panel.id"
+        @click="activePanel = panel.id">
+        <i :class="['bi', panel.icon]"></i>{{ text(panel.zh, panel.en) }}
+      </button>
+    </nav>
+
     <!-- pipeline -->
-    <div class="flow mb-4">
+    <div v-if="activePanel === 'workflow'" class="flow mb-4">
       <template v-for="(s, i) in steps" :key="s.n">
         <div class="flow-node">
           <div class="flow-icon" :style="{ background: s.color }"><i :class="['bi', s.icon]"></i></div>
@@ -31,7 +49,7 @@ const steps = [
     </div>
 
     <!-- step 1 -->
-    <section class="step-card">
+    <section v-if="activePanel === 'workflow'" class="step-card">
       <div class="step-head"><span class="step-badge" style="background:#0ea5e9">1</span><h5 class="mb-0">{{ text('准备蛋白序列', 'Prepare protein sequences') }}</h5></div>
       <p>{{ text('从基因组注释中提取每个基因的蛋白序列，保存为 FASTA（.faa / .fasta）。这是后续 eggNOG 和 BLAST 的输入。', 'Extract protein sequences per gene into a FASTA file; this is the input for eggNOG and BLAST.') }}</p>
       <pre class="code"><code>>gene1
@@ -41,7 +59,7 @@ MAA...</code></pre>
     </section>
 
     <!-- step 2 -->
-    <section class="step-card">
+    <section v-if="activePanel === 'workflow'" class="step-card">
       <div class="step-head"><span class="step-badge" style="background:#8b5cf6">2</span><h5 class="mb-0">{{ text('跑 eggNOG-mapper（生成 GO / KEGG / 描述）', 'Run eggNOG-mapper (GO / KEGG / descriptions)') }}</h5></div>
       <p>{{ text('用在线版或服务器版，得到 .annotations 文件。关键参数：', 'Use the online or server version to get the .annotations file. Key parameters:') }}</p>
       <ul>
@@ -60,7 +78,7 @@ MAA...</code></pre>
     </section>
 
     <!-- step 3 -->
-    <section class="step-card">
+    <section v-if="activePanel === 'blast'" class="step-card">
       <div class="step-head"><span class="step-badge" style="background:#f59e0b">3</span><h5 class="mb-0">{{ text('（可选）BLAST 拿 Gene symbol / name', 'Optional: BLAST for gene symbols / names') }}</h5></div>
       <p>{{ text('eggNOG 的 Preferred_name 是"同源转移"的预测名。要更可靠的 symbol/gene_name，把蛋白 BLAST 到同 kingdom 的模式物种：', 'eggNOG Preferred_name is a transferred prediction. For more reliable symbols, BLAST to a model organism of the same kingdom:') }}</p>
       <ul>
@@ -75,7 +93,7 @@ MAA...</code></pre>
     </section>
 
     <!-- step 4 -->
-    <section class="step-card">
+    <section v-if="activePanel === 'eggnog'" class="step-card">
       <div class="step-head"><span class="step-badge" style="background:#10b981">4</span><h5 class="mb-0">{{ text('工具箱 → eggNOG 注释转换', 'Toolkit → eggNOG converter') }}</h5></div>
       <p>{{ text('导航栏「工具箱」→「eggNOG 注释转换」→ 上传 .annotations → Kingdom 选对应分类（植物选 Plants）→ 转换，得到三张表：', 'Toolkit → eggNOG converter → upload .annotations → choose kingdom → convert to get:') }}</p>
       <div class="row g-2 small">
@@ -86,7 +104,7 @@ MAA...</code></pre>
     </section>
 
     <!-- step 5 -->
-    <section class="step-card">
+    <section v-if="activePanel === 'blast'" class="step-card">
       <div class="step-head"><span class="step-badge" style="background:#ec4899">5</span><h5 class="mb-0">{{ text('（可选）工具箱 → BLAST 注释合并', 'Optional: Toolkit → BLAST merge') }}</h5></div>
       <p>{{ text('上传 BLAST 结果（outfmt 6）+ 参考注释表（id → symbol/gene_name/description），可再上传第 4 步的 annotation.tsv 作为基础表；合并后得到"官方名优先、eggNOG 补缺"的 annotation.tsv。', 'Upload the BLAST result + reference annotation (+ optional base annotation.tsv); get a merged annotation with official names preferred.') }}</p>
       <pre class="code"><code>{{ text('# 参考注释表示例（TSV）', '# reference annotation example (TSV)') }}
@@ -95,7 +113,7 @@ AT1G01010	NAC001	NAC domain containing protein 1	NAC transcription factor</code>
     </section>
 
     <!-- step 6 -->
-    <section class="step-card">
+    <section v-if="activePanel === 'workflow'" class="step-card">
       <div class="step-head"><span class="step-badge" style="background:#6366f1">6</span><h5 class="mb-0">{{ text('导入分析项目', 'Import into an analysis project') }}</h5></div>
       <p>{{ text('新建/打开项目 → 数据导入页 → 分别上传：', 'New/open a project → Data import → upload:') }}</p>
       <ul>
@@ -109,10 +127,76 @@ AT1G01010	NAC001	NAC domain containing protein 1	NAC transcription factor</code>
       <p class="mb-0">{{ text('如需检查连接对样本变化的敏感程度，可展开模块网络下方的「边稳定性（可选）」，查看已选连接在有效重采样中超过 TOM 阈值的比例。', 'To check how sensitive selected edges are to changes in the samples, expand Edge stability (optional) below the module network. It shows how often each edge exceeds the TOM threshold in valid resamples.') }}</p>
     </section>
 
+    <!-- ReguTrace workflow and architecture -->
+    <section v-if="activePanel === 'regutrace'" class="step-card">
+      <div class="step-head"><span class="step-badge" style="background:#0f766e">RT</span><h5 class="mb-0">ReguTrace technical workflow</h5></div>
+      <p>{{ text('植物流程使用基因组、GFF、CDS 或蛋白 FASTA 和注释表。先鉴定本地 TF，再用同家族双向最佳蛋白命中转移 JASPAR 代表矩阵，最后扫描启动子。', 'The plant workflow takes a genome, GFF, CDS or protein FASTA, and annotation. It identifies local TFs, transfers representative JASPAR matrices using same-family reciprocal protein best hits, and scans promoters.') }}</p>
+      <p class="small text-muted">{{ text('Pack 同时带有两类资源：一类用于从蛋白结构域找 TF，另一类用于把 TF 映射到参考 motif。鉴定出来的 Gene ID 来自用户自己的序列/GFF，不是从拟南芥或其他 donor 名字复制来的。', 'A pack carries two distinct resource groups: TF domain models/rules and reference TF-to-motif evidence. The identified Gene ID comes from the user’s own sequence/GFF; it is not copied from an Arabidopsis or other donor name.') }}</p>
+      <div class="roadmap-wrap" role="img" aria-label="ReguTrace technical roadmap from genome inputs through TF identification and motif mapping to promoter evidence">
+        <svg class="roadmap" viewBox="0 0 1200 470" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="rt-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#64748b"/></marker>
+            <marker id="rt-arrow-teal" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#0f766e"/></marker>
+          </defs>
+          <g fill="none" stroke="#64748b" stroke-width="3" marker-end="url(#rt-arrow)">
+            <path d="M220 150 H260"/><path d="M470 150 H510"/><path d="M720 150 H760"/><path d="M970 150 H1010"/>
+            <path d="M120 220 V265 H865 V220"/>
+          </g>
+          <g fill="none" stroke="#0f766e" stroke-width="3" marker-end="url(#rt-arrow-teal)">
+            <path d="M430 310 V220"/><path d="M610 310 V220"/><path d="M850 310 V220"/>
+          </g>
+          <g font-family="Arial, sans-serif" text-anchor="middle">
+            <rect x="20" y="90" width="200" height="130" rx="16" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+            <text x="120" y="123" font-size="18" font-weight="700" fill="#1e3a8a">USER INPUTS</text>
+            <text x="120" y="154" font-size="15" fill="#334155">Protein / CDS FASTA</text>
+            <text x="120" y="180" font-size="15" fill="#334155">Genome FASTA + GFF3</text>
+            <text x="120" y="204" font-size="12" fill="#64748b">Gene annotations (TSV / eggNOG)</text>
+
+            <rect x="260" y="90" width="210" height="130" rx="16" fill="#f0fdf4" stroke="#4ade80" stroke-width="2"/>
+            <text x="365" y="123" font-size="18" font-weight="700" fill="#166534">TF IDENTIFICATION</text>
+            <text x="365" y="154" font-size="15" fill="#334155">HMM domain search</text>
+            <text x="365" y="180" font-size="15" fill="#334155">Taxon-specific family rules</text>
+            <text x="365" y="204" font-size="12" fill="#64748b">Output: local TF Gene IDs</text>
+
+            <rect x="510" y="90" width="210" height="130" rx="16" fill="#f5f3ff" stroke="#a78bfa" stroke-width="2"/>
+            <text x="615" y="123" font-size="18" font-weight="700" fill="#5b21b6">TF → MOTIF MAP</text>
+            <text x="615" y="154" font-size="15" fill="#334155">Same-family protein RBH</text>
+            <text x="615" y="180" font-size="15" fill="#334155">Transfer representative PFM</text>
+            <text x="615" y="204" font-size="12" fill="#64748b">Keep equally supported candidates</text>
+
+            <rect x="760" y="90" width="210" height="130" rx="16" fill="#fffbeb" stroke="#fbbf24" stroke-width="2"/>
+            <text x="865" y="123" font-size="18" font-weight="700" fill="#92400e">PROMOTER SCAN</text>
+            <text x="865" y="154" font-size="15" fill="#334155">Extract promoters from GFF3</text>
+            <text x="865" y="180" font-size="15" fill="#334155">Scan transferred JASPAR motifs</text>
+            <text x="865" y="204" font-size="12" fill="#64748b">Report candidate sites</text>
+
+            <rect x="1010" y="90" width="170" height="130" rx="16" fill="#ecfeff" stroke="#22d3ee" stroke-width="2"/>
+            <text x="1095" y="123" font-size="18" font-weight="700" fill="#155e75">OUTPUTS</text>
+            <text x="1095" y="154" font-size="14" fill="#334155">TF catalogue</text>
+            <text x="1095" y="178" font-size="14" fill="#334155">Trace + evidence</text>
+            <text x="1095" y="202" font-size="12" fill="#64748b">TSV + SQLite</text>
+
+            <rect x="390" y="310" width="500" height="110" rx="16" fill="#f0fdfa" stroke="#2dd4bf" stroke-width="2"/>
+            <text x="640" y="345" font-size="18" font-weight="700" fill="#115e59">VERSIONED REFERENCE PACK</text>
+            <text x="640" y="375" font-size="15" fill="#334155">TF HMMs + family rules · reference TF proteins · TF–motif map · PFM library</text>
+            <text x="640" y="401" font-size="12" fill="#64748b">A pack supplies reference evidence; it does not replace the user’s genome or gene IDs.</text>
+          </g>
+          <text x="600" y="455" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#475569">A motif hit is a computational candidate (evidence level D), not proof of in-vivo binding or regulation.</text>
+        </svg>
+      </div>
+      <div class="row g-2 small mt-2">
+        <div class="col-md-6"><div class="mini-card"><b>{{ text('TF 鉴定', 'TF identification') }}</b><div class="text-muted">{{ text('蛋白结构域 HMM + 类群家族规则；这一步不需要 promoter motif。', 'Protein-domain HMMs plus taxon-specific family rules; promoter motifs are not used at this stage.') }}</div></div></div>
+        <div class="col-md-6"><div class="mini-card"><b>{{ text('靶标候选', 'Target candidates') }}</b><div class="text-muted">{{ text('只有成功映射到 motif 的 TF 才能扫描启动子。映射缺失或有并列时会如实报告。', 'Only TFs mapped to motifs can scan promoters. Missing mappings and ties are reported explicitly.') }}</div></div></div>
+      </div>
+      <div class="alert alert-info small mt-3 mb-0">
+        {{ text('ReguTrace 页面默认使用 reference pack；手动扫描收在“高级”里，不会自动鉴定 TF gene，结果标记为 motif-only，不能直接作为 WGCNA prior。当前 Windows beta 内置植物、酵母、线虫和果蝇参考 pack。物种在同一 kingdom 不代表 TF/motif 覆盖相同；pack 的规则和 motif 覆盖范围请按具体 pack 查看。没有参考 pack 的类群，手动 motif-only scan 不会自动鉴定 TF。', 'The ReguTrace page defaults to reference-pack mode. Manual scan is under “Advanced”, does not identify TF genes by itself, is marked motif-only, and is not a WGCNA prior. The current Windows beta bundles plant, yeast, nematode, and Drosophila packs. Sharing a kingdom does not guarantee the same TF or motif coverage. Check the selected pack’s scope. Without a suitable pack, a manual motif-only scan does not identify TFs.') }}
+      </div>
+    </section>
+
     <!-- ReguTrace motif library -->
-    <section class="step-card">
+    <section v-if="activePanel === 'regutrace'" class="step-card">
       <div class="step-head"><span class="step-badge" style="background:#0f766e">M</span><h5 class="mb-0">{{ text('ReguTrace motif 库从哪里来？', 'Where do ReguTrace motif libraries come from?') }}</h5></div>
-      <p>{{ text('ReguTrace 只接受 JASPAR PFM 文本（>ID name + A/C/G/T 矩阵）。内置库是 JASPAR 2024 CORE plants non-redundant（805 个 motif，CC BY 4.0）；其它物种族需要从下面的来源下载并转换成 JASPAR PFM 后上传。', 'ReguTrace accepts JASPAR PFM text only (>ID name + A/C/G/T rows). The built-in library is JASPAR 2024 CORE plants non-redundant (805 motifs, CC BY 4.0); other taxa need to be downloaded from the sources below and converted to JASPAR PFM before upload.') }}</p>
+      <p>{{ text('参考 pack 模式会按物种提供 TF 鉴定规则、参考 TF–motif 映射和 motif 矩阵；当前 Windows beta 内置植物、酵母、线虫和果蝇 pack。手动扫描模式接受 JASPAR PFM（>ID name + A/C/G/T 矩阵），并内置多个类群的 motif 库；其它类群可从下表寻找矩阵来源。', 'Reference-pack mode provides taxon-specific TF rules, reference TF–motif mappings, and motif matrices; the current Windows beta bundles plant, yeast, nematode, and Drosophila packs. Manual scan mode accepts JASPAR PFM text (>ID name + A/C/G/T rows) and includes motif libraries for several taxa; use the sources below for other taxa.') }}</p>
       <div class="table-responsive">
         <table class="table table-sm align-middle small mb-2">
           <thead><tr><th>{{ text('类群', 'Taxon') }}</th><th>{{ text('推荐来源', 'Recommended sources') }}</th><th>{{ text('说明', 'Notes') }}</th></tr></thead>
@@ -131,7 +215,7 @@ AT1G01010	NAC001	NAC domain containing protein 1	NAC transcription factor</code>
     </section>
 
     <!-- format reference -->
-    <section class="step-card">
+    <section v-if="activePanel !== 'regutrace'" class="step-card">
       <div class="step-head"><span class="step-badge" style="background:#64748b">?</span><h5 class="mb-0">{{ text('输入/输出格式速查', 'Format cheat sheet') }}</h5></div>
       <div class="row g-3 small">
         <div class="col-md-6"><b>annotation.tsv</b><pre class="code"><code>gene_id	gene_name	symbol	description
@@ -145,12 +229,18 @@ gene1	AT1G01010	88.5	400	...</code></pre></div>
       </div>
     </section>
 
-    <div class="text-center text-muted small mt-4">{{ text('提示：所有文件都用 UTF-8 编码、制表符（Tab）分隔。', 'Tip: all files are UTF-8, tab-separated.') }}</div>
+    <div v-if="activePanel !== 'regutrace'" class="text-center text-muted small mt-4">{{ text('提示：所有文件都用 UTF-8 编码、制表符（Tab）分隔。', 'Tip: all files are UTF-8, tab-separated.') }}</div>
   </div>
 </template>
 
 <style scoped>
 .guide { color: #223747; }
+.guide-tabs { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.guide-tab { border: 1px solid #cbd5e1; background: #fff; color: #334155; border-radius: 999px; padding: 8px 16px; font-size: 14px; }
+.guide-tab i { margin-right: 7px; }
+.guide-tab.active { background: #0f766e; border-color: #0f766e; color: #fff; box-shadow: 0 4px 12px rgba(15, 118, 110, .2); }
+.roadmap-wrap { overflow-x: auto; border: 1px solid #dce5ec; background: #fff; border-radius: 12px; padding: 8px; }
+.roadmap { display: block; width: 100%; min-width: 900px; height: auto; }
 .flow { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; background: #fff; border: 1px solid #dce5ec; border-radius: 14px; padding: 18px 12px; }
 .flow-node { display: flex; flex-direction: column; align-items: center; width: 108px; text-align: center; }
 .flow-icon { width: 46px; height: 46px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; box-shadow: 0 6px 14px rgba(0, 0, 0, 0.12); }

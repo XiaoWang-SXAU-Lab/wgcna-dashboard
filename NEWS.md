@@ -3,9 +3,18 @@
 All notable changes to the wgcna-dashboard are documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — 2026-11-12
+## [Unreleased] — 2026-11-17
 
 ### Added
+
+- **ReguTrace plant workflow**: upload genome FASTA, GFF3, CDS or protein FASTA,
+  and gene annotation. Identify local TFs, find same-family reciprocal best
+  protein hits, transfer representative JASPAR motifs, and scan promoters.
+- **ReguTrace results**: complete TF family chart and searchable gene
+  catalogue, mapped and scanned counts, TF–target queries with gene
+  annotations, TF/target structure, protein domains, and promoter-site
+  details with coordinates and provenance. The Windows preview ran HF1 CDS
+  through the browser, with 260 mapped TFs and 229 matrices with sites.
 
 - **ReguTrace full-result exports and TF–target prior**: download the full hit table as
   SQLite (indexed `hits` + `pairs`), TSV/CSV, gzip, or JSONL.gz. Data Import can

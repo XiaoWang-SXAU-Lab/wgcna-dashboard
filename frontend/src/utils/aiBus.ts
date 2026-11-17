@@ -1,9 +1,14 @@
-let analyzer: ((err: string) => void) | null = null
+export interface AIErrorContext {
+  regutraceJobId?: string
+  kind?: 'id_mismatch' | 'job_failure' | 'diagnostic'
+}
 
-export function registerAnalyzer(fn: (err: string) => void) {
+let analyzer: ((err: string, context?: AIErrorContext) => void) | null = null
+
+export function registerAnalyzer(fn: (err: string, context?: AIErrorContext) => void) {
   analyzer = fn
 }
 
-export function analyzeError(err: string) {
-  if (analyzer) analyzer(err)
+export function analyzeError(err: string, context?: AIErrorContext) {
+  if (analyzer) analyzer(err, context)
 }

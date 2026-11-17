@@ -32,7 +32,37 @@ bash scripts/test-project-macos.sh
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 # 构建后打开原生窗口
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1 -Launch
+# 产品构建：把参考 pack、HMMER、BLAST+ 和 R 一起放进 app 目录
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1 `
+  -PackSource C:\path\to\pack-source `
+  -ToolSource C:\path\to\tools-with-hmmer-win-and-blast-win `
+  -RSource C:\path\to\R
 ```
+
+`-PackSource` 目录下应有四个 pack 子目录（plant / nematode r2 / drosophila /
+yeast），`-ToolSource` 下应有：
+`hmmer-win\{hmmsearch.exe,cygwin1.dll,LICENSE,CYGWIN-LICENSE.txt,cygwin-3.3.3-source.tar.xz}`
+和 `blast-win\{blastp.exe,nghttp2.dll,LICENSE,NGHTTP2-LICENSE.txt}`。
+Cygwin 源码归档必须与 `cygwin1.dll` 的 3.3.3 版本对应，供 GPL/LGPL 再分发使用。
+脚本生成 `packs/`、`tools/`、`tools/manifest.json`、`THIRD_PARTY_NOTICES.md`；
+`build-info.json` 记录清单和声明的 SHA-256。随后把 app 目录内容覆盖到
+`dist-windows`（保留 `R/`），运行 `ISCC.exe packaging\setup.iss`。安装器会把
+`packs/`、`tools/`（含 `tools/sources/`）、第三方声明和 `build-info.json` 一起
+安装到 `{app}`。app 启动时验证 `tools/manifest.json` 及工具/DLL/许可/源码哈希；
+pack 模式启动时 `regutrace pipeline` 再验证 pack manifest/SHA-256。正常用户不需要
+设置 `WGCNA_REGUTRACE_PACKS`、`WGCNA_HMMERSEARCH`、`WGCNA_BLASTP`。
+
+GitHub release workflow 通过仓库变量取资产：`RSWGCNA_REFERENCE_PACKS_URL` 指向包含
+四个 pack 目录的 ZIP；Windows 还需要 `RSWGCNA_WIN_TOOLS_URL`，指向根目录含
+`hmmer-win/` 和 `blast-win/` 的 ZIP（含 Cygwin 源码与全部许可证）。未配置时
+workflow 会在打包前明确失败，避免产出缺少 pack/tools 的安装器。可用：
+
+```powershell
+Compress-Archive -Path .\pack-source\* -DestinationPath .\regutrace-packs.zip
+Compress-Archive -Path .\hmmer-win,.\blast-win -DestinationPath .\regutrace-win-tools.zip
+```
+
+再把两个 ZIP 放到 workflow 可下载的 HTTPS 位置，并在仓库 Variables 中配置 URL。
 
 需要 Windows GNU Rust 工具链（`rustup toolchain install stable-x86_64-pc-windows-gnu`）、
 w64devkit、Go（以 backend/go.mod 为准）、Node 和 pnpm。
@@ -69,8 +99,37 @@ bash scripts/build-macos.sh
 产物在 `~/Library/Caches/rsWGCNA-build/macos/run-.../app`，
 `latest-app.txt` 保存最新成功构建位置。
 可用 `WGCNA_WORKER_SOURCE` 和 `WGCNA_BUILD_ROOT` 指定源目录与本机构建根目录。
-此脚本只生成本机程序；带 R.framework 的 DMG 仍由 release workflow 打包。
-本轮仅在 Windows 验证，macOS 脚本需要在 Mac 实机验收。
+此脚本只生成本机程序；带 R.framework 的 DMG 由下面的打包步骤生成。
+
+产品打包（在 Mac 实机执行）：
+
+```bash
+# 1) 准备 macOS HMMER 3.4 + NCBI BLAST+ 2.17.0+ 及许可证
+bash scripts/prepare-macos-regutrace-tools.sh "$HOME/regutrace-mac-tools"
+
+# 2) 准备与 Windows 相同的四个参考 pack 目录（如通过同步盘复制 pack-source）
+
+# 3) 组装 .app，加入 Contents/Resources/{packs,tools}，嵌入 R.framework，签名并生成 DMG
+APP_DIR="$(cat "$HOME/Library/Caches/rsWGCNA-build/macos/latest-app.txt")"
+WGCNA_PACK_SOURCE="$HOME/pack-source" \
+WGCNA_TOOL_SOURCE="$HOME/regutrace-mac-tools" \
+WGCNA_R_FRAMEWORK="/Library/Frameworks/R.framework" \
+bash scripts/build-macos-package.sh "$APP_DIR"
+```
+
+`build-macos-package.sh` 调用 `bundle-regutrace-assets-macos.py` 生成同样的
+`tools/manifest.json` schema、pack 元数据和 `THIRD_PARTY_NOTICES.md`；app 在
+`Contents/Resources` 下发现 pack/tool，无需 `WGCNA_*` 变量。
+`build-info.json` 写入 `Contents/Resources`。DMG 中的 app 仍是 ad-hoc 签名，
+未做 Apple 公证。
+
+**验证状态（2026-11-16）**：Windows 已完成干净安装和浏览器流程验收；macOS
+打包脚本已写好并通过 shell/Python 语法检查，但尚未在 Mac 实机运行、签名验证或
+安装 DMG。需要在 Mac 上执行上述三步并完成酵母/果蝇 pack 流程后才能标记通过。
+
+GitHub macOS job 使用 `RSWGCNA_REFERENCE_PACKS_URL` 下载四个 pack，随后运行
+`prepare-macos-regutrace-tools.sh` 和 `build-macos-package.sh`；未配置 pack URL
+时会在打包前明确失败。
 
 ## 绘图与同步
 

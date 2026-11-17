@@ -23,7 +23,9 @@
 
 预编译的桌面安装包发布在
 [Releases](https://github.com/XiaoWang-SXAU-Lab/wgcna-dashboard/releases) 页面，
-自带 R 运行时，无需另外安装 R。
+自带 R 运行时，无需另外安装 R。安装包也内置 ReguTrace 参考 pack、HMMER 和
+NCBI BLAST+；参考 pack 模式只需基因组、GFF3 和蛋白 FASTA，用户无需安装工具或设置
+`WGCNA_*` 路径变量。
 
 - **Windows** — `rsWGCNA-setup-0.6.0.exe`：标准 Inno Setup 安装器，无需管理员
   权限，安装到 `%LOCALAPPDATA%\rsWGCNA`，创建开始菜单 / 桌面快捷方式，自带卸载程序。
@@ -156,3 +158,8 @@ Windows（PowerShell）：
 ## License
 
 [MIT](LICENSE) © 2026 Shawn Wang (Xiao Wang-SXAU-Lab) and contributors
+
+
+### 植物 ReguTrace 流程
+
+上传基因组 FASTA、GFF3、CDS 或蛋白 FASTA 及基因注释表。ReguTrace 自动鉴定本地 TF，在同家族内找双向最佳蛋白匹配，转移 JASPAR 代表 motif，再扫描启动子。结果页展示全量 TF 家族统计、可搜索的 TF 目录、带注释的 TF–target 关系、基因结构、蛋白结构域和启动子结合位点。参见[技术路线与 HF1 验收](docs/REGUTRACE-PLANT-WORKFLOW.md)及[更新记录](NEWS.md)。

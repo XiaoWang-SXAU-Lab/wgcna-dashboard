@@ -1,11 +1,14 @@
 package api
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -30,7 +33,76 @@ func (h *RegutraceHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/toolkits/regutrace/jobs/{id}/cancel", h.cancel)
 	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/query", h.query)
 	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/promoter", h.promoter)
+	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/tf", h.tf)
+	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/site", h.site)
 	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/export", h.export)
+	mux.HandleFunc("POST /api/toolkits/regutrace/jobs/{id}/id-map/preview", h.previewIDMap)
+	mux.HandleFunc("POST /api/toolkits/regutrace/jobs/{id}/id-map/apply", h.applyIDMap)
+}
+
+func readIDMapUpload(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		return nil, fmt.Errorf("multipart ID mapping upload required: %w", err)
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		return nil, errors.New("ID mapping file is required")
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, (64<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 64<<20 {
+		return nil, errors.New("ID mapping file is larger than 64 MB")
+	}
+	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
+		gz, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, fmt.Errorf("ID mapping gzip: %w", err)
+		}
+		defer gz.Close()
+		data, err = io.ReadAll(io.LimitReader(gz, (256<<20)+1))
+		if err != nil {
+			return nil, err
+		}
+		if len(data) > 256<<20 {
+			return nil, errors.New("decompressed ID mapping is larger than 256 MB")
+		}
+	}
+	return data, nil
+}
+
+func (h *RegutraceHandler) previewIDMap(w http.ResponseWriter, r *http.Request) {
+	data, err := readIDMapUpload(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	preview, err := h.mgr.PreviewIDMapping(r.PathValue("id"), data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func (h *RegutraceHandler) applyIDMap(w http.ResponseWriter, r *http.Request) {
+	data, err := readIDMapUpload(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	preview, err := h.mgr.ApplyIDMapping(r.PathValue("id"), data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
 }
 
 func (h *RegutraceHandler) info(w http.ResponseWriter, _ *http.Request) {
@@ -89,11 +161,40 @@ func (h *RegutraceHandler) createJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if ups.TFGenes, err = open("tf_genes", false); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if ups.Proteins, err = open("proteins", false); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if ups.CDS, err = open("cds", false); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if ups.HMM, err = open("hmm", false); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if ups.FamilyMap, err = open("family_map", false); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if ups.Trace, err = open("trace", false); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if ups.CustomPack, err = open("custom_pack", false); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if ups.Annotation, err = open("annotation", false); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	ups.MotifLibrary = strings.TrimSpace(r.FormValue("motif_library"))
+	ups.ReferencePack = strings.TrimSpace(r.FormValue("reference_pack"))
 	job, err := h.mgr.Create(ups)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -223,6 +324,92 @@ func (h *RegutraceHandler) promoter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
+}
+
+func (h *RegutraceHandler) tf(w http.ResponseWriter, r *http.Request) {
+	tf := strings.TrimSpace(r.URL.Query().Get("tf"))
+	if tf == "" {
+		http.Error(w, "tf is required", http.StatusBadRequest)
+		return
+	}
+	target := strings.TrimSpace(r.URL.Query().Get("target"))
+	view, err := h.mgr.TFView(r.PathValue("id"), tf, target)
+	if err != nil {
+		status := http.StatusBadRequest
+		switch {
+		case errors.Is(err, regutrace.ErrNotFound):
+			status = http.StatusNotFound
+		case errors.Is(err, regutrace.ErrNotCompleted):
+			status = http.StatusConflict
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+func optionalUint(q url.Values, key string) (*uint64, error) {
+	raw := strings.TrimSpace(q.Get(key))
+	if raw == "" {
+		return nil, nil
+	}
+	v, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be a non-negative integer", key)
+	}
+	return &v, nil
+}
+
+func (h *RegutraceHandler) site(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	opts := regutrace.SiteEvidenceOptions{
+		TargetID: strings.TrimSpace(q.Get("target")),
+		MotifID:  strings.TrimSpace(q.Get("motif")),
+		Strand:   strings.TrimSpace(q.Get("strand")),
+		TFID:     strings.TrimSpace(q.Get("tf")),
+	}
+	if opts.TargetID == "" || opts.MotifID == "" {
+		http.Error(w, "target and motif are required", http.StatusBadRequest)
+		return
+	}
+	var err error
+	if opts.PromoterStart, err = optionalUint(q, "promoter_start"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if opts.PromoterEnd, err = optionalUint(q, "promoter_end"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if opts.HitStart, err = optionalUint(q, "hit_start"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if opts.HitEnd, err = optionalUint(q, "hit_end"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if opts.PromoterStart == nil || opts.PromoterEnd == nil {
+		http.Error(w, "promoter_start and promoter_end are required", http.StatusBadRequest)
+		return
+	}
+	if opts.HitStart == nil || opts.HitEnd == nil || opts.Strand == "" {
+		http.Error(w, "hit_start, hit_end and strand are required", http.StatusBadRequest)
+		return
+	}
+	res, err := h.mgr.SiteEvidence(r.PathValue("id"), opts)
+	if err != nil {
+		status := http.StatusBadRequest
+		switch {
+		case errors.Is(err, regutrace.ErrNotFound):
+			status = http.StatusNotFound
+		case errors.Is(err, regutrace.ErrNotCompleted):
+			status = http.StatusConflict
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (h *RegutraceHandler) export(w http.ResponseWriter, r *http.Request) {

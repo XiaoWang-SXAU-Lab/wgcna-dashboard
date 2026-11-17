@@ -27,11 +27,12 @@ import (
 
 // Params are the scanner parameters exposed by the toolkit sidebar.
 type Params struct {
-	PromoterLen int        `json:"promoter_len"`
-	Downstream  int        `json:"downstream"`
-	PValue      float64    `json:"pvalue"`
-	Background  [4]float64 `json:"background"`
-	Threads     int        `json:"threads"` // 0 = auto (CPU cores - 1), 1 = serial
+	PromoterLen                 int        `json:"promoter_len"`
+	Downstream                  int        `json:"downstream"`
+	PValue                      float64    `json:"pvalue"`
+	Background                  [4]float64 `json:"background"`
+	Threads                     int        `json:"threads"` // 0 = auto (CPU cores - 1), 1 = serial
+	IncludeSingleDomainFallback bool       `json:"include_single_domain_fallback"`
 }
 
 func defaultParams() Params {
@@ -86,10 +87,17 @@ type InputSummary struct {
 	Motifs           string `json:"motifs"`
 	MotifLibraryKey  string `json:"motif_library_key,omitempty"`
 	TFMap            string `json:"tf_map,omitempty"`
+	TFGenes          string `json:"tf_genes,omitempty"`
+	CDS              string `json:"cds,omitempty"`
+	Proteins         string `json:"proteins,omitempty"`
+	HMM              string `json:"hmm,omitempty"`
+	FamilyMap        string `json:"family_map,omitempty"`
+	Trace            string `json:"trace,omitempty"`
 	Annotation       string `json:"annotation,omitempty"`
 	AnnotationSource string `json:"annotation_source"`
 	GenomeBytes      int64  `json:"genome_bytes"`
 	GFFBytes         int64  `json:"gff_bytes"`
+	ReferencePack    string `json:"reference_pack,omitempty"`
 }
 
 // Job is the client-facing state of one ReguTrace run.
@@ -117,12 +125,20 @@ type Upload struct {
 }
 
 type Uploads struct {
-	Genome       *Upload
-	GFF          *Upload
-	Motifs       *Upload
-	MotifLibrary string // bundled JASPAR key; ignored when Motifs is present
-	TFMap        *Upload
-	Annotation   *Upload
+	Genome        *Upload
+	GFF           *Upload
+	Motifs        *Upload
+	MotifLibrary  string // bundled JASPAR key; ignored when Motifs is present
+	TFMap         *Upload
+	TFGenes       *Upload
+	Proteins      *Upload
+	CDS           *Upload
+	HMM           *Upload
+	FamilyMap     *Upload
+	Trace         *Upload
+	CustomPack    *Upload
+	ReferencePack string
+	Annotation    *Upload
 }
 
 type jobState struct {
@@ -133,20 +149,39 @@ type jobState struct {
 	cancel           context.CancelFunc
 	genomePath       string
 	gffPath          string
+	gff              *gffCatalog
 	motifsPath       string
 	tfMapPath        string
+	tfGenesPath      string
+	proteinsPath     string
+	sequenceIsCDS    bool
+	hmmPath          string
+	familyMapPath    string
+	tracePath        string
 	annotationPath   string
 	annotationSource string
+	referencePackDir string
+	referencePackKey string
+	pipelineDir      string
+	reportPath       string
+	promotersPath    string
+	progressPath     string
 	data             *dataset
 	edges            []Edge
 	promoters        map[string]*Promoter
 	motifs           map[string]MotifInfo
 	annotations      map[string]AnnotationEntry
+	donors           map[donorKey][]DonorInfo
 }
 
 type Manager struct {
-	dir string
-	bin string
+	dir        string
+	bin        string
+	packRoot   string
+	toolRoot   string
+	toolStatus []ToolStatus
+	toolFiles  map[string]string
+	toolErr    error
 
 	mu        sync.RWMutex
 	exportMu  sync.Mutex
@@ -156,8 +191,19 @@ type Manager struct {
 
 // NewManager creates a ReguTrace job manager. bin may be empty in a build that
 // does not embed the scanner; jobs then fail with an actionable error.
-func NewManager(dir, bin string) *Manager {
+func NewManager(dir, bin string, packRoots ...string) *Manager {
 	_ = os.MkdirAll(dir, 0o755)
+	packRoot := ""
+	if len(packRoots) > 0 {
+		packRoot = packRoots[0]
+	} else {
+		packRoot = os.Getenv("WGCNA_REGUTRACE_PACKS")
+		if packRoot == "" {
+			if config, err := os.UserConfigDir(); err == nil {
+				packRoot = filepath.Join(config, "rsWGCNA-explore", "regutrace-packs")
+			}
+		}
+	}
 	// Jobs are in-memory only. Keep the newest few on-disk directories for
 	// post-mortem inspection, but remove older runs so repeated whole-genome
 	// scans cannot fill the cache indefinitely.
@@ -186,7 +232,7 @@ func NewManager(dir, bin string) *Manager {
 		lib.Count = len(meta)
 		libraries = append(libraries, LibraryInfo{Key: lib.Key, Name: lib.Name, Count: lib.Count})
 	}
-	return &Manager{dir: dir, bin: bin, jobs: map[string]*jobState{}, libraries: libraries}
+	return &Manager{dir: dir, bin: bin, packRoot: packRoot, jobs: map[string]*jobState{}, libraries: libraries}
 }
 
 // LibraryInfo describes one bundled JASPAR taxon collection.
@@ -198,13 +244,15 @@ type LibraryInfo struct {
 
 // Info describes the bundled motif libraries.
 type Info struct {
-	MotifLibrary string        `json:"motif_library"`
-	MotifCount   int           `json:"motif_count"`
-	Libraries    []LibraryInfo `json:"libraries"`
+	MotifLibrary string              `json:"motif_library"`
+	MotifCount   int                 `json:"motif_count"`
+	Libraries    []LibraryInfo       `json:"libraries"`
+	Packs        []ReferencePackInfo `json:"packs"`
+	Tools        []ToolStatus        `json:"tools,omitempty"`
 }
 
 func (m *Manager) Info() Info {
-	info := Info{Libraries: m.libraries}
+	info := Info{Libraries: m.libraries, Packs: ListReferencePacks(m.packRoot), Tools: m.toolStatus}
 	for _, lib := range m.libraries {
 		if lib.Key == DefaultMotifLibrary {
 			info.MotifLibrary = lib.Name
@@ -221,6 +269,28 @@ func (m *Manager) Info() Info {
 
 // Dir returns the job root (useful for diagnostics/tests).
 func (m *Manager) Dir() string { return m.dir }
+
+// SetToolRoot registers the installer-bundled tools directory and verifies its
+// manifest before any pack job can run. An empty root keeps the developer
+// path/PATH fallback.
+func (m *Manager) SetToolRoot(root string) {
+	m.toolRoot = strings.TrimSpace(root)
+	m.toolStatus, m.toolFiles, m.toolErr = VerifyBundledTools(m.toolRoot)
+}
+
+func (m *Manager) toolPath(name string) string {
+	switch name {
+	case "hmmsearch":
+		if value := strings.TrimSpace(os.Getenv("WGCNA_HMMERSEARCH")); value != "" {
+			return value
+		}
+	case "blastp":
+		if value := strings.TrimSpace(os.Getenv("WGCNA_BLASTP")); value != "" {
+			return value
+		}
+	}
+	return m.toolFiles[name]
+}
 
 func newID() string {
 	b := make([]byte, 8)
@@ -279,37 +349,66 @@ func (m *Manager) Create(ups Uploads) (Job, error) {
 	if err != nil {
 		return cleanup(fmt.Errorf("save GFF3: %w", err))
 	}
-
-	libraryKey := ups.MotifLibrary
-	if libraryKey == "" {
-		libraryKey = DefaultMotifLibrary
+	packMode := strings.TrimSpace(ups.ReferencePack) != "" || ups.CustomPack != nil
+	var pack *referencePack
+	if ups.CustomPack != nil {
+		if strings.TrimSpace(ups.ReferencePack) != "" {
+			return cleanup(errors.New("choose either a server reference pack or a custom pack ZIP, not both"))
+		}
+		pack, err = unpackCustomPack(dir, ups.CustomPack)
+		if err != nil {
+			return cleanup(err)
+		}
+	} else if packMode {
+		pack, err = ResolveReferencePack(m.packRoot, ups.ReferencePack)
+		if err != nil {
+			return cleanup(err)
+		}
 	}
+
 	motifsDisplay := ""
 	motifLibraryKey := ""
 	var motifsPath string
 	var motifBytes []byte
-	if ups.Motifs != nil {
-		motifsPath, _, err = saveUpload(dir, "motifs.jaspar", ups.Motifs)
-		if err != nil {
-			return cleanup(fmt.Errorf("save motif library: %w", err))
+	if packMode {
+		if ups.Motifs != nil || strings.TrimSpace(ups.MotifLibrary) != "" {
+			return cleanup(errors.New("a reference pack supplies motifs; do not upload or select a motif library in pack mode"))
 		}
-		motifsDisplay = filepath.Base(ups.Motifs.Name)
-		motifLibraryKey = "custom"
+		motifsPath = pack.MotifsPath
 		motifBytes, err = readMaybeGzip(motifsPath)
 		if err != nil {
-			return cleanup(fmt.Errorf("read motif library: %w", err))
+			return cleanup(fmt.Errorf("read pack motif library: %w", err))
 		}
+		motifsDisplay = filepath.Base(pack.manifest.Files["motifs"])
+		motifLibraryKey = "pack:" + pack.Info.Key
 	} else {
-		lib, ok := builtinLibrary(libraryKey)
-		if !ok {
-			return cleanup(fmt.Errorf("unknown motif library %q; choose a bundled JASPAR taxon or upload a JASPAR PFM", libraryKey))
+		libraryKey := ups.MotifLibrary
+		if libraryKey == "" {
+			libraryKey = DefaultMotifLibrary
 		}
-		motifsDisplay = lib.Name
-		motifLibraryKey = lib.Key
-		motifsPath = filepath.Join(dir, "motifs.jaspar")
-		motifBytes = lib.Data
-		if err := os.WriteFile(motifsPath, motifBytes, 0o644); err != nil {
-			return cleanup(fmt.Errorf("write bundled motif library: %w", err))
+		if ups.Motifs != nil {
+			motifsPath, _, err = saveUpload(dir, "motifs.jaspar", ups.Motifs)
+			if err != nil {
+				return cleanup(fmt.Errorf("save motif library: %w", err))
+			}
+			motifsDisplay = filepath.Base(ups.Motifs.Name)
+			motifLibraryKey = "custom"
+			motifBytes, err = readMaybeGzip(motifsPath)
+			if err != nil {
+				return cleanup(fmt.Errorf("read motif library: %w", err))
+			}
+		} else {
+			lib, ok := builtinLibrary(libraryKey)
+			if !ok {
+				return cleanup(fmt.Errorf("unknown motif library %q; choose a bundled JASPAR taxon or upload a JASPAR PFM", libraryKey))
+			}
+			motifsDisplay = lib.Name
+			motifLibraryKey = lib.Key
+			motifsPath = filepath.Join(dir, "motifs.jaspar")
+			motifBytes = lib.Data
+			if err := os.WriteFile(motifsPath, motifBytes, 0o644); err != nil {
+				return cleanup(fmt.Errorf("write bundled motif library: %w", err))
+			}
 		}
 	}
 	if len(motifBytes) > 128<<20 {
@@ -322,12 +421,86 @@ func (m *Manager) Create(ups Uploads) (Job, error) {
 
 	tfMapPath := ""
 	tfMapDisplay := ""
-	if ups.TFMap != nil {
-		tfMapPath, _, err = saveUpload(dir, "tf_map.tsv", ups.TFMap)
-		if err != nil {
-			return cleanup(fmt.Errorf("save TF map: %w", err))
+	tfGenesPath := ""
+	tfGenesDisplay := ""
+	proteinsPath, proteinsDisplay, cdsDisplay := "", "", ""
+	hmmPath, hmmDisplay := "", ""
+	familyMapPath, familyMapDisplay := "", ""
+	tracePath, traceDisplay := "", ""
+	if packMode {
+		if ups.HMM != nil || ups.TFMap != nil || ups.TFGenes != nil || ups.FamilyMap != nil || ups.Trace != nil {
+			return cleanup(errors.New("reference pack mode generates the TF catalogue, TF–motif map and trace table; do not upload HMM/tf_map/tf_genes/family_map/trace"))
 		}
-		tfMapDisplay = filepath.Base(ups.TFMap.Name)
+		if (ups.Proteins == nil) == (ups.CDS == nil) {
+			return cleanup(errors.New("provide exactly one protein or CDS FASTA"))
+		}
+		upload, filename := ups.Proteins, "proteins.faa"
+		if ups.CDS != nil {
+			upload, filename = ups.CDS, "cds.fna"
+			cdsDisplay = filepath.Base(upload.Name)
+		} else {
+			proteinsDisplay = filepath.Base(upload.Name)
+		}
+		proteinsPath, _, err = saveUpload(dir, filename, upload)
+		if err != nil {
+			return cleanup(fmt.Errorf("save TF sequences: %w", err))
+		}
+	} else {
+		if ups.CDS != nil {
+			return cleanup(errors.New("CDS FASTA requires a reference-backed analysis"))
+		}
+		if ups.TFGenes != nil && ups.TFMap == nil {
+			return cleanup(errors.New("tf_genes requires tf_map; choose a mapped TF table"))
+		}
+		if ups.TFMap != nil {
+			tfMapPath, _, err = saveUpload(dir, "tf_map.tsv", ups.TFMap)
+			if err != nil {
+				return cleanup(fmt.Errorf("save TF map: %w", err))
+			}
+			tfMapDisplay = filepath.Base(ups.TFMap.Name)
+		}
+		if ups.TFGenes != nil {
+			tfGenesPath, _, err = saveUpload(dir, "tf_genes.tsv", ups.TFGenes)
+			if err != nil {
+				return cleanup(fmt.Errorf("save TF genes: %w", err))
+			}
+			tfGenesDisplay = filepath.Base(ups.TFGenes.Name)
+		}
+		if (ups.Proteins == nil) != (ups.HMM == nil) {
+			return cleanup(errors.New("proteins and HMM must be supplied together"))
+		}
+		if ups.FamilyMap != nil && ups.Proteins == nil {
+			return cleanup(errors.New("family_map requires proteins and HMM"))
+		}
+		if ups.Proteins != nil && tfMapPath == "" {
+			return cleanup(errors.New("HMMER TF identification requires a tf_map.tsv"))
+		}
+		if ups.Proteins != nil {
+			proteinsPath, _, err = saveUpload(dir, "proteins.faa", ups.Proteins)
+			if err != nil {
+				return cleanup(fmt.Errorf("save proteins: %w", err))
+			}
+			proteinsDisplay = filepath.Base(ups.Proteins.Name)
+			hmmPath, _, err = saveUpload(dir, "tf.hmm", ups.HMM)
+			if err != nil {
+				return cleanup(fmt.Errorf("save HMM: %w", err))
+			}
+			hmmDisplay = filepath.Base(ups.HMM.Name)
+			if ups.FamilyMap != nil {
+				familyMapPath, _, err = saveUpload(dir, "hmm_family.tsv", ups.FamilyMap)
+				if err != nil {
+					return cleanup(fmt.Errorf("save family map: %w", err))
+				}
+				familyMapDisplay = filepath.Base(ups.FamilyMap.Name)
+			}
+		}
+		if ups.Trace != nil {
+			tracePath, _, err = saveUpload(dir, "tf_motif_trace.tsv", ups.Trace)
+			if err != nil {
+				return cleanup(fmt.Errorf("save trace table: %w", err))
+			}
+			traceDisplay = filepath.Base(ups.Trace.Name)
+		}
 	}
 
 	annotations := map[string]AnnotationEntry{}
@@ -361,6 +534,10 @@ func (m *Manager) Create(ups Uploads) (Job, error) {
 		if err != nil {
 			return cleanup(err)
 		}
+		// EggNOG runs on protein/transcript IDs in many species (for example
+		// Fta_1G0000020.1), while GFF targets use gene IDs (Fta_1G0000020).
+		// Keep exact keys authoritative and add gene-level aliases for the UI.
+		annotations = withVersionAliases(annotations)
 		annotationPath = filepath.Join(dir, "annotation.tsv")
 		if err := os.WriteFile(annotationPath, normalized, 0o644); err != nil {
 			return cleanup(fmt.Errorf("write normalized annotation: %w", err))
@@ -368,6 +545,12 @@ func (m *Manager) Create(ups Uploads) (Job, error) {
 		annotationDisplay = filepath.Base(ups.Annotation.Name)
 	}
 
+	referencePackKey := ""
+	referencePackDir := ""
+	if packMode {
+		referencePackKey = pack.Info.Key
+		referencePackDir = pack.Dir
+	}
 	now := time.Now()
 	js := &jobState{
 		Job: Job{
@@ -384,22 +567,42 @@ func (m *Manager) Create(ups Uploads) (Job, error) {
 				Motifs:           motifsDisplay,
 				MotifLibraryKey:  motifLibraryKey,
 				TFMap:            tfMapDisplay,
+				TFGenes:          tfGenesDisplay,
+				Proteins:         proteinsDisplay,
+				CDS:              cdsDisplay,
+				HMM:              hmmDisplay,
+				FamilyMap:        familyMapDisplay,
+				Trace:            traceDisplay,
 				Annotation:       annotationDisplay,
 				AnnotationSource: annotationSource,
 				GenomeBytes:      genomeSize,
 				GFFBytes:         gffSize,
+				ReferencePack:    referencePackKey,
 			},
 		},
 		dir:              dir,
 		genomePath:       genomePath,
 		gffPath:          gffPath,
+		gff:              newGFFCatalog(gffPath),
 		motifsPath:       motifsPath,
 		tfMapPath:        tfMapPath,
+		tfGenesPath:      tfGenesPath,
+		proteinsPath:     proteinsPath,
+		sequenceIsCDS:    ups.CDS != nil,
+		hmmPath:          hmmPath,
+		familyMapPath:    familyMapPath,
+		tracePath:        tracePath,
+		referencePackDir: referencePackDir,
+		referencePackKey: referencePackKey,
+		reportPath:       filepath.Join(dir, "report.json"),
+		promotersPath:    filepath.Join(dir, "promoters.fa"),
+		progressPath:     filepath.Join(dir, "progress.json"),
 		annotationPath:   annotationPath,
 		annotationSource: annotationSource,
 		promoters:        map[string]*Promoter{},
 		motifs:           motifs,
 		annotations:      annotations,
+		donors:           map[donorKey][]DonorInfo{},
 	}
 	m.mu.Lock()
 	m.jobs[id] = js
@@ -461,10 +664,36 @@ func (m *Manager) Start(id string, params Params, mode string) (Job, error) {
 		m.mu.Unlock()
 		return Job{}, errors.New("job is already running")
 	}
+	if js.referencePackDir != "" && mode == "validate" {
+		m.mu.Unlock()
+		return Job{}, errors.New("reference pack jobs run the full pipeline directly; use Run, not Validate")
+	}
+	if js.referencePackDir != "" && m.toolErr != nil {
+		envH := strings.TrimSpace(os.Getenv("WGCNA_HMMERSEARCH")) != ""
+		envB := strings.TrimSpace(os.Getenv("WGCNA_BLASTP")) != ""
+		if !envH || !envB {
+			m.mu.Unlock()
+			return Job{}, fmt.Errorf("bundled tools failed verification: %w; set WGCNA_HMMERSEARCH/WGCNA_BLASTP only as an advanced override", m.toolErr)
+		}
+	}
 	js.Params = params
 	if mode == "run" {
 		js.generation++
-		js.evidencePath = filepath.Join(js.dir, fmt.Sprintf("evidence.%d.tsv", js.generation))
+		if js.referencePackDir != "" {
+			js.pipelineDir = filepath.Join(js.dir, fmt.Sprintf("pipeline.%d", js.generation))
+			js.evidencePath = filepath.Join(js.pipelineDir, "evidence.tsv")
+			js.reportPath = filepath.Join(js.pipelineDir, "scan-report.json")
+			js.promotersPath = filepath.Join(js.pipelineDir, "promoters.fa")
+			js.progressPath = filepath.Join(js.pipelineDir, "progress.json")
+			js.tfGenesPath = filepath.Join(js.pipelineDir, "tf_genes.tsv")
+			js.tfMapPath = filepath.Join(js.pipelineDir, "tf_map.tsv")
+			js.tracePath = filepath.Join(js.pipelineDir, "tf_motif_trace.tsv")
+		} else {
+			js.evidencePath = filepath.Join(js.dir, fmt.Sprintf("evidence.%d.tsv", js.generation))
+			js.reportPath = filepath.Join(js.dir, "report.json")
+			js.promotersPath = filepath.Join(js.dir, "promoters.fa")
+			js.progressPath = filepath.Join(js.dir, "progress.json")
+		}
 	}
 	js.Error = ""
 	js.Diagnostics = nil
@@ -474,6 +703,7 @@ func (m *Manager) Start(id string, params Params, mode string) (Job, error) {
 	js.data = nil
 	js.edges = nil
 	js.promoters = map[string]*Promoter{}
+	js.donors = map[donorKey][]DonorInfo{}
 	if mode == "validate" {
 		js.Status = "validating"
 		js.Stage = "validating"
@@ -481,7 +711,11 @@ func (m *Manager) Start(id string, params Params, mode string) (Job, error) {
 	} else {
 		js.Status = "running"
 		js.Stage = "starting"
-		js.Message = "starting scanner"
+		if js.referencePackDir != "" {
+			js.Message = "starting reference-pack pipeline"
+		} else {
+			js.Message = "starting scanner"
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	js.cancel = cancel
@@ -498,6 +732,22 @@ func (m *Manager) execute(ctx context.Context, js *jobState, mode string) {
 		js.cancel = nil
 		m.mu.Unlock()
 	}()
+	if js.proteinsPath != "" && js.tfGenesPath == "" {
+		if err := m.identifyTFs(ctx, js); err != nil {
+			m.fail(js, err.Error())
+			return
+		}
+		m.mu.Lock()
+		if mode == "validate" {
+			js.Stage = "validating"
+			js.Message = "validating inputs"
+		} else {
+			js.Stage = "starting"
+			js.Message = "starting scanner"
+		}
+		js.UpdatedAt = time.Now()
+		m.mu.Unlock()
+	}
 	args := m.buildArgs(js, mode)
 	cmd := exec.CommandContext(ctx, m.bin, args...)
 	subproc.HideWindow(cmd)
@@ -530,7 +780,7 @@ func (m *Manager) execute(ctx context.Context, js *jobState, mode string) {
 			m.finish(js, mode, err, output.String())
 			return
 		case <-ticker.C:
-			if p, err := readProgress(filepath.Join(js.dir, "progress.json")); err == nil {
+			if p, err := readProgress(js.progressPath); err == nil {
 				m.mu.Lock()
 				js.Stage = p.Stage
 				js.Progress = overallProgress(p.Stage, p.Progress)
@@ -542,7 +792,86 @@ func (m *Manager) execute(ctx context.Context, js *jobState, mode string) {
 	}
 }
 
+func (m *Manager) identifyTFs(ctx context.Context, js *jobState) error {
+	m.mu.Lock()
+	js.Stage = "identifying_tfs"
+	js.Message = "identifying TFs from representative proteins"
+	js.Progress = 0
+	js.UpdatedAt = time.Now()
+	proteins := js.proteinsPath
+	hmm := js.hmmPath
+	familyMap := js.familyMapPath
+	dir := js.dir
+	m.mu.Unlock()
+
+	if proteins == "" || hmm == "" {
+		return errors.New("proteins and HMM are required for TF identification")
+	}
+	out := filepath.Join(dir, "tf_genes.tsv")
+	args := []string{
+		"identify-tfs",
+		"--proteins", proteins,
+		"--hmm", hmm,
+		"--out", out,
+	}
+	if familyMap != "" {
+		args = append(args, "--family-map", familyMap)
+	}
+	cmd := exec.CommandContext(ctx, m.bin, args...)
+	subproc.HideWindow(cmd)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(output))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("identify TFs: %s", msg)
+	}
+	m.mu.Lock()
+	js.tfGenesPath = out
+	js.Message = "TF catalogue prepared"
+	js.UpdatedAt = time.Now()
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *Manager) buildArgs(js *jobState, mode string) []string {
+	if js.referencePackDir != "" {
+		sequenceFlag := "--proteins"
+		if js.sequenceIsCDS {
+			sequenceFlag = "--cds"
+		}
+		args := []string{
+			"pipeline",
+			"--reference-pack", js.referencePackDir,
+			"--genome", js.genomePath,
+			"--gff", js.gffPath,
+			sequenceFlag, js.proteinsPath,
+			"--out-dir", js.pipelineDir,
+			"--promoter-len", strconv.Itoa(js.Params.PromoterLen),
+			"--pvalue", strconv.FormatFloat(js.Params.PValue, 'g', -1, 64),
+			"--background", fmt.Sprintf("%g,%g,%g,%g", js.Params.Background[0], js.Params.Background[1], js.Params.Background[2], js.Params.Background[3]),
+		}
+		if js.annotationPath != "" {
+			args = append(args, "--annotation", js.annotationPath)
+		}
+		if js.Params.Downstream > 0 {
+			args = append(args, "--downstream", strconv.Itoa(js.Params.Downstream))
+		}
+		if js.Params.Threads > 0 {
+			args = append(args, "--threads", strconv.Itoa(js.Params.Threads))
+		}
+		if js.Params.IncludeSingleDomainFallback {
+			args = append(args, "--include-single-domain-fallback")
+		}
+		if value := m.toolPath("hmmsearch"); value != "" {
+			args = append(args, "--hmmsearch", value)
+		}
+		if value := m.toolPath("blastp"); value != "" {
+			args = append(args, "--blastp", value)
+		}
+		return args
+	}
 	args := []string{mode}
 	if mode == "run" {
 		args[0] = "scan"
@@ -560,11 +889,17 @@ func (m *Manager) buildArgs(js *jobState, mode string) []string {
 	if js.tfMapPath != "" {
 		args = append(args, "--tf-map", js.tfMapPath)
 	}
+	if js.tfGenesPath != "" {
+		args = append(args, "--tf-genes", js.tfGenesPath)
+	}
 	if js.annotationPath != "" {
 		args = append(args, "--annotation", js.annotationPath)
 	}
 	if js.Params.Threads > 0 {
 		args = append(args, "--threads", strconv.Itoa(js.Params.Threads))
+	}
+	if js.Params.IncludeSingleDomainFallback {
+		args = append(args, "--include-single-domain-fallback")
 	}
 	if mode == "run" {
 		args = append(args,
@@ -580,11 +915,11 @@ func (m *Manager) buildArgs(js *jobState, mode string) []string {
 }
 
 func (m *Manager) finish(js *jobState, mode string, runErr error, logText string) {
-	report, reportErr := readReport(filepath.Join(js.dir, "report.json"))
+	report, reportErr := readReport(js.reportPath)
 	if reportErr == nil {
 		sanitizeReport(report, js.dir)
 		if b, err := json.MarshalIndent(report, "", "  "); err == nil {
-			_ = os.WriteFile(filepath.Join(js.dir, "report.json"), b, 0o644)
+			_ = os.WriteFile(js.reportPath, b, 0o644)
 		}
 	}
 	m.mu.Lock()
@@ -634,7 +969,7 @@ func (m *Manager) finish(js *jobState, mode string, runErr error, logText string
 		js.Progress = 1
 		return
 	}
-	promoters, err := readPromoters(filepath.Join(js.dir, "promoters.fa"))
+	promoters, err := readPromoters(js.promotersPath)
 	if err != nil {
 		js.Status = "failed"
 		js.Stage = "failed"
@@ -658,9 +993,23 @@ func (m *Manager) finish(js *jobState, mode string, runErr error, logText string
 		return
 	}
 	data.summary.Threads = reportContextInt(report, "SCAN_SUMMARY", "threads")
+	js.enrichSummaryNames(data)
+	if err := js.addTFCatalogue(data.summary); err != nil {
+		js.Status, js.Stage, js.Message, js.Error = "failed", "failed", "failed to read TF catalogue", err.Error()
+		return
+	}
+	donors, err := loadDonors(js.tracePath, js.tfMapPath)
+	if err != nil {
+		js.Status = "failed"
+		js.Stage = "failed"
+		js.Message = "failed to read trace donor table"
+		js.Error = err.Error()
+		return
+	}
 	js.edges = nil
 	js.data = data
 	js.promoters = promoters
+	js.donors = donors
 	js.Summary = data.summary
 	js.Status = "succeeded"
 	js.Stage = "succeeded"
@@ -688,7 +1037,7 @@ func (m *Manager) Get(id string) (Job, bool) {
 	}
 	snap := js.snapshotLocked()
 	if js.Status == "running" || js.Status == "validating" {
-		if p, err := readProgress(filepath.Join(js.dir, "progress.json")); err == nil {
+		if p, err := readProgress(js.progressPath); err == nil {
 			snap.Stage = p.Stage
 			snap.Progress = overallProgress(p.Stage, p.Progress)
 			snap.Message = p.Message
@@ -740,6 +1089,20 @@ func (m *Manager) PromoterView(id, target string) (*PromoterView, error) {
 	return js.promoterView(target)
 }
 
+// SiteEvidence returns the original evidence rows for one exact site.
+func (m *Manager) SiteEvidence(id string, opts SiteEvidenceOptions) (SiteEvidenceResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	js, ok := m.jobs[id]
+	if !ok {
+		return SiteEvidenceResult{}, fmt.Errorf("%w: job not found", ErrNotFound)
+	}
+	if js.Status != "succeeded" {
+		return SiteEvidenceResult{}, ErrNotCompleted
+	}
+	return js.siteEvidence(opts)
+}
+
 // ExportPath returns an on-disk artifact and a download filename.
 func (m *Manager) ExportPath(id, kind string) (string, string, error) {
 	m.mu.RLock()
@@ -762,8 +1125,19 @@ func (m *Manager) ExportPath(id, kind string) (string, string, error) {
 		return "", "", fmt.Errorf("%w: unknown export kind %q", ErrUnsupportedFormat, kind)
 	}
 	path := filepath.Join(js.dir, name)
-	if kind == "evidence" && js.evidencePath != "" {
-		path = js.evidencePath
+	switch kind {
+	case "evidence":
+		if js.evidencePath != "" {
+			path = js.evidencePath
+		}
+	case "report", "diagnostics":
+		if js.reportPath != "" {
+			path = js.reportPath
+		}
+	case "promoters":
+		if js.promotersPath != "" {
+			path = js.promotersPath
+		}
 	}
 	if _, err := os.Stat(path); err != nil {
 		return "", "", fmt.Errorf("%w: %s artifact missing", ErrNotFound, kind)

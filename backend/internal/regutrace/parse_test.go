@@ -40,6 +40,61 @@ func TestParseAnnotationEggnog(t *testing.T) {
 	}
 }
 
+func TestParseAnnotationVersionedIDsAndComments(t *testing.T) {
+	data := []byte("#query\tDescription\tPreferred_name\n" +
+		"Fta_1G0000020.1\tPhagocyte signaling-impaired protein\t-\n" +
+		"Fta_1G0000030.1\tBTB POZ domain-containing protein\tPHOT\n" +
+		"## 2 queries scanned\n")
+	ann, normalized, source, err := parseAnnotation(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source != "eggnog" {
+		t.Fatalf("source = %q", source)
+	}
+	if ann["Fta_1G0000020.1"].Symbol != "" || ann["Fta_1G0000020.1"].Description != "Phagocyte signaling-impaired protein" {
+		t.Fatalf("exact entry = %+v", ann["Fta_1G0000020.1"])
+	}
+	if strings.Contains(string(normalized), "##") {
+		t.Fatalf("comment row leaked into normalized annotation:\n%s", normalized)
+	}
+	if !strings.Contains(string(normalized), "Fta_1G0000020.1\tFta_1G0000020\tPhagocyte signaling-impaired protein") {
+		t.Fatalf("description missing from normalized annotation:\n%s", normalized)
+	}
+
+	aliased := withVersionAliases(ann)
+	if got := aliased["Fta_1G0000020"]; got.Description != "Phagocyte signaling-impaired protein" || got.Symbol != "" {
+		t.Fatalf("gene alias = %+v", got)
+	}
+	if got := aliased["Fta_1G0000030"]; got.Symbol != "PHOT" {
+		t.Fatalf("gene alias with symbol = %+v", got)
+	}
+
+	js := testJobState()
+	js.annotations = aliased
+	js.promoters["Fta_1G0000020"] = &Promoter{GeneID: "Fta_1G0000020", Chrom: "Chr1", Strand: "+", Start: 1, End: 2, Sequence: "AC"}
+	symbol, desc, _ := js.annotationFor("Fta_1G0000020", "Fta_1G0000020.1")
+	if desc != "Phagocyte signaling-impaired protein" || symbol != "Fta_1G0000020" {
+		t.Fatalf("annotationFor symbol=%q description=%q", symbol, desc)
+	}
+}
+
+func TestVersionAliasesKeepExactKeys(t *testing.T) {
+	exact := map[string]AnnotationEntry{
+		"G1":   {Symbol: "EXACT", Description: "exact gene"},
+		"G1.1": {Symbol: "ISOFORM", Description: "isoform"},
+		"G2.1": {Symbol: "ONE", Description: "iso1"},
+		"G2.2": {Symbol: "TWO", Description: "iso2"},
+	}
+	aliased := withVersionAliases(exact)
+	if aliased["G1"].Symbol != "EXACT" {
+		t.Fatalf("exact key overridden: %+v", aliased["G1"])
+	}
+	if aliased["G2"].Symbol != "ONE" {
+		t.Fatalf("deterministic isoform alias = %+v", aliased["G2"])
+	}
+}
+
 func TestParseAnnotationGeneric(t *testing.T) {
 	data := []byte("gene_id\tgene_name\tdescription\nG1\tMYB5\tmyb domain protein\n")
 	ann, normalized, source, err := parseAnnotation(data)
@@ -203,5 +258,80 @@ func TestReadEvidenceAndPromoters(t *testing.T) {
 	p := promoters["G1"]
 	if p == nil || p.Chrom != "Chr1" || p.Start != 100 || p.End != 109 || p.Strand != "+" || p.Sequence != "ACGTACGGGG" {
 		t.Fatalf("promoter = %+v", p)
+	}
+}
+
+func TestPromoterWindowIsPartOfHitKey(t *testing.T) {
+	js := testJobState()
+	js.edges = append(js.edges, Edge{
+		TFID: "TF3", TFSymbol: "MYB7", TFFamily: "MYB", TargetID: "G1", TargetSymbol: "GENE1",
+		EvidenceType: "prediction_motif", EvidenceLevel: "D", MotifID: "M1",
+		PromoterStart: u64ptr(300), PromoterEnd: u64ptr(309),
+		HitStart: u64ptr(1), HitEnd: u64ptr(6), Strand: "+", Score: f64ptr(9), PValue: f64ptr(1e-4),
+	})
+	summary := buildSummary(js.promoters, js.motifs, js.edges, js.annotationSource)
+	if summary.MotifHits != 3 {
+		t.Fatalf("motif hits = %d, want 3 distinct target/motif/window/hit keys", summary.MotifHits)
+	}
+	view, err := js.promoterView("G1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Hits) != 1 {
+		t.Fatalf("G1 hits = %+v", view.Hits)
+	}
+	for _, tf := range view.Hits[0].TFs {
+		if tf.ID == "TF3" {
+			t.Fatalf("promoter view merged a hit from another promoter window: %+v", view.Hits[0])
+		}
+	}
+	if view.Hits[0].PromoterStart == nil || *view.Hits[0].PromoterStart != 100 ||
+		view.Hits[0].PromoterEnd == nil || *view.Hits[0].PromoterEnd != 109 {
+		t.Fatalf("promoter window = %+v", view.Hits[0])
+	}
+}
+
+func TestSiteEvidenceUsesFullKey(t *testing.T) {
+	js := testJobState()
+	for i := range js.edges {
+		if js.edges[i].TargetID == "G1" {
+			js.edges[i].PromoterStart = u64ptr(100)
+			js.edges[i].PromoterEnd = u64ptr(109)
+		}
+	}
+	res, err := js.siteEvidence(SiteEvidenceOptions{
+		TargetID: "G1", MotifID: "M1",
+		PromoterStart: u64ptr(100), PromoterEnd: u64ptr(109),
+		HitStart: u64ptr(1), HitEnd: u64ptr(6), Strand: "+",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Total != 2 {
+		t.Fatalf("site rows = %+v", res)
+	}
+	for _, row := range res.Rows {
+		if row.PromoterStart == nil || *row.PromoterStart != 100 {
+			t.Fatalf("row = %+v", row)
+		}
+	}
+	wrongWindow, err := js.siteEvidence(SiteEvidenceOptions{
+		TargetID: "G1", MotifID: "M1",
+		PromoterStart: u64ptr(300), PromoterEnd: u64ptr(309),
+		HitStart: u64ptr(1), HitEnd: u64ptr(6), Strand: "+",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wrongWindow.Total != 0 {
+		t.Fatalf("wrong-window rows = %+v", wrongWindow)
+	}
+	oneTF, err := js.siteEvidence(SiteEvidenceOptions{
+		TargetID: "G1", MotifID: "M1",
+		PromoterStart: u64ptr(100), PromoterEnd: u64ptr(109),
+		HitStart: u64ptr(1), HitEnd: u64ptr(6), Strand: "+", TFID: "TF1",
+	})
+	if err != nil || oneTF.Total != 1 || oneTF.Rows[0].TFID != "TF1" {
+		t.Fatalf("TF-filtered site rows = %+v, err=%v", oneTF, err)
 	}
 }

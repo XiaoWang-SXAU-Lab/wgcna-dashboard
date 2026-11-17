@@ -3,10 +3,12 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -29,7 +31,11 @@ func TestRegutraceHTTP(t *testing.T) {
 		"Chr1\ttest\tgene\t601\t800\t.\t-\t.\tID=gene:G2;Name=GENE2\n" +
 		"Chr1\ttest\tmRNA\t601\t800\t.\t-\t.\tID=transcript:G2.t1;Parent=gene:G2\n"
 	pwm := ">MA0001.1 TEST\nA [ 10 0 0 0 10 0 ]\nC [ 0 10 0 0 0 10 ]\nG [ 0 0 10 0 0 0 ]\nT [ 0 0 0 10 0 0 ]\n"
-	tfMap := "tf_id\ttf_symbol\tfamily\tmotif_id\nAT1G00010\tTF1\tHSF\tMA0001.1\n"
+	tfMap := "tf_id\ttf_symbol\tfamily\tmotif_id\treference_tf_id\nAT1G00010\tTF1\tHSF\tMA0001.1\tD1\n"
+	tfGenes := "gene_id\ttf_symbol\tfamily\tidentification_status\nAT1G00010\tTF1\tHSF\tidentified\n"
+	trace := `tf_id	motif_id	reference_donors
+AT1G00010	MA0001.1	[{"tf_id":"D9","tf_symbol":"STALE"},{"tf_id":"D1","tf_symbol":"DONOR","tf_family":"HSF"}]
+`
 
 	mgr := regutrace.NewManager(t.TempDir(), bin)
 	mux := http.NewServeMux()
@@ -50,6 +56,8 @@ func TestRegutraceHTTP(t *testing.T) {
 	add("gff", "annotation.gff3", gff)
 	add("motifs", "motifs.jaspar", pwm)
 	add("tf_map", "tf_map.tsv", tfMap)
+	add("tf_genes", "tf_genes.tsv", tfGenes)
+	add("trace", "tf_motif_trace.tsv", trace)
 	_ = mw.Close()
 
 	res, err := http.Post(srv.URL+"/api/toolkits/regutrace/jobs", mw.FormDataContentType(), &body)
@@ -129,6 +137,57 @@ func TestRegutraceHTTP(t *testing.T) {
 	}
 	if view.TargetID != "G1" || view.Sequence == "" || len(view.Hits) == 0 {
 		t.Fatalf("view = %+v", view)
+	}
+	hit := view.Hits[0]
+	if hit.PromoterStart == nil || hit.PromoterEnd == nil {
+		t.Fatalf("hit missing promoter window: %+v", hit)
+	}
+	if len(hit.TFs) == 0 || len(hit.TFs[0].Donors) != 1 ||
+		hit.TFs[0].Donors[0].TFID != "D1" || hit.TFs[0].Donors[0].TFSymbol != "DONOR" {
+		t.Fatalf("hit donor = %+v", hit.TFs)
+	}
+	siteQuery := url.Values{
+		"target":         {"G1"},
+		"motif":          {hit.MotifID},
+		"promoter_start": {fmt.Sprint(*hit.PromoterStart)},
+		"promoter_end":   {fmt.Sprint(*hit.PromoterEnd)},
+		"hit_start":      {fmt.Sprint(hit.Start)},
+		"hit_end":        {fmt.Sprint(hit.End)},
+		"strand":         {hit.Strand},
+	}
+	siteRes, err := http.Get(srv.URL + "/api/toolkits/regutrace/jobs/" + job.ID + "/site?" + siteQuery.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer siteRes.Body.Close()
+	if siteRes.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(siteRes.Body)
+		t.Fatalf("site: %s %s", siteRes.Status, b)
+	}
+	var site regutrace.SiteEvidenceResult
+	if err := json.NewDecoder(siteRes.Body).Decode(&site); err != nil {
+		t.Fatal(err)
+	}
+	if site.Total == 0 || len(site.Rows) == 0 || site.Rows[0].TFID == "" {
+		t.Fatalf("site rows = %+v", site)
+	}
+	siteQuery.Set("promoter_start", "999")
+	siteQuery.Set("promoter_end", "1200")
+	wrongRes, err := http.Get(srv.URL + "/api/toolkits/regutrace/jobs/" + job.ID + "/site?" + siteQuery.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wrongRes.Body.Close()
+	if wrongRes.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(wrongRes.Body)
+		t.Fatalf("wrong-window site: %s %s", wrongRes.Status, b)
+	}
+	var wrong regutrace.SiteEvidenceResult
+	if err := json.NewDecoder(wrongRes.Body).Decode(&wrong); err != nil {
+		t.Fatal(err)
+	}
+	if wrong.Total != 0 {
+		t.Fatalf("wrong-window site rows = %+v", wrong)
 	}
 
 	eRes, err := http.Get(srv.URL + "/api/toolkits/regutrace/jobs/" + job.ID + "/export?kind=evidence")
