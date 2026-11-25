@@ -13,15 +13,18 @@ import (
 // millions of rows; keeping only line offsets by TF and target avoids holding
 // the full evidence table in memory while still making queries interactive.
 type dataset struct {
-	path          string
-	schema        *evidenceSchema
-	targetOffsets map[string][]int64
-	tfOffsets     map[string][]int64
-	motifOffsets  map[string][]int64
-	tfKeys        map[string][]string
-	targetKeys    map[string][]string
-	total         int
-	summary       *Summary
+	path           string
+	schema         *evidenceSchema
+	targetOffsets  map[string][]int64
+	tfOffsets      map[string][]int64
+	motifOffsets   map[string][]int64
+	tfKeys         map[string][]string
+	targetKeys     map[string][]string
+	total          int
+	summary        *Summary
+	tfTargetCounts map[string]int
+	mode           string
+	siteSchema     *siteSchema
 }
 
 func uniqueStrings(values ...string) []string {
@@ -101,6 +104,7 @@ func buildDataset(path string, motifs map[string]MotifInfo, annotations map[stri
 		builder.add(e, motifs)
 	}
 	ds.summary = builder.finish(promoterCount, len(motifs), annotationSource, motifHits)
+	ds.tfTargetCounts = ds.summary.TFTargetCounts
 	ds.tfKeys = make(map[string][]string, len(tfSymbols))
 	for id, symbol := range tfSymbols {
 		ds.tfKeys[id] = uniqueStrings(id, symbol)

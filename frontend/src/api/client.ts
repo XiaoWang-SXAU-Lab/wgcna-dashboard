@@ -693,8 +693,14 @@ export interface RegutraceParams {
   downstream: number
   pvalue: number
   background: [number, number, number, number]
+  background_mode?: 'uniform' | 'empirical'
   threads: number
   include_single_domain_fallback?: boolean
+  reuse_exact_pwm?: boolean
+  phase3_artifacts?: boolean
+  use_scan_cache?: boolean
+  sites_only?: boolean
+  mapping_mode?: 'strict' | 'balanced' | 'exploratory'
 }
 
 export interface RegutraceInputs {
@@ -750,6 +756,16 @@ export interface RegutraceTFCatalogueItem {
   status: string
   description?: string
   motifs: string[]
+  mapping_status: string
+  mapping_method?: string
+  reference_tf_id?: string
+  motif_count: number
+  target_count: number
+  testable_motifs?: number
+  unattainable_motifs?: number
+  domain_architecture?: string
+  protein_length?: number
+  diagnostic_reason?: string
 }
 
 export interface RegutraceSummary {
@@ -772,6 +788,31 @@ export interface RegutraceSummary {
   annotation_source: string
   top_tfs: RegutraceCountItem[]
   top_motifs: RegutraceCountItem[]
+  motif_target_pairs: number
+  tf_ambiguous?: number
+  tf_families?: number
+  unmapped_tfs?: number
+  tfs_with_targets?: number
+  tfs_with_testable_motifs?: number
+  actual_target_coverage?: number
+  mapping_status_counts?: Record<string, number>
+  unique_pwms?: number
+  pwm_groups?: number
+  testable_motifs?: number
+  unattainable_motifs?: number
+  not_scanned_motifs?: number
+  candidate_sites?: number
+  background_mode?: string
+  background_frequencies?: number[]
+  reference_pack?: string
+  scan_runtime_seconds?: number
+  cache_hits?: number
+  cache_misses?: number
+  testability_available: boolean
+  site_table_available: boolean
+  scan_manifest_available: boolean
+  site_only?: boolean
+  metadata_warnings?: string[]
 }
 
 export interface RegutraceJob {
@@ -816,6 +857,10 @@ export interface RegutraceQueryRow {
   score?: number
   p_value?: number
   notes?: string
+  mapping_status: string
+  testability_status: string
+  shared_motif_tfs: number
+  shared_motif_tf_ids?: string[]
 }
 
 export interface RegutraceQueryResult {
@@ -894,6 +939,7 @@ export interface RegutraceGeneModel {
 export interface RegutraceTFProtein {
   protein_id: string
   length: number
+  sequence?: string
   domains: RegutraceDomainInfo[]
 }
 
@@ -902,8 +948,19 @@ export interface RegutraceTFMotifMapping {
   motif_name?: string
   reference_tf_id?: string
   mapping_method?: string
+  mapping_status: string
+  mapping_confidence?: string
   domain_mode?: string
   extraction_family?: string
+  pwm_hash?: string
+  matrix_length?: number
+  information_content?: number
+  matrix?: number[][]
+  testability_status: string
+  min_pvalue?: number
+  requested_pvalue?: number
+  attainable?: boolean
+  shared_pwm_tf_count?: number
 }
 
 export interface RegutraceTargetGeneView {
@@ -926,6 +983,13 @@ export interface RegutraceTFView {
   gene?: RegutraceGeneModel
   proteins?: RegutraceTFProtein[]
   motif_mappings?: RegutraceTFMotifMapping[]
+  mapping_status: string
+  mapping_method?: string
+  mapping_confidence?: string
+  reference_tf_id?: string
+  target_count: number
+  shared_pwm_tf_count: number
+  diagnostic_reason?: string
   target_gene?: RegutraceTargetGeneView
 }
 
@@ -1124,6 +1188,232 @@ export async function getRegutraceSiteEvidence(
 }
 
 export type RegutraceExportFormat = 'sqlite' | 'tsv' | 'csv' | 'tsv.gz' | 'csv.gz' | 'jsonl.gz'
+
+export interface RegutraceMotifSummary {
+  id: string
+  name: string
+  consensus: string
+  length: number
+  pwm_hash?: string
+  information_content: number
+  family?: string
+  donor_species?: string[]
+  source?: string
+  method?: string
+  license?: string
+  qc_status?: string
+  mapped_tfs?: string[]
+  mapped_tf_families?: string[]
+  shared_pwm_tf_count: number
+  testability_status: string
+  min_pvalue?: number
+  requested_pvalue?: number
+  attainable?: boolean
+  evidence_rows: number
+  family_resource: boolean
+}
+
+export interface RegutraceMotifListResult {
+  total: number
+  limit: number
+  offset: number
+  rows: RegutraceMotifSummary[]
+}
+
+export interface RegutraceMotifDetail extends RegutraceMotifSummary {
+  matrix?: number[][]
+  tfs: Array<{
+    tf_id: string
+    tf_symbol?: string
+    tf_family?: string
+    mapping_status: string
+    mapping_method?: string
+    reference_tf_id?: string
+    domain_mode?: string
+  }>
+  registry?: Array<Record<string, string>>
+  specificity_groups?: string[]
+  background_mode?: string
+  background?: number[]
+  target_count: number
+  testability_known: boolean
+  note?: string
+}
+
+export async function getRegutraceMotifs(
+  id: string,
+  opts: { q?: string; family?: string; species?: string; status?: string; limit?: number; offset?: number } = {},
+): Promise<RegutraceMotifListResult> {
+  const p = new URLSearchParams()
+  for (const [key, value] of Object.entries(opts)) {
+    if (value !== undefined && value !== '') p.set(key, String(value))
+  }
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/motifs?${p}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getRegutraceMotif(id: string, motif: string): Promise<RegutraceMotifDetail> {
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/motifs/${encodeURIComponent(motif)}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export interface RegutraceTFTargetRow {
+  target_id: string
+  target_symbol: string
+  target_description?: string
+  best_p_value?: number
+  best_score?: number
+  site_count: number
+  motif_ids: string[]
+  motif_names?: string[]
+  mapping_statuses: string[]
+  evidence_level: string
+  shared_motif_tfs: number
+  promoter_start?: number
+  promoter_end?: number
+  hit_start?: number
+  hit_end?: number
+  strand?: string
+}
+
+export interface RegutraceTFTargetResult {
+  total: number
+  limit: number
+  offset: number
+  tf_id: string
+  rows: RegutraceTFTargetRow[]
+}
+
+export async function getRegutraceTFTargets(
+  id: string,
+  tf: string,
+  opts: { limit?: number; offset?: number; motif?: string; mapping_status?: string; max_p?: number } = {},
+): Promise<RegutraceTFTargetResult> {
+  const p = new URLSearchParams({ tf })
+  for (const [key, value] of Object.entries(opts)) {
+    if (value !== undefined && value !== '') p.set(key, String(value))
+  }
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/targets?${p}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export interface RegutraceRegulatorRow {
+  tf_id: string
+  tf_symbol: string
+  tf_family?: string
+  best_p_value?: number
+  best_score?: number
+  site_count: number
+  motif_ids: string[]
+  mapping_statuses: string[]
+  evidence_level: string
+  shared_motif_tfs: number
+}
+
+export interface RegutraceRegulatorResult {
+  total: number
+  limit: number
+  offset: number
+  target_id: string
+  rows: RegutraceRegulatorRow[]
+}
+
+export async function getRegutraceRegulators(
+  id: string,
+  target: string,
+  opts: { limit?: number; offset?: number; motif?: string; mapping_status?: string; max_p?: number } = {},
+): Promise<RegutraceRegulatorResult> {
+  const p = new URLSearchParams({ target })
+  for (const [key, value] of Object.entries(opts)) {
+    if (value !== undefined && value !== '') p.set(key, String(value))
+  }
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/regulators?${p}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export interface RegutraceEnrichmentRow {
+  motif_id: string
+  motif_name?: string
+  testability_status: string
+  gene_set_size: number
+  background_size: number
+  observed_motif_genes: number
+  background_motif_genes: number
+  expected_overlap: number
+  enrichment_ratio: number
+  odds_ratio: number
+  p_value: number
+  bh_q_value: number
+  contributing_genes: string[]
+  contributing_genes_truncated: boolean
+}
+
+export interface RegutraceEnrichmentResult {
+  gene_set_size: number
+  background_size: number
+  background_source: string
+  motif_count: number
+  multiple_testing_scope: string
+  rows: RegutraceEnrichmentRow[]
+  caveats: string[]
+}
+
+export async function enrichRegutrace(
+  id: string,
+  body: { gene_set: string[]; background?: string[]; motif_ids: string[]; max_p_value?: number },
+): Promise<RegutraceEnrichmentResult> {
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/enrich`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export interface RegutraceProvenance {
+  job_id: string
+  tool?: string
+  tool_version?: string
+  command?: string
+  inputs: Array<{ role: string; name: string; size?: number; sha256?: string }>
+  reference_pack?: { key?: string; version?: string; species?: string; assembly?: string; checksums?: Record<string, string> }
+  analysis: Record<string, unknown>
+  scan_manifest?: unknown
+  testability?: Record<string, number>
+  warnings?: string[]
+  limitations: string[]
+}
+
+export async function getRegutraceProvenance(id: string): Promise<RegutraceProvenance> {
+  const res = await fetch(`${BASE}/toolkits/regutrace/jobs/${id}/provenance`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export function regutracePriorUrl(
+  id: string,
+  policy: 'strict' | 'strict_calibrated' | 'extended' | 'selected',
+  opts: { tfs?: string[]; includeExploratory?: boolean } = {},
+): string {
+  const p = new URLSearchParams({ kind: 'prior', policy })
+  if (opts.tfs?.length) p.set('tfs', opts.tfs.join(','))
+  if (opts.includeExploratory) p.set('include_exploratory', 'true')
+  return `${BASE}/toolkits/regutrace/jobs/${id}/export?${p.toString()}`
+}
+
+export function regutraceBackgroundUrl(
+  id: string,
+  kind: 'tf_catalogue' | 'tf_motif' | 'manifest' | 'sites',
+  mode: 'strict' | 'balanced' | 'exploratory',
+): string {
+  const p = new URLSearchParams({ kind, mode })
+  return `${BASE}/toolkits/regutrace/jobs/${id}/export?${p.toString()}`
+}
 
 export function regutraceExportUrl(
   id: string,

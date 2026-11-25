@@ -34,6 +34,12 @@ func (h *RegutraceHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/query", h.query)
 	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/promoter", h.promoter)
 	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/tf", h.tf)
+	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/targets", h.targets)
+	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/regulators", h.regulators)
+	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/motifs", h.motifs)
+	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/motifs/{motif}", h.motif)
+	mux.HandleFunc("POST /api/toolkits/regutrace/jobs/{id}/enrich", h.enrich)
+	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/provenance", h.provenance)
 	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/site", h.site)
 	mux.HandleFunc("GET /api/toolkits/regutrace/jobs/{id}/export", h.export)
 	mux.HandleFunc("POST /api/toolkits/regutrace/jobs/{id}/id-map/preview", h.previewIDMap)
@@ -412,13 +418,179 @@ func (h *RegutraceHandler) site(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+func queryInt(q url.Values, key string, fallback int, min, max int) (int, error) {
+	raw := strings.TrimSpace(q.Get(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < min || (max > 0 && value > max) {
+		return 0, fmt.Errorf("%s must be between %d and %d", key, min, max)
+	}
+	return value, nil
+}
+
+func (h *RegutraceHandler) targets(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	tf := strings.TrimSpace(q.Get("tf"))
+	if tf == "" {
+		http.Error(w, "tf is required", http.StatusBadRequest)
+		return
+	}
+	limit, err := queryInt(q, "limit", 50, 1, 500)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	offset, err := queryInt(q, "offset", 0, 0, 0)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	maxP := 0.0
+	if raw := q.Get("max_p"); raw != "" {
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil || value < 0 || value > 1 {
+			http.Error(w, "max_p must be in [0, 1]", http.StatusBadRequest)
+			return
+		}
+		maxP = value
+	}
+	res, err := h.mgr.TFTargets(r.PathValue("id"), regutrace.TFTargetOptions{
+		TFID: tf, Limit: limit, Offset: offset, Motif: q.Get("motif"),
+		Status: q.Get("mapping_status"), MaxP: maxP,
+	})
+	if err != nil {
+		writeRegutraceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (h *RegutraceHandler) regulators(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	target := strings.TrimSpace(q.Get("target"))
+	if target == "" {
+		http.Error(w, "target is required", http.StatusBadRequest)
+		return
+	}
+	limit, err := queryInt(q, "limit", 50, 1, 500)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	offset, err := queryInt(q, "offset", 0, 0, 0)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	maxP := 0.0
+	if raw := q.Get("max_p"); raw != "" {
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil || value < 0 || value > 1 {
+			http.Error(w, "max_p must be in [0, 1]", http.StatusBadRequest)
+			return
+		}
+		maxP = value
+	}
+	res, err := h.mgr.TargetRegulators(r.PathValue("id"), target, limit, offset, q.Get("motif"), q.Get("mapping_status"), maxP)
+	if err != nil {
+		writeRegutraceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (h *RegutraceHandler) motifs(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit, err := queryInt(q, "limit", 50, 1, 500)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	offset, err := queryInt(q, "offset", 0, 0, 0)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	res, err := h.mgr.MotifList(r.PathValue("id"), regutrace.MotifListOptions{
+		Query: q.Get("q"), Family: q.Get("family"), Species: q.Get("species"),
+		Status: q.Get("status"), Limit: limit, Offset: offset,
+	})
+	if err != nil {
+		writeRegutraceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (h *RegutraceHandler) motif(w http.ResponseWriter, r *http.Request) {
+	res, err := h.mgr.MotifDetail(r.PathValue("id"), r.PathValue("motif"))
+	if err != nil {
+		writeRegutraceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (h *RegutraceHandler) enrich(w http.ResponseWriter, r *http.Request) {
+	var req regutrace.EnrichmentRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20))
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, "invalid enrichment request", http.StatusBadRequest)
+		return
+	}
+	if err := dec.Decode(&struct{}{}); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid enrichment request", http.StatusBadRequest)
+		return
+	}
+	res, err := h.mgr.Enrich(r.PathValue("id"), req)
+	if err != nil {
+		writeRegutraceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (h *RegutraceHandler) provenance(w http.ResponseWriter, r *http.Request) {
+	res, err := h.mgr.Provenance(r.PathValue("id"))
+	if err != nil {
+		writeRegutraceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func writeRegutraceError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	switch {
+	case errors.Is(err, regutrace.ErrNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, regutrace.ErrNotCompleted):
+		status = http.StatusConflict
+	case errors.Is(err, regutrace.ErrUnsupportedFormat):
+		status = http.StatusBadRequest
+	}
+	http.Error(w, err.Error(), status)
+}
+
 func (h *RegutraceHandler) export(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("kind")
 	if kind == "" {
 		kind = "evidence"
 	}
 	format := r.URL.Query().Get("format")
-	path, name, err := h.mgr.ExportFormat(r.Context(), r.PathValue("id"), kind, format)
+	var path, name string
+	var err error
+	switch kind {
+	case "prior":
+		includeExploratory := strings.EqualFold(r.URL.Query().Get("include_exploratory"), "true") || r.URL.Query().Get("include_exploratory") == "1"
+		path, name, err = h.mgr.ExportPrior(r.Context(), r.PathValue("id"), r.URL.Query().Get("policy"), r.URL.Query().Get("tfs"), includeExploratory)
+	case "tf_catalogue", "tf_motif", "manifest", "sites":
+		path, name, err = h.mgr.ExportMetadata(r.PathValue("id"), kind, r.URL.Query().Get("mode"))
+	default:
+		path, name, err = h.mgr.ExportFormat(r.Context(), r.PathValue("id"), kind, format)
+	}
 	if err != nil {
 		status := http.StatusInternalServerError
 		switch {

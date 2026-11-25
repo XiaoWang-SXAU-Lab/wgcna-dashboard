@@ -46,6 +46,10 @@ type QueryRow struct {
 	Score             *float64 `json:"score,omitempty"`
 	PValue            *float64 `json:"p_value,omitempty"`
 	Notes             string   `json:"notes,omitempty"`
+	MappingStatus     string   `json:"mapping_status"`
+	TestabilityStatus string   `json:"testability_status"`
+	SharedMotifTFs    int      `json:"shared_motif_tfs"`
+	SharedMotifTFIDs  []string `json:"shared_motif_tf_ids,omitempty"`
 }
 
 // QueryResult is a filtered page of evidence rows.
@@ -212,6 +216,9 @@ func (j *jobState) resolveSiteTarget(target string) (string, bool) {
 // Supplying promoter_start/end is required by the dashboard detail view; rows
 // from a different promoter window never match.
 func (j *jobState) siteEvidence(opts SiteEvidenceOptions) (SiteEvidenceResult, error) {
+	if j.data != nil && j.data.mode == "sites" {
+		return j.siteEvidenceFromSites(opts)
+	}
 	if strings.TrimSpace(opts.TargetID) == "" || strings.TrimSpace(opts.MotifID) == "" {
 		return SiteEvidenceResult{}, fmt.Errorf("target and motif are required")
 	}
@@ -268,6 +275,9 @@ func (j *jobState) siteEvidence(opts SiteEvidenceOptions) (SiteEvidenceResult, e
 
 func (j *jobState) query(opts QueryOptions) QueryResult {
 	if j.data != nil {
+		if j.data.mode == "sites" {
+			return j.siteQuery(opts)
+		}
 		return j.queryDataset(opts)
 	}
 	return j.queryEdges(opts)
@@ -389,6 +399,10 @@ func (j *jobState) queryRow(e Edge) QueryRow {
 		Score:             e.Score,
 		PValue:            e.PValue,
 		Notes:             e.Notes,
+		MappingStatus:     j.mappingStatus(e.TFID, e.MotifID),
+		TestabilityStatus: j.testability(e.MotifID).Status,
+		SharedMotifTFs:    j.sharedPWMTFCount(e.MotifID),
+		SharedMotifTFIDs:  j.sharedMotifTFs(e.MotifID),
 	}
 }
 
@@ -444,6 +458,9 @@ func (j *jobState) queryDataset(opts QueryOptions) QueryResult {
 
 	consider := func(e Edge) error {
 		if opts.MaxPValue > 0 && e.PValue != nil && *e.PValue > opts.MaxPValue {
+			return nil
+		}
+		if !j.modeAllows(j.mappingStatus(e.TFID, e.MotifID)) {
 			return nil
 		}
 		if motifQ != "" {
@@ -592,6 +609,9 @@ func edgePromoterEnd(e Edge, prom *Promoter) *uint64 {
 }
 
 func (j *jobState) promoterView(targetID string) (*PromoterView, error) {
+	if j.data != nil && j.data.mode == "sites" {
+		return j.sitePromoterView(targetID)
+	}
 	prom := j.promoters[targetID]
 	if prom == nil {
 		// Accept a symbol or a case-insensitive ID as a convenience.

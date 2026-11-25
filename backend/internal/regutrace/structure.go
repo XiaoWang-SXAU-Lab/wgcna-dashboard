@@ -75,17 +75,29 @@ type DomainInfo struct {
 type TFProteinView struct {
 	ProteinID string       `json:"protein_id"`
 	Length    int          `json:"length"`
+	Sequence  string       `json:"sequence,omitempty"`
 	Domains   []DomainInfo `json:"domains"`
 }
 
 // TFMotifMapping is one row of the TF-to-motif map used by the scan.
 type TFMotifMapping struct {
-	MotifID          string `json:"motif_id"`
-	MotifName        string `json:"motif_name,omitempty"`
-	ReferenceTFID    string `json:"reference_tf_id,omitempty"`
-	MappingMethod    string `json:"mapping_method,omitempty"`
-	DomainMode       string `json:"domain_mode,omitempty"`
-	ExtractionFamily string `json:"extraction_family,omitempty"`
+	MotifID            string       `json:"motif_id"`
+	MotifName          string       `json:"motif_name,omitempty"`
+	ReferenceTFID      string       `json:"reference_tf_id,omitempty"`
+	MappingMethod      string       `json:"mapping_method,omitempty"`
+	MappingStatus      string       `json:"mapping_status"`
+	MappingConfidence  string       `json:"mapping_confidence,omitempty"`
+	DomainMode         string       `json:"domain_mode,omitempty"`
+	ExtractionFamily   string       `json:"extraction_family,omitempty"`
+	PWMHash            string       `json:"pwm_hash,omitempty"`
+	MatrixLength       int          `json:"matrix_length,omitempty"`
+	InformationContent float64      `json:"information_content,omitempty"`
+	Matrix             [4][]float64 `json:"matrix,omitempty"`
+	TestabilityStatus  string       `json:"testability_status"`
+	MinPValue          *float64     `json:"min_pvalue,omitempty"`
+	RequestedPValue    *float64     `json:"requested_pvalue,omitempty"`
+	Attainable         *bool        `json:"attainable,omitempty"`
+	SharedPWMTFCount   int          `json:"shared_pwm_tf_count,omitempty"`
 }
 
 // TargetGeneView is the GFF structure of the selected target gene. The target
@@ -114,6 +126,13 @@ type TFView struct {
 	Gene              *GeneModel       `json:"gene,omitempty"`
 	Proteins          []TFProteinView  `json:"proteins,omitempty"`
 	MotifMappings     []TFMotifMapping `json:"motif_mappings,omitempty"`
+	MappingStatus     string           `json:"mapping_status"`
+	MappingMethod     string           `json:"mapping_method,omitempty"`
+	MappingConfidence string           `json:"mapping_confidence,omitempty"`
+	ReferenceTFID     string           `json:"reference_tf_id,omitempty"`
+	TargetCount       int              `json:"target_count"`
+	SharedPWMTFCount  int              `json:"shared_pwm_tf_count"`
+	DiagnosticReason  string           `json:"diagnostic_reason,omitempty"`
 	TargetGene        *TargetGeneView  `json:"target_gene,omitempty"`
 }
 
@@ -845,7 +864,49 @@ func (j *jobState) tfDisplayName(tfID, tfSymbol string) string {
 }
 
 func (j *jobState) tfMotifMappings(tfID string) []TFMotifMapping {
-	if j.tfMapPath == "" || tfID == "" {
+	if tfID == "" {
+		return nil
+	}
+	rows := j.mappingRows(tfID)
+	if len(rows) > 0 {
+		out := make([]TFMotifMapping, 0, len(rows))
+		seen := map[string]bool{}
+		for _, row := range rows {
+			if row.DomainMode == "single_domain_fallback" && !j.Params.IncludeSingleDomainFallback {
+				continue
+			}
+			key := row.MotifID + "\x00" + row.ReferenceTFID
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			meta := j.motifs[row.MotifID]
+			item := j.testability(row.MotifID)
+			mapping := TFMotifMapping{
+				MotifID: row.MotifID, MotifName: meta.Name, ReferenceTFID: row.ReferenceTFID,
+				MappingMethod: row.Method, MappingStatus: row.Status, MappingConfidence: row.MappingConfidence,
+				DomainMode:       row.DomainMode,
+				ExtractionFamily: row.ExtractionFamily, PWMHash: meta.PWMHash,
+				MatrixLength: meta.Length, InformationContent: meta.InformationContent,
+				Matrix: meta.Matrix, TestabilityStatus: item.Status,
+				SharedPWMTFCount: j.sharedPWMTFCount(row.MotifID),
+			}
+			if item.Status != "not_computed" {
+				minP, requested := item.MinPValue, item.RequestedPValue
+				attainable := item.Attainable
+				mapping.MinPValue, mapping.RequestedPValue, mapping.Attainable = &minP, &requested, &attainable
+			}
+			out = append(out, mapping)
+		}
+		sort.Slice(out, func(i, k int) bool {
+			if out[i].MotifID != out[k].MotifID {
+				return out[i].MotifID < out[k].MotifID
+			}
+			return out[i].ReferenceTFID < out[k].ReferenceTFID
+		})
+		return out
+	}
+	if j.tfMapPath == "" {
 		return nil
 	}
 	reader, err := openMaybeGzip(j.tfMapPath)
@@ -854,7 +915,7 @@ func (j *jobState) tfMotifMappings(tfID string) []TFMotifMapping {
 	}
 	defer reader.Close()
 	r := csv.NewReader(reader)
-	r.Comma = '\t'
+	r.Comma = '	'
 	r.FieldsPerRecord = -1
 	r.LazyQuotes = true
 	records, err := r.ReadAll()
@@ -882,6 +943,7 @@ func (j *jobState) tfMotifMappings(tfID string) []TFMotifMapping {
 	}
 	refCol := col("reference_tf_id")
 	methodCol := col("mapping_method")
+	statusCol := col("mapping_status")
 	modeCol := col("domain_mode")
 	familyCol := col("extraction_family")
 	seen := map[string]bool{}
@@ -906,14 +968,22 @@ func (j *jobState) tfMotifMappings(tfID string) []TFMotifMapping {
 		}
 		seen[key] = true
 		meta := j.motifs[motifID]
-		out = append(out, TFMotifMapping{
-			MotifID:          motifID,
-			MotifName:        meta.Name,
-			ReferenceTFID:    cell(refCol),
-			MappingMethod:    cell(methodCol),
-			DomainMode:       cell(modeCol),
-			ExtractionFamily: cell(familyCol),
-		})
+		item := j.testability(motifID)
+		method := cell(methodCol)
+		mapping := TFMotifMapping{
+			MotifID: motifID, MotifName: meta.Name, ReferenceTFID: cell(refCol),
+			MappingMethod: method, MappingStatus: normalizeMappingStatus(cell(statusCol), method),
+			DomainMode: cell(modeCol), ExtractionFamily: cell(familyCol),
+			PWMHash: meta.PWMHash, MatrixLength: meta.Length, InformationContent: meta.InformationContent,
+			Matrix: meta.Matrix, TestabilityStatus: item.Status,
+			SharedPWMTFCount: j.sharedPWMTFCount(motifID),
+		}
+		if item.Status != "not_computed" {
+			minP, requested := item.MinPValue, item.RequestedPValue
+			attainable := item.Attainable
+			mapping.MinPValue, mapping.RequestedPValue, mapping.Attainable = &minP, &requested, &attainable
+		}
+		out = append(out, mapping)
 	}
 	sort.Slice(out, func(i, k int) bool {
 		if out[i].MotifID != out[k].MotifID {
@@ -948,6 +1018,53 @@ func codingLength(tr *TranscriptModel) int {
 	return n
 }
 
+func (j *jobState) proteinSequence(proteinID string) string {
+	proteinID = strings.TrimSpace(proteinID)
+	if proteinID == "" || j.proteinsPath == "" || j.sequenceIsCDS {
+		return ""
+	}
+	j.proteinMu.Lock()
+	defer j.proteinMu.Unlock()
+	if j.proteinSequences == nil {
+		j.proteinSequences = map[string]string{}
+		reader, err := openMaybeGzip(j.proteinsPath)
+		if err == nil {
+			scanner := bufio.NewScanner(reader)
+			scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+			id := ""
+			var seq strings.Builder
+			flush := func() {
+				if id != "" {
+					j.proteinSequences[id] = seq.String()
+				}
+				seq.Reset()
+			}
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				if line == "" {
+					continue
+				}
+				if strings.HasPrefix(line, ">") {
+					flush()
+					fields := strings.Fields(strings.TrimPrefix(line, ">"))
+					if len(fields) > 0 {
+						id = fields[0]
+					} else {
+						id = ""
+					}
+					continue
+				}
+				if id != "" {
+					seq.WriteString(line)
+				}
+			}
+			flush()
+			_ = reader.Close()
+		}
+	}
+	return j.proteinSequences[proteinID]
+}
+
 func (j *jobState) tfView(tfID string) (*TFView, error) {
 	return j.tfViewWithTarget(tfID, "")
 }
@@ -972,16 +1089,77 @@ func (j *jobState) tfViewWithTarget(tfID, targetID string) (*TFView, error) {
 		gm = j.gff.load(ids, tfID)
 	}
 	proteins := parseTFProteins(rec.EvidenceJSON)
+	for i := range proteins {
+		proteins[i].Sequence = j.proteinSequence(proteins[i].ProteinID)
+	}
+	mappings := j.tfMotifMappings(tfID)
+	statuses := make([]string, 0, len(mappings))
+	methods := make([]string, 0, len(mappings))
+	reference := ""
+	confidence := ""
+	shared := 0
+	for _, mapping := range mappings {
+		statuses = append(statuses, mapping.MappingStatus)
+		if mapping.MappingMethod != "" {
+			methods = append(methods, mapping.MappingMethod)
+		}
+		if confidence == "" {
+			confidence = mapping.MappingConfidence
+		}
+		if reference == "" {
+			reference = mapping.ReferenceTFID
+		}
+		if mapping.SharedPWMTFCount > shared {
+			shared = mapping.SharedPWMTFCount
+		}
+	}
+	mappingStatus := bestStatus(statuses)
+	for _, mapping := range mappings {
+		if mapping.MappingStatus == mappingStatus && mapping.MappingConfidence != "" {
+			confidence = mapping.MappingConfidence
+			break
+		}
+	}
+	if len(statuses) == 0 {
+		if j.tfMapPath == "" {
+			mappingStatus = "not_computed"
+		} else {
+			mappingStatus = "no_supported_motif"
+		}
+	}
+	targetCount := 0
+	if j.data != nil {
+		targetCount = j.data.tfTargetCounts[tfID]
+	}
+	diagnostic := ""
+	switch mappingStatus {
+	case "not_computed":
+		diagnostic = "No TF–motif map was supplied; run a reference pack or provide tf_map.tsv."
+	case "no_supported_motif":
+		diagnostic = "No supported motif assignment in tf_map.tsv for this TF."
+	case "dbd_ambiguous":
+		diagnostic = "The DBD mapping is ambiguous; inspect donor and motif rows before using it."
+	}
+	if diagnostic == "" && len(mappings) > 0 && targetCount == 0 {
+		diagnostic = "Mapped and scanned, but no promoter passed the current threshold."
+	}
 	view := &TFView{
-		TFID:          tfID,
-		TFSymbol:      rec.TFSymbol,
-		TFFamily:      rec.Family,
-		TFStatus:      rec.Status,
-		TFSource:      rec.Source,
-		TFName:        j.tfDisplayName(tfID, rec.TFSymbol),
-		Gene:          gm,
-		Proteins:      proteins,
-		MotifMappings: j.tfMotifMappings(tfID),
+		TFID:              tfID,
+		TFSymbol:          rec.TFSymbol,
+		TFFamily:          rec.Family,
+		TFStatus:          rec.Status,
+		TFSource:          rec.Source,
+		TFName:            j.tfDisplayName(tfID, rec.TFSymbol),
+		Gene:              gm,
+		Proteins:          proteins,
+		MotifMappings:     mappings,
+		MappingStatus:     mappingStatus,
+		MappingMethod:     firstNonEmpty(methods...),
+		MappingConfidence: confidence,
+		ReferenceTFID:     reference,
+		TargetCount:       targetCount,
+		SharedPWMTFCount:  shared,
+		DiagnosticReason:  diagnostic,
 	}
 	if gm != nil {
 		if gm.Name != "" {

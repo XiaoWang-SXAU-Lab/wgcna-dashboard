@@ -74,7 +74,7 @@ AT1G00010	MA0001.1	[{"tf_id":"D9","tf_symbol":"STALE"},{"tf_id":"D1","tf_symbol"
 		t.Fatal(err)
 	}
 
-	params := `{"promoter_len":100,"downstream":100,"pvalue":0.001}`
+	params := `{"promoter_len":100,"downstream":100,"pvalue":0.001,"phase3_artifacts":true,"reuse_exact_pwm":true,"use_scan_cache":true}`
 	runRes, err := http.Post(srv.URL+"/api/toolkits/regutrace/jobs/"+job.ID+"/run", "application/json", strings.NewReader(params))
 	if err != nil {
 		t.Fatal(err)
@@ -188,6 +188,102 @@ AT1G00010	MA0001.1	[{"tf_id":"D9","tf_symbol":"STALE"},{"tf_id":"D1","tf_symbol"
 	}
 	if wrong.Total != 0 {
 		t.Fatalf("wrong-window site rows = %+v", wrong)
+	}
+
+	// Phase 4: motif registry, sequence matrix, aggregated targets, enrichment,
+	// provenance and a filtered prior export.
+	motifRes, err := http.Get(srv.URL + "/api/toolkits/regutrace/jobs/" + job.ID + "/motifs?q=MA0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var motifs regutrace.MotifListResult
+	if err := json.NewDecoder(motifRes.Body).Decode(&motifs); err != nil {
+		motifRes.Body.Close()
+		t.Fatal(err)
+	}
+	motifRes.Body.Close()
+	if motifs.Total == 0 || motifs.Rows[0].ID != "MA0001.1" || motifs.Rows[0].PWMHash == "" {
+		t.Fatalf("motifs = %+v", motifs)
+	}
+	detailRes, err := http.Get(srv.URL + "/api/toolkits/regutrace/jobs/" + job.ID + "/motifs/MA0001.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var detail regutrace.MotifDetail
+	if err := json.NewDecoder(detailRes.Body).Decode(&detail); err != nil {
+		detailRes.Body.Close()
+		t.Fatal(err)
+	}
+	detailRes.Body.Close()
+	if len(detail.Matrix) != 4 || len(detail.Matrix[0]) == 0 || len(detail.TFs) == 0 {
+		t.Fatalf("motif detail = %+v", detail)
+	}
+	if detail.TestabilityStatus == "" || detail.TestabilityStatus == "not_computed" {
+		t.Fatalf("testability status = %q", detail.TestabilityStatus)
+	}
+	targetsRes, err := http.Get(srv.URL + "/api/toolkits/regutrace/jobs/" + job.ID + "/targets?tf=AT1G00010&limit=10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var targets regutrace.TFTargetResult
+	if err := json.NewDecoder(targetsRes.Body).Decode(&targets); err != nil {
+		targetsRes.Body.Close()
+		t.Fatal(err)
+	}
+	targetsRes.Body.Close()
+	if targets.Total == 0 || len(targets.Rows) == 0 || targets.Rows[0].SiteCount == 0 {
+		t.Fatalf("targets = %+v", targets)
+	}
+	regRes, err := http.Get(srv.URL + "/api/toolkits/regutrace/jobs/" + job.ID + "/regulators?target=G1&limit=10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var regulators regutrace.RegulatorResult
+	if err := json.NewDecoder(regRes.Body).Decode(&regulators); err != nil {
+		regRes.Body.Close()
+		t.Fatal(err)
+	}
+	regRes.Body.Close()
+	if regulators.Total == 0 || len(regulators.Rows) == 0 || regulators.Rows[0].TFID == "" {
+		t.Fatalf("regulators = %+v", regulators)
+	}
+	enrichBody, _ := json.Marshal(regutrace.EnrichmentRequest{
+		GeneSet: []string{"G1", "G2"}, Background: []string{"G1", "G2"}, MotifIDs: []string{"MA0001.1"},
+	})
+	enrichRes, err := http.Post(srv.URL+"/api/toolkits/regutrace/jobs/"+job.ID+"/enrich", "application/json", bytes.NewReader(enrichBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var enrich regutrace.EnrichmentResult
+	if err := json.NewDecoder(enrichRes.Body).Decode(&enrich); err != nil {
+		enrichRes.Body.Close()
+		t.Fatal(err)
+	}
+	enrichRes.Body.Close()
+	if enrich.GeneSetSize != 2 || len(enrich.Rows) != 1 || len(enrich.Caveats) == 0 {
+		t.Fatalf("enrichment = %+v", enrich)
+	}
+	provRes, err := http.Get(srv.URL + "/api/toolkits/regutrace/jobs/" + job.ID + "/provenance")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var provenance regutrace.Provenance
+	if err := json.NewDecoder(provRes.Body).Decode(&provenance); err != nil {
+		provRes.Body.Close()
+		t.Fatal(err)
+	}
+	provRes.Body.Close()
+	if len(provenance.Inputs) < 2 || provenance.Inputs[0].SHA256 == "" {
+		t.Fatalf("provenance = %+v", provenance)
+	}
+	priorRes, err := http.Get(srv.URL + "/api/toolkits/regutrace/jobs/" + job.ID + "/export?kind=prior&policy=strict")
+	if err != nil {
+		t.Fatal(err)
+	}
+	priorBody, _ := io.ReadAll(priorRes.Body)
+	priorRes.Body.Close()
+	if priorRes.StatusCode != http.StatusOK || !bytes.HasPrefix(priorBody, []byte("SQLite format 3")) {
+		t.Fatalf("prior export: %s %q", priorRes.Status, priorBody[:min(32, len(priorBody))])
 	}
 
 	eRes, err := http.Get(srv.URL + "/api/toolkits/regutrace/jobs/" + job.ID + "/export?kind=evidence")

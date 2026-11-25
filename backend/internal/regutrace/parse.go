@@ -3,11 +3,15 @@ package regutrace
 import (
 	"bufio"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/bits"
 	"os"
 	"sort"
@@ -23,10 +27,33 @@ type AnnotationEntry struct {
 
 // MotifInfo is the display metadata for one JASPAR PFM.
 type MotifInfo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Consensus string `json:"consensus"`
-	Length    int    `json:"length"`
+	ID                 string       `json:"id"`
+	Name               string       `json:"name"`
+	Consensus          string       `json:"consensus"`
+	Length             int          `json:"length"`
+	PWMHash            string       `json:"pwm_hash,omitempty"`
+	InformationContent float64      `json:"information_content,omitempty"`
+	Matrix             [4][]float64 `json:"matrix,omitempty"`
+}
+
+// motifMatrixHash hashes the normalized probability matrix, not the motif ID
+// or name. It is used only to mark TFs that share the same effective PWM; it
+// never merges motif IDs or changes evidence.
+func motifMatrixHash(matrix [4][]float64) string {
+	if len(matrix[0]) == 0 {
+		return ""
+	}
+	h := sha256.New()
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], uint64(len(matrix[0])))
+	h.Write(buf[:])
+	for i := 0; i < len(matrix[0]); i++ {
+		for b := 0; b < 4; b++ {
+			binary.LittleEndian.PutUint64(buf[:], math.Float64bits(matrix[b][i]))
+			h.Write(buf[:])
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Promoter is one oriented promoter sequence extracted by ReguTrace.
@@ -337,17 +364,41 @@ func parseMotifMeta(data []byte) (map[string]MotifInfo, error) {
 		}
 		consensus := make([]byte, n)
 		letters := []byte("ACGT")
+		matrix := [4][]float64{}
+		for b := 0; b < 4; b++ {
+			matrix[b] = make([]float64, n)
+		}
+		information := 0.0
 		for i := 0; i < n; i++ {
 			best, bestVal := byte('N'), -1.0
+			sum := 0.0
 			for b := 0; b < 4; b++ {
-				if i < len(rows[b]) && rows[b][i] > bestVal {
-					bestVal = rows[b][i]
-					best = letters[b]
+				if i < len(rows[b]) {
+					sum += rows[b][i]
+					if rows[b][i] > bestVal {
+						bestVal = rows[b][i]
+						best = letters[b]
+					}
 				}
 			}
 			consensus[i] = best
+			for b := 0; b < 4; b++ {
+				if sum > 0 && i < len(rows[b]) {
+					matrix[b][i] = rows[b][i] / sum
+				}
+			}
+			entropy := 0.0
+			for b := 0; b < 4; b++ {
+				if matrix[b][i] > 0 {
+					entropy -= matrix[b][i] * math.Log2(matrix[b][i])
+				}
+			}
+			information += 2.0 - entropy
 		}
-		out[id] = MotifInfo{ID: id, Name: name, Consensus: string(consensus), Length: n}
+		out[id] = MotifInfo{
+			ID: id, Name: name, Consensus: string(consensus), Length: n,
+			PWMHash: motifMatrixHash(matrix), InformationContent: information, Matrix: matrix,
+		}
 		id, name, rows = "", "", [4][]float64{}
 	}
 	for _, line := range strings.Split(string(data), "\n") {
@@ -721,11 +772,40 @@ type Summary struct {
 	UniqueTFs        int               `json:"unique_tfs"`
 	UniqueTargets    int               `json:"unique_targets"`
 	UniqueMotifs     int               `json:"unique_motifs"`
+	MotifTargetPairs int               `json:"motif_target_pairs"`
 	EvidenceLevelD   int               `json:"evidence_level_d"`
 	Threads          int               `json:"threads,omitempty"`
 	AnnotationSource string            `json:"annotation_source"`
 	TopTFs           []CountItem       `json:"top_tfs"`
 	TopMotifs        []CountItem       `json:"top_motifs"`
+
+	// Phase 4 overview fields. Pointers distinguish "not computed" from zero.
+	TFAmbiguous           *int           `json:"tf_ambiguous,omitempty"`
+	TFFamilies            *int           `json:"tf_families,omitempty"`
+	UnmappedTFs           *int           `json:"unmapped_tfs,omitempty"`
+	TFsWithTargets        *int           `json:"tfs_with_targets,omitempty"`
+	TFsWithTestableMotifs *int           `json:"tfs_with_testable_motifs,omitempty"`
+	ActualTargetCoverage  *float64       `json:"actual_target_coverage,omitempty"`
+	MappingStatusCounts   map[string]int `json:"mapping_status_counts,omitempty"`
+	UniquePWMs            *int           `json:"unique_pwms,omitempty"`
+	PWMGroups             *int           `json:"pwm_groups,omitempty"`
+	TestableMotifs        *int           `json:"testable_motifs,omitempty"`
+	UnattainableMotifs    *int           `json:"unattainable_motifs,omitempty"`
+	NotScannedMotifs      *int           `json:"not_scanned_motifs,omitempty"`
+	CandidateSites        *int           `json:"candidate_sites,omitempty"`
+	BackgroundMode        string         `json:"background_mode,omitempty"`
+	BackgroundFrequencies []float64      `json:"background_frequencies,omitempty"`
+	ReferencePack         string         `json:"reference_pack,omitempty"`
+	ScanRuntimeSeconds    *float64       `json:"scan_runtime_seconds,omitempty"`
+	CacheHits             *int           `json:"cache_hits,omitempty"`
+	CacheMisses           *int           `json:"cache_misses,omitempty"`
+	TestabilityAvailable  bool           `json:"testability_available"`
+	SiteTableAvailable    bool           `json:"site_table_available"`
+	SiteOnly              bool           `json:"site_only"`
+	ScanManifestAvailable bool           `json:"scan_manifest_available"`
+	MetadataWarnings      []string       `json:"metadata_warnings,omitempty"`
+
+	TFTargetCounts map[string]int `json:"-"`
 }
 
 type hitSet map[string]bool
@@ -847,8 +927,12 @@ func (b *summaryBuilder) add(e Edge, motifs map[string]MotifInfo) {
 
 func (b *summaryBuilder) finish(promoterCount int, motifLibrarySize int, annotationSource string, motifHits int) *Summary {
 	pairs := 0
+	motifPairs := 0
 	for _, targets := range b.tfTargets {
 		pairs += targets.count()
+	}
+	for _, targets := range b.motifTargets {
+		motifPairs += targets.count()
 	}
 	if b.trackHits {
 		motifHits = len(b.allHits)
@@ -868,11 +952,14 @@ func (b *summaryBuilder) finish(promoterCount int, motifLibrarySize int, annotat
 		TFTargetEdges:    b.edges,
 		UniqueTFs:        len(b.tfTargets),
 		UniqueMotifs:     len(b.motifTargets),
+		MotifTargetPairs: motifPairs,
 		MotifsWithHits:   len(b.motifTargets),
 		UniqueTargets:    len(b.targetIndex),
 		EvidenceLevelD:   b.levelD,
 	}
+	s.TFTargetCounts = make(map[string]int, len(b.tfTargets))
 	for id, targets := range b.tfTargets {
+		s.TFTargetCounts[id] = targets.count()
 		name := b.tfNames[id]
 		if name == "" {
 			name = id

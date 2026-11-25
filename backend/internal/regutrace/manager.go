@@ -31,17 +31,24 @@ type Params struct {
 	Downstream                  int        `json:"downstream"`
 	PValue                      float64    `json:"pvalue"`
 	Background                  [4]float64 `json:"background"`
+	BackgroundMode              string     `json:"background_mode,omitempty"`
 	Threads                     int        `json:"threads"` // 0 = auto (CPU cores - 1), 1 = serial
 	IncludeSingleDomainFallback bool       `json:"include_single_domain_fallback"`
+	ReuseExactPWM               bool       `json:"reuse_exact_pwm,omitempty"`
+	Phase3Artifacts             bool       `json:"phase3_artifacts,omitempty"`
+	UseScanCache                bool       `json:"use_scan_cache,omitempty"`
+	SitesOnly                   bool       `json:"sites_only,omitempty"`
+	MappingMode                 string     `json:"mapping_mode,omitempty"`
 }
 
 func defaultParams() Params {
 	return Params{
-		PromoterLen: 1000,
-		Downstream:  0,
-		PValue:      1e-4,
-		Background:  [4]float64{0.25, 0.25, 0.25, 0.25},
-		Threads:     0,
+		PromoterLen:    1000,
+		Downstream:     0,
+		PValue:         1e-4,
+		Background:     [4]float64{0.25, 0.25, 0.25, 0.25},
+		BackgroundMode: "uniform",
+		Threads:        0,
 	}
 }
 
@@ -54,6 +61,21 @@ func normalizeParams(p Params) (Params, error) {
 	}
 	if p.Background == [4]float64{} {
 		p.Background = [4]float64{0.25, 0.25, 0.25, 0.25}
+	}
+	if p.BackgroundMode == "" {
+		p.BackgroundMode = "uniform"
+	}
+	if p.BackgroundMode != "uniform" && p.BackgroundMode != "empirical" {
+		return p, errors.New("background_mode must be uniform or empirical")
+	}
+	if p.MappingMode == "" {
+		p.MappingMode = "strict"
+	}
+	if p.MappingMode != "strict" && p.MappingMode != "balanced" && p.MappingMode != "exploratory" {
+		return p, errors.New("mapping_mode must be strict, balanced or exploratory")
+	}
+	if p.SitesOnly && !p.Phase3Artifacts {
+		return p, errors.New("sites_only requires phase3_artifacts")
 	}
 	if p.PromoterLen < 1 || p.PromoterLen > 1_000_000 {
 		return p, errors.New("promoter_len must be between 1 and 1,000,000")
@@ -143,35 +165,48 @@ type Uploads struct {
 
 type jobState struct {
 	Job
-	dir              string
-	generation       uint64
-	evidencePath     string
-	cancel           context.CancelFunc
-	genomePath       string
-	gffPath          string
-	gff              *gffCatalog
-	motifsPath       string
-	tfMapPath        string
-	tfGenesPath      string
-	proteinsPath     string
-	sequenceIsCDS    bool
-	hmmPath          string
-	familyMapPath    string
-	tracePath        string
-	annotationPath   string
-	annotationSource string
-	referencePackDir string
-	referencePackKey string
-	pipelineDir      string
-	reportPath       string
-	promotersPath    string
-	progressPath     string
-	data             *dataset
-	edges            []Edge
-	promoters        map[string]*Promoter
-	motifs           map[string]MotifInfo
-	annotations      map[string]AnnotationEntry
-	donors           map[donorKey][]DonorInfo
+	dir                 string
+	generation          uint64
+	evidencePath        string
+	cancel              context.CancelFunc
+	genomePath          string
+	gffPath             string
+	gff                 *gffCatalog
+	motifsPath          string
+	tfMapPath           string
+	tfGenesPath         string
+	proteinsPath        string
+	sequenceIsCDS       bool
+	hmmPath             string
+	familyMapPath       string
+	tracePath           string
+	annotationPath      string
+	annotationSource    string
+	referencePackDir    string
+	referencePackKey    string
+	pipelineDir         string
+	reportPath          string
+	promotersPath       string
+	progressPath        string
+	sitesPath           string
+	testabilityPath     string
+	promoterSummaryPath string
+	scanManifestPath    string
+	pipelineReportPath  string
+	data                *dataset
+	edges               []Edge
+	promoters           map[string]*Promoter
+	motifs              map[string]MotifInfo
+	annotations         map[string]AnnotationEntry
+	donors              map[donorKey][]DonorInfo
+	phase4              *phase4Metadata
+	proteinSequences    map[string]string
+	proteinMu           sync.Mutex
+	checksums           map[string]string
+	checksumMu          sync.Mutex
+	tfTargetCache       map[string]TFTargetResult
+	tfTargetOrder       []string
+	tfTargetMu          sync.Mutex
 }
 
 type Manager struct {
@@ -688,11 +723,21 @@ func (m *Manager) Start(id string, params Params, mode string) (Job, error) {
 			js.tfGenesPath = filepath.Join(js.pipelineDir, "tf_genes.tsv")
 			js.tfMapPath = filepath.Join(js.pipelineDir, "tf_map.tsv")
 			js.tracePath = filepath.Join(js.pipelineDir, "tf_motif_trace.tsv")
+			js.sitesPath = filepath.Join(js.pipelineDir, "motif-site-hits.tsv")
+			js.testabilityPath = filepath.Join(js.pipelineDir, "motif-testability.tsv")
+			js.promoterSummaryPath = filepath.Join(js.pipelineDir, "promoter-summary.tsv")
+			js.scanManifestPath = filepath.Join(js.pipelineDir, "scan-manifest.json")
+			js.pipelineReportPath = filepath.Join(js.pipelineDir, "pipeline-report.json")
 		} else {
 			js.evidencePath = filepath.Join(js.dir, fmt.Sprintf("evidence.%d.tsv", js.generation))
 			js.reportPath = filepath.Join(js.dir, "report.json")
 			js.promotersPath = filepath.Join(js.dir, "promoters.fa")
 			js.progressPath = filepath.Join(js.dir, "progress.json")
+			js.sitesPath = filepath.Join(js.dir, fmt.Sprintf("motif-site-hits.%d.tsv", js.generation))
+			js.testabilityPath = filepath.Join(js.dir, fmt.Sprintf("motif-testability.%d.tsv", js.generation))
+			js.promoterSummaryPath = filepath.Join(js.dir, fmt.Sprintf("promoter-summary.%d.tsv", js.generation))
+			js.scanManifestPath = filepath.Join(js.dir, fmt.Sprintf("scan-manifest.%d.json", js.generation))
+			js.pipelineReportPath = ""
 		}
 	}
 	js.Error = ""
@@ -850,7 +895,20 @@ func (m *Manager) buildArgs(js *jobState, mode string) []string {
 			"--out-dir", js.pipelineDir,
 			"--promoter-len", strconv.Itoa(js.Params.PromoterLen),
 			"--pvalue", strconv.FormatFloat(js.Params.PValue, 'g', -1, 64),
-			"--background", fmt.Sprintf("%g,%g,%g,%g", js.Params.Background[0], js.Params.Background[1], js.Params.Background[2], js.Params.Background[3]),
+		}
+		if js.Params.BackgroundMode == "empirical" {
+			args = append(args, "--background-mode", "empirical")
+		} else {
+			args = append(args, "--background", fmt.Sprintf("%g,%g,%g,%g", js.Params.Background[0], js.Params.Background[1], js.Params.Background[2], js.Params.Background[3]))
+		}
+		if js.Params.ReuseExactPWM {
+			args = append(args, "--reuse-exact-pwm")
+		}
+		if js.Params.Phase3Artifacts {
+			args = append(args, "--phase3-artifacts")
+		}
+		if js.Params.UseScanCache {
+			args = append(args, "--scan-cache", filepath.Join(js.dir, "scan-cache"))
 		}
 		if js.annotationPath != "" {
 			args = append(args, "--annotation", js.annotationPath)
@@ -883,9 +941,30 @@ func (m *Manager) buildArgs(js *jobState, mode string) []string {
 		"--promoter-len", strconv.Itoa(js.Params.PromoterLen),
 		"--downstream", strconv.Itoa(js.Params.Downstream),
 		"--pvalue", strconv.FormatFloat(js.Params.PValue, 'g', -1, 64),
-		"--background", fmt.Sprintf("%g,%g,%g,%g", js.Params.Background[0], js.Params.Background[1], js.Params.Background[2], js.Params.Background[3]),
 		"--report-json", filepath.Join(js.dir, "report.json"),
 	)
+	if js.Params.BackgroundMode == "empirical" {
+		args = append(args, "--background-mode", "empirical")
+	} else {
+		args = append(args, "--background", fmt.Sprintf("%g,%g,%g,%g", js.Params.Background[0], js.Params.Background[1], js.Params.Background[2], js.Params.Background[3]))
+	}
+	if js.Params.ReuseExactPWM {
+		args = append(args, "--reuse-exact-pwm")
+	}
+	if js.Params.UseScanCache {
+		args = append(args, "--scan-cache", filepath.Join(js.dir, "scan-cache"))
+	}
+	if js.Params.Phase3Artifacts {
+		args = append(args,
+			"--sites-out", js.sitesPath,
+			"--motif-testability-out", js.testabilityPath,
+			"--promoter-summary-out", js.promoterSummaryPath,
+			"--scan-manifest", js.scanManifestPath,
+		)
+		if js.Params.SitesOnly {
+			args = append(args, "--sites-only")
+		}
+	}
 	if js.tfMapPath != "" {
 		args = append(args, "--tf-map", js.tfMapPath)
 	}
@@ -977,14 +1056,28 @@ func (m *Manager) finish(js *jobState, mode string, runErr error, logText string
 		js.Error = err.Error()
 		return
 	}
-	data, err := buildDataset(
-		js.evidencePath,
-		js.motifs,
-		js.annotations,
-		len(promoters),
-		js.annotationSource,
-		reportContextInt(report, "SCAN_SUMMARY", "motif_hits"),
-	)
+	var data *dataset
+	if js.Params.SitesOnly {
+		mappings := map[string][]TFMappingRow{}
+		if js.phase4 != nil {
+			mappings = js.phase4.Mappings
+		} else if rows, err := readTFMappingRows(js.tfMapPath); err == nil {
+			mappings = rows
+		}
+		data, err = buildSiteDataset(
+			js.sitesPath, js.motifs, js.annotations, len(promoters), js.annotationSource,
+			mappings, js.Params.IncludeSingleDomainFallback,
+		)
+	} else {
+		data, err = buildDataset(
+			js.evidencePath,
+			js.motifs,
+			js.annotations,
+			len(promoters),
+			js.annotationSource,
+			reportContextInt(report, "SCAN_SUMMARY", "motif_hits"),
+		)
+	}
 	if err != nil {
 		js.Status = "failed"
 		js.Stage = "failed"
@@ -994,10 +1087,13 @@ func (m *Manager) finish(js *jobState, mode string, runErr error, logText string
 	}
 	data.summary.Threads = reportContextInt(report, "SCAN_SUMMARY", "threads")
 	js.enrichSummaryNames(data)
-	if err := js.addTFCatalogue(data.summary); err != nil {
+	js.loadPhase4Metadata(report)
+	if err := js.addTFCatalogue(data.summary, data); err != nil {
 		js.Status, js.Stage, js.Message, js.Error = "failed", "failed", "failed to read TF catalogue", err.Error()
 		return
 	}
+	js.Summary = data.summary
+	js.enrichPhase4Summary(report)
 	donors, err := loadDonors(js.tracePath, js.tfMapPath)
 	if err != nil {
 		js.Status = "failed"
@@ -1013,7 +1109,11 @@ func (m *Manager) finish(js *jobState, mode string, runErr error, logText string
 	js.Summary = data.summary
 	js.Status = "succeeded"
 	js.Stage = "succeeded"
-	js.Message = fmt.Sprintf("%d evidence rows", data.total)
+	if js.Params.SitesOnly {
+		js.Message = fmt.Sprintf("%d candidate sites (site-only)", data.total)
+	} else {
+		js.Message = fmt.Sprintf("%d evidence rows", data.total)
+	}
 	js.Progress = 1
 }
 
