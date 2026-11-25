@@ -22,6 +22,19 @@ func TestSidecarPath(t *testing.T) {
 	}
 }
 
+// sameFile accepts path spellings that differ only by symlink resolution.
+// macOS temp dirs are commonly /var/... while os.Executable and path
+// canonicalization may return /private/var/... for the same file.
+func sameFile(t *testing.T, got, want string) bool {
+	t.Helper()
+	gi, gerr := os.Stat(got)
+	wi, werr := os.Stat(want)
+	if gerr == nil && werr == nil {
+		return os.SameFile(gi, wi)
+	}
+	return got == want
+}
+
 func sidecarData() []byte {
 	if runtime.GOOS == "windows" {
 		return []byte("MZ")
@@ -39,7 +52,7 @@ func TestResolvePrefersEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != p {
+	if !sameFile(t, got, p) {
 		t.Fatalf("got %q, want %q", got, p)
 	}
 }
@@ -66,7 +79,7 @@ func TestResolveReturnsAbsoluteEnv(t *testing.T) {
 	if !filepath.IsAbs(got) {
 		t.Fatalf("got relative path %q", got)
 	}
-	if got != p {
+	if !sameFile(t, got, p) {
 		t.Fatalf("got %q, want %q", got, p)
 	}
 }
@@ -103,7 +116,7 @@ func TestResolveFindsSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != p {
+	if !sameFile(t, got, p) {
 		t.Fatalf("got %q, want %q", got, p)
 	}
 }
