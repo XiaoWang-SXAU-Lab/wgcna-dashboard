@@ -2,6 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import {
   getRegutraceTFTargets,
+  type RegutraceMotifPolicy,
+  type RegutracePolicyInfo,
   type RegutraceTFTargetRow,
   type RegutraceTFView,
 } from '../api/client'
@@ -27,6 +29,8 @@ const targetBusy = ref(false)
 const targetError = ref('')
 const targetMotif = ref('')
 const targetStatus = ref('')
+const targetPolicy = ref<RegutraceMotifPolicy>('all')
+const policyInfo = ref<RegutracePolicyInfo | null>(null)
 const targetMaxP = ref('')
 const showSequence = ref(false)
 let targetSeq = 0
@@ -70,6 +74,13 @@ function statusLabel(value: string): string {
     default: return value
   }
 }
+function policyLabel(value: RegutraceMotifPolicy): string {
+  switch (value) {
+    case 'best': return text('每组最佳支持（推荐扩展候选）', 'Best-supported per group (recommended extended)')
+    case 'reps': return text('每组代表 motif', 'Representative per specificity group')
+    default: return text('全部候选 motif', 'All candidate motifs')
+  }
+}
 function testabilityLabel(value?: string): string {
   switch (value) {
     case 'significant_hits': return text('有显著位点', 'Significant hits')
@@ -100,11 +111,13 @@ async function loadTargets() {
       offset: (targetPage.value - 1) * targetPageSize,
       motif: targetMotif.value || undefined,
       mapping_status: targetStatus.value || undefined,
+      motif_policy: targetPolicy.value,
       max_p: Number.isFinite(maxP as number) ? maxP : undefined,
     })
     if (seq !== targetSeq) return
     targetRows.value = res.rows
     targetTotal.value = res.total
+    policyInfo.value = res.motif_policy ?? null
   } catch (e) {
     if (seq === targetSeq) targetError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -175,6 +188,11 @@ watch(() => [props.view.tf_id, props.selectedMotif], () => {
                           :title="[mapping.mapping_method, mapping.mapping_confidence].filter(Boolean).join(' · ')">
                       {{ statusLabel(mapping.mapping_status) }}
                     </span>
+                    <span v-if="mapping.domain_mode === 'single_domain_fallback'"
+                          class="badge text-bg-secondary ms-1"
+                          :title="text('完整 DBD 架构提取失败，使用单域比对回退；不按 full-architecture 优先', 'Full DBD architecture extraction failed; single-domain alignment fallback is used and is not ranked as full architecture')">
+                      {{ text('单域比对回退', 'single-domain alignment fallback') }}
+                    </span>
                   </td>
                   <td class="small">{{ testabilityLabel(mapping.testability_status) }}</td>
                   <td class="small">{{ formatP(mapping.min_pvalue) }}</td>
@@ -189,7 +207,7 @@ watch(() => [props.view.tf_id, props.selectedMotif], () => {
         <div class="col-12 col-xl-7">
           <div class="small text-muted mb-1">{{ text('候选靶标（按 best p 排序，分页）', 'Candidate targets (best p, paginated)') }}</div>
           <div class="row g-1 align-items-end mb-2">
-            <div class="col-6 col-md-3">
+            <div class="col-6 col-md-2">
               <label class="form-label small mb-0">Motif</label>
               <select v-model="targetMotif" class="form-select form-select-sm" @change="searchTargets">
                 <option value="">{{ text('全部', 'All') }}</option>
@@ -197,6 +215,14 @@ watch(() => [props.view.tf_id, props.selectedMotif], () => {
               </select>
             </div>
             <div class="col-6 col-md-3">
+              <label class="form-label small mb-0">{{ text('Motif 选择策略', 'Motif policy') }}</label>
+              <select v-model="targetPolicy" class="form-select form-select-sm" @change="searchTargets">
+                <option value="all">{{ policyLabel('all') }}</option>
+                <option value="best">{{ policyLabel('best') }}</option>
+                <option value="reps">{{ policyLabel('reps') }}</option>
+              </select>
+            </div>
+            <div class="col-6 col-md-2">
               <label class="form-label small mb-0">{{ text('映射状态', 'Mapping status') }}</label>
               <select v-model="targetStatus" class="form-select form-select-sm" @change="searchTargets">
                 <option value="">{{ text('全部', 'All') }}</option>
@@ -210,6 +236,14 @@ watch(() => [props.view.tf_id, props.selectedMotif], () => {
             <div class="col-6 col-md-2">
               <button class="btn btn-sm btn-outline-primary w-100" :disabled="targetBusy" @click="searchTargets">{{ text('筛选', 'Filter') }}</button>
             </div>
+          </div>
+          <div v-if="policyInfo" class="small text-muted mb-2">
+            {{ policyInfo.selected_motifs }} motif(s) ·
+            {{ text('固定 strict/calibrated', 'fixed strict/calibrated') }}: {{ policyInfo.fixed_mappings }} ·
+            {{ text('探索性入选', 'exploratory selected') }}: {{ policyInfo.exploratory_selected }}
+            <span v-if="policyInfo.uncoordinated_motifs"> · {{ text('无坐标排除', 'without coordinates') }}: {{ policyInfo.uncoordinated_motifs }}</span>
+            <span v-if="policyInfo.fallback" class="text-warning-emphasis"> · {{ text('已回退', 'fallback') }}</span>
+            <div v-if="policyInfo.note" class="text-warning-emphasis">{{ policyInfo.note }}</div>
           </div>
           <div v-if="targetError" class="alert alert-warning small py-2">{{ targetError }}</div>
           <div v-if="targetBusy" class="small text-muted"><span class="spinner-border spinner-border-sm me-2"></span>{{ text('读取 target…', 'Loading targets…') }}</div>
@@ -250,7 +284,7 @@ watch(() => [props.view.tf_id, props.selectedMotif], () => {
         <pre v-if="showSequence" class="small bg-light border rounded p-2 mt-2 mb-0" style="white-space: pre-wrap; max-height: 12rem; overflow: auto">{{ proteinSequence }}</pre>
       </div>
       <p class="small text-muted mt-2 mb-0">
-        {{ text('所有 PWM promoter 命中都是计算候选（evidence level D）；映射状态和位点 p 值都不是实验验证或真实调控概率。', 'All PWM promoter hits are computational candidates (evidence level D); mapping status and site p-values are not experimental validation or true regulatory probabilities.') }}
+        {{ text('Motif 策略只改变当前 target 视图：全部候选保留在库中，strict/calibrated 映射始终保留，ambiguous 不进入 best/reps 视图。全量 evidence/background 导出保留全部原始候选；policy 只影响 target/regulator 查询和 v3 tf_motif_policy 表。best/reps 的排序只使用 architecture、coverage、identity 和 bitscore，不使用 DNA-contact、reciprocity 或 full-length similarity。所有 PWM promoter 命中都是计算候选（evidence level D）；映射状态和位点 p 值都不是实验验证或真实调控概率。', 'The motif policy changes only the current target view: all candidate motifs remain stored, strict/calibrated mappings are always retained, and ambiguous mappings do not enter best/reps views. Full evidence/background exports retain all original candidates; policy-specific access is the target/regulator query and the v3 tf_motif_policy table. best/reps ranking uses only architecture, coverage, identity and bitscore; it does not use DNA-contact residues, reciprocity or full-length similarity. All PWM promoter hits are computational candidates (evidence level D); mapping status and site p-values are not experimental validation or true regulatory probabilities.') }}
       </p>
     </div>
   </div>

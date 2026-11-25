@@ -1278,18 +1278,33 @@ export interface RegutraceTFTargetRow {
   strand?: string
 }
 
+export type RegutraceMotifPolicy = 'all' | 'best' | 'reps'
+
+export interface RegutracePolicyInfo {
+  policy: RegutraceMotifPolicy
+  selected_motifs: number
+  fixed_mappings: number
+  exploratory_selected: number
+  coordinate_available: boolean
+  specificity_available: boolean
+  uncoordinated_motifs?: number
+  fallback: boolean
+  note?: string
+}
+
 export interface RegutraceTFTargetResult {
   total: number
   limit: number
   offset: number
   tf_id: string
+  motif_policy?: RegutracePolicyInfo
   rows: RegutraceTFTargetRow[]
 }
 
 export async function getRegutraceTFTargets(
   id: string,
   tf: string,
-  opts: { limit?: number; offset?: number; motif?: string; mapping_status?: string; max_p?: number } = {},
+  opts: { limit?: number; offset?: number; motif?: string; mapping_status?: string; motif_policy?: RegutraceMotifPolicy; max_p?: number } = {},
 ): Promise<RegutraceTFTargetResult> {
   const p = new URLSearchParams({ tf })
   for (const [key, value] of Object.entries(opts)) {
@@ -1318,13 +1333,14 @@ export interface RegutraceRegulatorResult {
   limit: number
   offset: number
   target_id: string
+  motif_policy?: RegutraceMotifPolicy
   rows: RegutraceRegulatorRow[]
 }
 
 export async function getRegutraceRegulators(
   id: string,
   target: string,
-  opts: { limit?: number; offset?: number; motif?: string; mapping_status?: string; max_p?: number } = {},
+  opts: { limit?: number; offset?: number; motif?: string; mapping_status?: string; motif_policy?: RegutraceMotifPolicy; max_p?: number } = {},
 ): Promise<RegutraceRegulatorResult> {
   const p = new URLSearchParams({ target })
   for (const [key, value] of Object.entries(opts)) {

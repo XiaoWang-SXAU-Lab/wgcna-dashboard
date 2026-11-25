@@ -287,6 +287,7 @@ type TFTargetResult struct {
 	Limit  int           `json:"limit"`
 	Offset int           `json:"offset"`
 	TFID   string        `json:"tf_id"`
+	Policy *PolicyInfo   `json:"motif_policy,omitempty"`
 	Rows   []TFTargetRow `json:"rows"`
 }
 
@@ -296,6 +297,7 @@ type TFTargetOptions struct {
 	Offset int
 	Motif  string
 	Status string
+	Policy string
 	MaxP   float64
 }
 
@@ -335,6 +337,11 @@ func (j *jobState) tfTargets(opts TFTargetOptions) (TFTargetResult, error) {
 	if !ok {
 		return TFTargetResult{}, fmt.Errorf("%w: TF %q has no evidence in this run", ErrNotFound, opts.TFID)
 	}
+	policy, err := normalizeMotifPolicy(opts.Policy)
+	if err != nil {
+		return TFTargetResult{}, err
+	}
+	policyAllowed, policyInfo := j.policyAllowed(tfID, policy)
 	limit, offset := opts.Limit, opts.Offset
 	if limit <= 0 {
 		limit = 50
@@ -354,11 +361,14 @@ func (j *jobState) tfTargets(opts TFTargetOptions) (TFTargetResult, error) {
 		sites  map[string]bool
 	}
 	byTarget := map[string]*aggregate{}
-	err := j.data.forEachAt(j.data.tfOffsets[tfID], func(e Edge) error {
+	err = j.data.forEachAt(j.data.tfOffsets[tfID], func(e Edge) error {
 		if opts.MaxP > 0 && e.PValue != nil && *e.PValue > opts.MaxP {
 			return nil
 		}
 		if motifFilter != "" && !strings.EqualFold(e.MotifID, motifFilter) {
+			return nil
+		}
+		if policyAllowed != nil && !policyAllowed[e.MotifID] {
 			return nil
 		}
 		status := j.mappingStatus(tfID, e.MotifID)
@@ -438,7 +448,7 @@ func (j *jobState) tfTargets(opts TFTargetOptions) (TFTargetResult, error) {
 	if end > total {
 		end = total
 	}
-	return TFTargetResult{Total: total, Limit: limit, Offset: offset, TFID: tfID, Rows: rows[offset:end]}, nil
+	return TFTargetResult{Total: total, Limit: limit, Offset: offset, TFID: tfID, Policy: &policyInfo, Rows: rows[offset:end]}, nil
 }
 
 func containsString(values []string, value string) bool {
@@ -469,12 +479,17 @@ type RegulatorResult struct {
 	Limit    int            `json:"limit"`
 	Offset   int            `json:"offset"`
 	TargetID string         `json:"target_id"`
+	Policy   string         `json:"motif_policy,omitempty"`
 	Rows     []RegulatorRow `json:"rows"`
 }
 
-func (j *jobState) targetRegulators(targetID string, limit, offset int, motifFilter, statusFilter string, maxP float64) (RegulatorResult, error) {
+func (j *jobState) targetRegulators(targetID string, limit, offset int, motifFilter, statusFilter, policyValue string, maxP float64) (RegulatorResult, error) {
+	policy, err := normalizeMotifPolicy(policyValue)
+	if err != nil {
+		return RegulatorResult{}, err
+	}
 	if j.data != nil && j.data.mode == "sites" {
-		return j.siteTargetRegulators(targetID, limit, offset, motifFilter, statusFilter, maxP)
+		return j.siteTargetRegulators(targetID, limit, offset, motifFilter, statusFilter, policy, maxP)
 	}
 	if j.data == nil {
 		return RegulatorResult{}, errors.New("this job has no disk-backed dataset")
@@ -498,12 +513,23 @@ func (j *jobState) targetRegulators(targetID string, limit, offset int, motifFil
 		sites  map[string]bool
 	}
 	byTF := map[string]*aggregate{}
-	err := j.data.forEachAt(j.data.targetOffsets[resolved], func(e Edge) error {
+	policyCache := map[string]map[string]bool{}
+	err = j.data.forEachAt(j.data.targetOffsets[resolved], func(e Edge) error {
 		if maxP > 0 && e.PValue != nil && *e.PValue > maxP {
 			return nil
 		}
 		if motifFilter != "" && !strings.EqualFold(e.MotifID, motifFilter) {
 			return nil
+		}
+		if policy != MotifPolicyAll {
+			allowed, seen := policyCache[e.TFID]
+			if !seen {
+				allowed, _ = j.policyAllowed(e.TFID, policy)
+				policyCache[e.TFID] = allowed
+			}
+			if allowed != nil && !allowed[e.MotifID] {
+				return nil
+			}
 		}
 		status := j.mappingStatus(e.TFID, e.MotifID)
 		if statusFilter != "" {
@@ -568,7 +594,7 @@ func (j *jobState) targetRegulators(targetID string, limit, offset int, motifFil
 	if end > total {
 		end = total
 	}
-	return RegulatorResult{Total: total, Limit: limit, Offset: offset, TargetID: resolved, Rows: rows[offset:end]}, nil
+	return RegulatorResult{Total: total, Limit: limit, Offset: offset, TargetID: resolved, Policy: string(policy), Rows: rows[offset:end]}, nil
 }
 
 // manager wrappers
@@ -612,7 +638,7 @@ func (m *Manager) TFTargets(id string, opts TFTargetOptions) (TFTargetResult, er
 	return js.tfTargets(opts)
 }
 
-func (m *Manager) TargetRegulators(id, target string, limit, offset int, motif, status string, maxP float64) (RegulatorResult, error) {
+func (m *Manager) TargetRegulators(id, target string, limit, offset int, motif, status, policy string, maxP float64) (RegulatorResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	js, ok := m.jobs[id]
@@ -622,5 +648,5 @@ func (m *Manager) TargetRegulators(id, target string, limit, offset int, motif, 
 	if js.Status != "succeeded" {
 		return RegulatorResult{}, ErrNotCompleted
 	}
-	return js.targetRegulators(target, limit, offset, motif, status, maxP)
+	return js.targetRegulators(target, limit, offset, motif, status, policy, maxP)
 }

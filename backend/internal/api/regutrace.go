@@ -458,7 +458,7 @@ func (h *RegutraceHandler) targets(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := h.mgr.TFTargets(r.PathValue("id"), regutrace.TFTargetOptions{
 		TFID: tf, Limit: limit, Offset: offset, Motif: q.Get("motif"),
-		Status: q.Get("mapping_status"), MaxP: maxP,
+		Status: q.Get("mapping_status"), Policy: q.Get("motif_policy"), MaxP: maxP,
 	})
 	if err != nil {
 		writeRegutraceError(w, err)
@@ -493,7 +493,7 @@ func (h *RegutraceHandler) regulators(w http.ResponseWriter, r *http.Request) {
 		}
 		maxP = value
 	}
-	res, err := h.mgr.TargetRegulators(r.PathValue("id"), target, limit, offset, q.Get("motif"), q.Get("mapping_status"), maxP)
+	res, err := h.mgr.TargetRegulators(r.PathValue("id"), target, limit, offset, q.Get("motif"), q.Get("mapping_status"), q.Get("motif_policy"), maxP)
 	if err != nil {
 		writeRegutraceError(w, err)
 		return

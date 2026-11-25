@@ -145,14 +145,14 @@ func TestSiteTFTargetsModeFilter(t *testing.T) {
 
 func TestSiteTargetRegulators(t *testing.T) {
 	js, _ := siteJob(t, "exploratory")
-	res, err := js.siteTargetRegulators("G1", 10, 0, "", "", 0)
+	res, err := js.siteTargetRegulators("G1", 10, 0, "", "", MotifPolicyAll, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Total != 1 || res.Rows[0].TFID != "TF1" || res.Rows[0].SiteCount != 2 {
 		t.Fatalf("unexpected regulator aggregation: %+v", res)
 	}
-	filtered, err := js.siteTargetRegulators("G1", 10, 0, "", "dbd_exploratory", 0)
+	filtered, err := js.siteTargetRegulators("G1", 10, 0, "", "dbd_exploratory", MotifPolicyAll, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

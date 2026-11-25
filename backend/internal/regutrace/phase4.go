@@ -17,20 +17,24 @@ import (
 // TFMappingRow is one tf_map.tsv row with its provenance. Mapping status and
 // TF–target evidence level are deliberately separate fields.
 type TFMappingRow struct {
-	TFID              string `json:"tf_id"`
-	MotifID           string `json:"motif_id"`
-	Status            string `json:"mapping_status"`
-	Method            string `json:"mapping_method,omitempty"`
-	ReferenceTFID     string `json:"reference_tf_id,omitempty"`
-	DomainMode        string `json:"domain_mode,omitempty"`
-	ExtractionFamily  string `json:"extraction_family,omitempty"`
-	MappingConfidence string `json:"mapping_confidence,omitempty"`
-	SpecificityGroups string `json:"specificity_groups,omitempty"`
-	DBDIdentity       string `json:"dbd_identity,omitempty"`
-	QueryDBDCoverage  string `json:"query_dbd_coverage,omitempty"`
-	DonorDBDCoverage  string `json:"donor_dbd_coverage,omitempty"`
-	AlternativeDonors int    `json:"alternative_donor_count,omitempty"`
-	ReferencePack     string `json:"reference_pack_version,omitempty"`
+	TFID              string  `json:"tf_id"`
+	MotifID           string  `json:"motif_id"`
+	Status            string  `json:"mapping_status"`
+	Method            string  `json:"mapping_method,omitempty"`
+	ReferenceTFID     string  `json:"reference_tf_id,omitempty"`
+	DomainMode        string  `json:"domain_mode,omitempty"`
+	DomainCount       string  `json:"domain_count,omitempty"`
+	ExtractionFamily  string  `json:"extraction_family,omitempty"`
+	MappingConfidence string  `json:"mapping_confidence,omitempty"`
+	SpecificityGroups string  `json:"specificity_groups,omitempty"`
+	DBDIdentity       string  `json:"dbd_identity,omitempty"`
+	QueryDBDCoverage  string  `json:"query_dbd_coverage,omitempty"`
+	DonorDBDCoverage  string  `json:"donor_dbd_coverage,omitempty"`
+	QueryDBDStart     float64 `json:"query_full_dbd_start,omitempty"`
+	QueryDBDEnd       float64 `json:"query_full_dbd_end,omitempty"`
+	DBDBitscore       float64 `json:"dbd_bitscore,omitempty"`
+	AlternativeDonors int     `json:"alternative_donor_count,omitempty"`
+	ReferencePack     string  `json:"reference_pack_version,omitempty"`
 }
 
 // MotifTestability is one row from motif-testability.tsv.
@@ -185,12 +189,16 @@ func readTFMappingRows(path string) (map[string][]TFMappingRow, error) {
 	methodCol := col("mapping_method")
 	refCol := col("reference_tf_id")
 	modeCol := col("domain_mode")
+	countCol := col("domain_count")
 	familyCol := col("extraction_family", "family")
 	confidenceCol := col("mapping_confidence")
 	specificityCol := col("specificity_groups")
 	identityCol := col("dbd_identity")
 	queryCovCol := col("query_dbd_coverage")
 	donorCovCol := col("donor_dbd_coverage")
+	queryStartCol := col("query_full_dbd_start")
+	queryEndCol := col("query_full_dbd_end")
+	bitsCol := col("dbd_bitscore")
 	altCol := col("alternative_donor_count")
 	packCol := col("reference_pack_version")
 	for {
@@ -211,9 +219,12 @@ func readTFMappingRows(path string) (map[string][]TFMappingRow, error) {
 		out[tfID] = append(out[tfID], TFMappingRow{
 			TFID: tfID, MotifID: motifID, Status: status, Method: method,
 			ReferenceTFID: cell(rec, refCol), DomainMode: cell(rec, modeCol),
+			DomainCount:      cell(rec, countCol),
 			ExtractionFamily: cell(rec, familyCol), MappingConfidence: cell(rec, confidenceCol),
 			SpecificityGroups: cell(rec, specificityCol), DBDIdentity: cell(rec, identityCol),
 			QueryDBDCoverage: cell(rec, queryCovCol), DonorDBDCoverage: cell(rec, donorCovCol),
+			QueryDBDStart: floatCell(rec, queryStartCol), QueryDBDEnd: floatCell(rec, queryEndCol),
+			DBDBitscore:       floatCell(rec, bitsCol),
 			AlternativeDonors: intOrZero(rec, altCol), ReferencePack: cell(rec, packCol),
 		})
 	}
@@ -782,6 +793,14 @@ func registrySpecies(entries []RegistryEntry) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func floatCell(rec []string, index int) float64 {
+	if index < 0 || index >= len(rec) {
+		return 0
+	}
+	value, _ := strconv.ParseFloat(strings.TrimSpace(rec[index]), 64)
+	return value
 }
 
 func floatOrZero(value *float64) float64 {

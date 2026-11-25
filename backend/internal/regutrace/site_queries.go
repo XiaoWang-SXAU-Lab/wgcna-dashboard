@@ -143,6 +143,12 @@ func (j *jobState) siteTFTargets(opts TFTargetOptions) (TFTargetResult, error) {
 	if !ok {
 		return TFTargetResult{}, fmt.Errorf("%w: TF %q has no evidence in this run", ErrNotFound, opts.TFID)
 	}
+	policy, err := normalizeMotifPolicy(opts.Policy)
+	if err != nil {
+		return TFTargetResult{}, err
+	}
+	allowedMotifs, policyInfo := j.policyAllowed(tfID, policy)
+	motifFilter := strings.TrimSpace(opts.Motif)
 	limit, offset := opts.Limit, opts.Offset
 	if limit <= 0 {
 		limit = 50
@@ -153,7 +159,7 @@ func (j *jobState) siteTFTargets(opts TFTargetOptions) (TFTargetResult, error) {
 	if offset < 0 {
 		offset = 0
 	}
-	cacheKey := fmt.Sprintf("%s|%s|%g|%s", tfID, strings.ToLower(opts.Status), opts.MaxP, j.Params.MappingMode)
+	cacheKey := fmt.Sprintf("%s|%s|%s|%g|%s|%s", tfID, strings.ToLower(opts.Status), strings.ToLower(motifFilter), opts.MaxP, j.Params.MappingMode, policy)
 	j.tfTargetMu.Lock()
 	if cached, ok := j.tfTargetCache[cacheKey]; ok {
 		rows := cached.Rows
@@ -166,7 +172,7 @@ func (j *jobState) siteTFTargets(opts TFTargetOptions) (TFTargetResult, error) {
 			end = total
 		}
 		j.tfTargetMu.Unlock()
-		return TFTargetResult{Total: total, Limit: limit, Offset: offset, TFID: tfID, Rows: rows[offset:end]}, nil
+		return TFTargetResult{Total: total, Limit: limit, Offset: offset, TFID: tfID, Policy: cached.Policy, Rows: rows[offset:end]}, nil
 	}
 	j.tfTargetMu.Unlock()
 	type aggregate struct {
@@ -176,6 +182,12 @@ func (j *jobState) siteTFTargets(opts TFTargetOptions) (TFTargetResult, error) {
 	}
 	byTarget := map[string]*aggregate{}
 	for _, motif := range j.siteMotifIDs(tfID) {
+		if motifFilter != "" && !strings.EqualFold(motif, motifFilter) {
+			continue
+		}
+		if allowedMotifs != nil && !allowedMotifs[motif] {
+			continue
+		}
 		_ = j.data.forEachSiteAt(j.data.motifOffsets[motif], func(site SiteRecord) error {
 			if opts.MaxP > 0 && site.PValue != nil && *site.PValue > opts.MaxP {
 				return nil
@@ -242,7 +254,7 @@ func (j *jobState) siteTFTargets(opts TFTargetOptions) (TFTargetResult, error) {
 		j.tfTargetOrder = j.tfTargetOrder[1:]
 		delete(j.tfTargetCache, oldest)
 	}
-	j.tfTargetCache[cacheKey] = TFTargetResult{Total: len(rows), Rows: rows}
+	j.tfTargetCache[cacheKey] = TFTargetResult{Total: len(rows), Policy: &policyInfo, Rows: rows}
 	j.tfTargetOrder = append(j.tfTargetOrder, cacheKey)
 	j.tfTargetMu.Unlock()
 	total := len(rows)
@@ -253,10 +265,10 @@ func (j *jobState) siteTFTargets(opts TFTargetOptions) (TFTargetResult, error) {
 	if end > total {
 		end = total
 	}
-	return TFTargetResult{Total: total, Limit: limit, Offset: offset, TFID: tfID, Rows: rows[offset:end]}, nil
+	return TFTargetResult{Total: total, Limit: limit, Offset: offset, TFID: tfID, Policy: &policyInfo, Rows: rows[offset:end]}, nil
 }
 
-func (j *jobState) siteTargetRegulators(target string, limit, offset int, motifFilter, statusFilter string, maxP float64) (RegulatorResult, error) {
+func (j *jobState) siteTargetRegulators(target string, limit, offset int, motifFilter, statusFilter string, policy MotifPolicy, maxP float64) (RegulatorResult, error) {
 	if j.data == nil || j.data.mode != "sites" {
 		return RegulatorResult{}, errors.New("dataset is not a site dataset")
 	}
@@ -278,6 +290,7 @@ func (j *jobState) siteTargetRegulators(target string, limit, offset int, motifF
 		sites map[string]bool
 	}
 	byTF := map[string]*aggregate{}
+	policyCache := map[string]map[string]bool{}
 	_ = j.data.forEachSiteAt(j.data.targetOffsets[resolved], func(site SiteRecord) error {
 		if maxP > 0 && site.PValue != nil && *site.PValue > maxP {
 			return nil
@@ -287,6 +300,16 @@ func (j *jobState) siteTargetRegulators(target string, limit, offset int, motifF
 				continue
 			}
 			for _, tf := range j.phase4.MotifTFs[motif] {
+				if policy != MotifPolicyAll {
+					allowed, seen := policyCache[tf]
+					if !seen {
+						allowed, _ = j.policyAllowed(tf, policy)
+						policyCache[tf] = allowed
+					}
+					if allowed != nil && !allowed[motif] {
+						continue
+					}
+				}
 				status := j.mappingStatus(tf, motif)
 				if statusFilter != "" {
 					if !strings.EqualFold(status, statusFilter) {
@@ -337,7 +360,7 @@ func (j *jobState) siteTargetRegulators(target string, limit, offset int, motifF
 	if end > total {
 		end = total
 	}
-	return RegulatorResult{Total: total, Limit: limit, Offset: offset, TargetID: resolved, Rows: rows[offset:end]}, nil
+	return RegulatorResult{Total: total, Limit: limit, Offset: offset, TargetID: resolved, Policy: string(policy), Rows: rows[offset:end]}, nil
 }
 
 func maxIntValue(a, b int) int {
