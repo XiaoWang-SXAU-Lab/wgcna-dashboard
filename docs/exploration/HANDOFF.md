@@ -15,6 +15,8 @@
   `scripts/phase5/benchmark_dap.py` without threshold tuning, then add schema-v3 checks to
   `validate-db`. Keep CRLF normalization in a separate commit; `git commit -a` is unsafe.
 - The Phase 6 default and this handoff are a WIP checkpoint, not a Phase 6 acceptance.
+- Pushed checkpoint: ReguTrace `main` `e7b4cf9`, Dashboard `explore/project-copilot`
+  `7391339`; `rs_WGCNA` remains `10ae0be`.
 
 ## ReguTrace Codex production takeover — 2026-11-26（进行中，未验收完成）
 
