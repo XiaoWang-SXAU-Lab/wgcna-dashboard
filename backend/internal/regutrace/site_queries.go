@@ -159,7 +159,7 @@ func (j *jobState) siteTFTargets(opts TFTargetOptions) (TFTargetResult, error) {
 	if offset < 0 {
 		offset = 0
 	}
-	cacheKey := fmt.Sprintf("%s|%s|%s|%g|%s|%s", tfID, strings.ToLower(opts.Status), strings.ToLower(motifFilter), opts.MaxP, j.Params.MappingMode, policy)
+	cacheKey := fmt.Sprintf("%s|%s|%s|%g|%s|%s|%d", tfID, strings.ToLower(opts.Status), strings.ToLower(motifFilter), opts.MaxP, j.Params.MappingMode, policy, opts.MinSites)
 	j.tfTargetMu.Lock()
 	if cached, ok := j.tfTargetCache[cacheKey]; ok {
 		rows := cached.Rows
@@ -179,6 +179,8 @@ func (j *jobState) siteTFTargets(opts TFTargetOptions) (TFTargetResult, error) {
 		row    TFTargetRow
 		motifs map[string]bool
 		sites  map[string]bool
+		// maxMotifSites is the largest per-motif site count seen for this target.
+		maxMotifSites int
 	}
 	byTarget := map[string]*aggregate{}
 	for _, motif := range j.siteMotifIDs(tfID) {
@@ -188,6 +190,10 @@ func (j *jobState) siteTFTargets(opts TFTargetOptions) (TFTargetResult, error) {
 		if allowedMotifs != nil && !allowedMotifs[motif] {
 			continue
 		}
+		// Sites are walked one motif at a time, so counting per target inside
+		// this loop gives the per-motif multiplicity without keeping a set per
+		// (target, motif) pair.
+		perMotif := map[string]int{}
 		_ = j.data.forEachSiteAt(j.data.motifOffsets[motif], func(site SiteRecord) error {
 			if opts.MaxP > 0 && site.PValue != nil && *site.PValue > opts.MaxP {
 				return nil
@@ -218,6 +224,7 @@ func (j *jobState) siteTFTargets(opts TFTargetOptions) (TFTargetResult, error) {
 				agg.row.PromoterStart, agg.row.PromoterEnd = site.PromoterStart, site.PromoterEnd
 				agg.row.HitStart, agg.row.HitEnd, agg.row.Strand = site.HitStart, site.HitEnd, site.HitStrand
 			}
+			perMotif[site.TargetID]++
 			agg.motifs[motif] = true
 			agg.row.SharedMotifTFs = maxIntValue(agg.row.SharedMotifTFs, j.sharedPWMTFCount(motif))
 			key := fmt.Sprintf("%s|%v|%v|%s", site.TargetID, site.HitStart, site.HitEnd, site.HitStrand)
@@ -227,10 +234,19 @@ func (j *jobState) siteTFTargets(opts TFTargetOptions) (TFTargetResult, error) {
 			}
 			return nil
 		})
+		for target, count := range perMotif {
+			if agg := byTarget[target]; agg != nil && count > agg.maxMotifSites {
+				agg.maxMotifSites = count
+			}
+		}
 	}
 	rows := make([]TFTargetRow, 0, len(byTarget))
 	for _, agg := range byTarget {
 		agg.row.SiteCount = len(agg.sites)
+		agg.row.MaxMotifSites = agg.maxMotifSites
+		if opts.MinSites > 1 && agg.row.MaxMotifSites < opts.MinSites {
+			continue
+		}
 		for motif := range agg.motifs {
 			agg.row.MotifIDs = append(agg.row.MotifIDs, motif)
 		}

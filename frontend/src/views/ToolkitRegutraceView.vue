@@ -14,6 +14,7 @@ import {
   regutraceExportUrl,
   regutracePriorUrl,
   regutraceBackgroundUrl,
+  regutraceRegulatoryBackgroundDbUrl,
   startRegutraceJob,
   type RegutraceCountItem,
   type RegutraceDiagnostic,
@@ -22,6 +23,7 @@ import {
   type RegutraceJob,
   type RegutraceParams,
   type RegutracePromoterHit,
+  type RegutraceMotifPolicy,
   type RegutracePromoterView,
   type RegutraceQueryRow,
   type RegutraceTFInfo,
@@ -58,6 +60,11 @@ const referencePack = ref('')
 const customPackFile = ref<File | null>(null)
 type ScanMode = 'pack' | 'manual' | 'custom'
 const scanMode = ref<ScanMode>('pack')
+type Strategy = 'recommended' | 'conservative' | 'comprehensive' | 'custom'
+const strategy = ref<Strategy>('recommended')
+const presetPolicy = ref<RegutraceMotifPolicy>('best')
+const advancedOpen = ref(false)
+let applyingPreset = false
 const kingdom = ref('plants')
 const info = ref<RegutraceInfo | null>(null)
 
@@ -75,7 +82,7 @@ const promoterLen = ref(1000)
 const downstream = ref(0)
 const pvalue = ref(1e-4)
 const background = ref<[number, number, number, number]>([0.25, 0.25, 0.25, 0.25])
-const backgroundMode = ref<'uniform' | 'empirical'>('uniform')
+const backgroundMode = ref<'uniform' | 'empirical'>('empirical')
 const threads = ref(0)
 const includeFallback = ref(false)
 const reuseExactPWM = ref(false)
@@ -100,6 +107,17 @@ let pollTimer: number | undefined
 let clockTimer: number | undefined
 let lastResultJob = ''
 
+type ResultTab = 'overview' | 'catalogue' | 'tf_targets' | 'target_regulators' | 'motifs' | 'enrichment' | 'diagnostics'
+const resultTab = ref<ResultTab>('overview')
+const resultTabs = computed<Array<[ResultTab, string]>>(() => [
+  ['overview', text('概览', 'Overview')],
+  ['catalogue', text('TF 目录', 'TF Catalogue')],
+  ['tf_targets', text('TF → Targets', 'TF → Targets')],
+  ['target_regulators', text('Target → Regulators', 'Target → Regulators')],
+  ['motifs', text('Motif Explorer', 'Motif Explorer')],
+  ['enrichment', text('Motif 富集', 'Motif Enrichment')],
+  ['diagnostics', text('诊断与导出', 'Diagnostics & Export')],
+])
 const queryDirection = ref<'tf' | 'target'>('tf')
 const queryText = ref('')
 const queryMotif = ref('')
@@ -145,6 +163,28 @@ const priorReady = computed(() => {
   if (!inputs) return false
   return !!inputs.reference_pack || (!!inputs.tf_genes && !!inputs.tf_map)
 })
+// The schema-v3 background needs a reference-pack pipeline run that wrote the
+// site/testability/promoter/manifest artifacts; anything else would 500.
+const backgroundExportable = computed(() => {
+  const j = job.value
+  if (!j || j.status !== 'succeeded') return false
+  if (!j.inputs?.reference_pack) return false
+  if (!j.params?.phase3_artifacts) return false
+  return !!(summary.value?.site_only || summary.value?.site_table_available)
+})
+const backgroundExportBusy = ref(false)
+let backgroundExportTimer: number | undefined
+function endBackgroundExport() {
+  backgroundExportBusy.value = false
+  window.clearTimeout(backgroundExportTimer)
+}
+function onExportBackground() {
+  if (backgroundExportBusy.value) return
+  backgroundExportBusy.value = true
+  window.clearTimeout(backgroundExportTimer)
+  backgroundExportTimer = window.setTimeout(endBackgroundExport, 10 * 60 * 1000)
+  window.addEventListener('focus', endBackgroundExport, { once: true })
+}
 const selectedLibrary = computed(() => {
   const found = info.value?.libraries?.find((lib) => lib.key === kingdom.value)
   if (found) return found
@@ -178,7 +218,7 @@ const packReady = computed(() => {
   if (customMode.value) return !!customPackFile.value
   return true
 })
-const filesReady = computed(() => (referencePack.value !== plantReferenceKey || !!annotationFile.value) && !!genomeFile.value && !!gffFile.value && motifReady.value && proteinsReady.value && packReady.value)
+const filesReady = computed(() => !!genomeFile.value && !!gffFile.value && motifReady.value && proteinsReady.value && packReady.value)
 const paramsDirty = computed(() => {
   if (!job.value) return false
   const p = job.value.params
@@ -209,7 +249,6 @@ const statusBadge = computed(() => {
 })
 const progressPct = computed(() => {
   const p = Math.max(0, Math.min(1, job.value?.progress ?? 0))
-  if (job.value?.status === 'validating' && p < 0.05) return 6
   return Math.round(p * 100)
 })
 const elapsedText = computed(() => {
@@ -435,6 +474,9 @@ function statusText(status?: string): string {
 
 function stageText(stage?: string): string {
   switch (stage) {
+    case 'identifying_tfs': return text('鉴定转录因子', 'Identifying transcription factors')
+    case 'mapping_motifs': return text('匹配参考 motif', 'Mapping reference motifs')
+    case 'mapping_dbd': return text('分析结构域候选', 'Evaluating domain-supported candidates')
     case 'starting': return text('启动', 'Starting')
     case 'reading_motifs': return text('读取 motif 库', 'Reading motifs')
     case 'reading_promoters': return text('读取 promoter FASTA', 'Reading promoter FASTA')
@@ -505,7 +547,11 @@ function onFile(target: 'genome' | 'gff' | 'motifs' | 'tfMap' | 'tfGenes' | 'pro
   if (target === 'motifs') motifsFile.value = file
   if (target === 'tfMap') tfMapFile.value = file
   if (target === 'tfGenes') tfGenesFile.value = file
-  if (target === 'proteins') proteinsFile.value = file
+  if (target === 'proteins') {
+    proteinsFile.value = file
+    if (file && /\.cds(?:\.gz)?$/i.test(file.name)) sequenceType.value = 'cds'
+    else if (file && /\.(?:pep|faa)(?:\.gz)?$/i.test(file.name)) sequenceType.value = 'pep'
+  }
   if (target === 'hmm') hmmFile.value = file
   if (target === 'familyMap') familyMapFile.value = file
   if (target === 'trace') traceFile.value = file
@@ -547,10 +593,66 @@ function onKingdomChange() {
   resetJob()
 }
 
+function applyStrategy(next: Strategy) {
+  strategy.value = next
+  applyingPreset = true
+  if (next === 'recommended') {
+    mappingMode.value = 'exploratory'
+    presetPolicy.value = 'best'
+  } else if (next === 'conservative') {
+    mappingMode.value = 'strict'
+    presetPolicy.value = 'best'
+  } else if (next === 'comprehensive') {
+    mappingMode.value = 'exploratory'
+    presetPolicy.value = 'all'
+  }
+  if (next !== 'custom') {
+    promoterLen.value = 1000
+    downstream.value = 0
+    pvalue.value = 1e-4
+    // Presets use the calibrated null. A uniform i.i.d. background is only
+    // meaningful for reproducing jobs run before this default changed.
+    backgroundMode.value = 'empirical'
+    background.value = [0.25, 0.25, 0.25, 0.25]
+    includeFallback.value = false
+    // Site-only scanning and the Phase 3 artifacts are what make an exported
+    // regulatory background possible. They belong to reference/custom-pack
+    // pipeline runs; a manual scan must keep materialising evidence rows.
+    phase3Artifacts.value = pipelineMode.value
+    reuseExactPWM.value = pipelineMode.value
+    sitesOnly.value = pipelineMode.value
+    threads.value = 0
+  }
+  applyingPreset = false
+}
+function markCustom() {
+  if (!applyingPreset) strategy.value = 'custom'
+}
+function onAdvancedToggle(event: Event) {
+  advancedOpen.value = (event.target as HTMLDetailsElement).open
+}
+
+watch(
+  [mappingMode, presetPolicy, promoterLen, downstream, pvalue, backgroundMode, background, threads, includeFallback],
+  markCustom,
+  { flush: 'sync', deep: true },
+)
+
 function setScanMode(mode: ScanMode) {
   if (mode === 'pack' && !(info.value?.packs?.length)) return
   scanMode.value = mode
   if (mode !== 'pack') referencePack.value = ''
+  // The preset's run-mode flags follow the analysis mode, so switching to
+  // manual scanning must not leave --sites-only switched on.
+  if (strategy.value !== 'custom') {
+    applyStrategy(strategy.value)
+  } else if (mode === 'manual') {
+    applyingPreset = true
+    sitesOnly.value = false
+    phase3Artifacts.value = false
+    reuseExactPWM.value = false
+    applyingPreset = false
+  }
   resetJob()
 }
 
@@ -587,7 +689,6 @@ async function ensureJob(): Promise<string> {
   if (!genomeFile.value || !gffFile.value) throw new Error(text('请先选择 genome FASTA 和 GFF3。', 'Choose a genome FASTA and GFF3 first.'))
   if (packMode.value && !referencePack.value) throw new Error(text('请先选择参考 pack。', 'Choose a reference pack first.'))
   if (customMode.value && !customPackFile.value) throw new Error(text('请上传自定义 pack ZIP。', 'Choose a custom pack ZIP first.'))
-  if (referencePack.value === plantReferenceKey && !annotationFile.value) throw new Error(text('请上传注释表。', 'Upload an annotation table.'))
   if (pipelineMode.value && !proteinsFile.value) throw new Error(text('reference/custom pack 模式需要代表性蛋白 FASTA。', 'Reference/custom pack mode requires a representative protein FASTA.'))
   const lib = selectedLibrary.value
   if (!pipelineMode.value && !lib && !motifsFile.value) throw new Error(text('该物种族没有内置 JASPAR 库，请上传自定义 JASPAR PFM。', 'No bundled JASPAR library for this taxon; upload a custom JASPAR PFM.'))
@@ -620,6 +721,7 @@ async function ensureJob(): Promise<string> {
 }
 
 async function start(mode: 'validate' | 'run') {
+  if (busy.value) return
   error.value = ''
   actionBusy.value = true
   progressOpen.value = true
@@ -749,7 +851,16 @@ function onChartClick(params: unknown) {
     queryMotif.value = item.id
   }
   void runQuery()
+  selectResultTab('tf_targets')
   nextTick(() => querySection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+}
+
+// The result sections live behind tabs, so any navigation that reveals one has
+// to switch the tab first — scrolling to a hidden element does nothing.
+function openCatalogueTF(tfId: string) {
+  selectResultTab('tf_targets')
+  void loadTFView(tfId)
+  nextTick(() => tfSection.value?.scrollIntoView({ block: 'start' }))
 }
 
 async function loadTFView(tfId: string, targetId = '') {
@@ -771,6 +882,7 @@ async function loadTFView(tfId: string, targetId = '') {
 
 async function openPromoter(targetId: string, tfId = '') {
   if (!job.value || !targetId) return
+  selectResultTab('tf_targets')
   const seq = ++promoterSeq
   promoterBusy.value = true
   promoterError.value = ''
@@ -805,6 +917,14 @@ async function openPromoter(targetId: string, tfId = '') {
   }
 }
 
+function selectResultTab(tab: ResultTab) {
+  resultTab.value = tab
+  if (tab === 'tf_targets') queryDirection.value = 'tf'
+  if (tab === 'target_regulators') queryDirection.value = 'target'
+}
+function onResultTab(tab: ResultTab) {
+  selectResultTab(tab)
+}
 function onQueryRowClick(row: Record<string, any>) {
   void openPromoter(String(row.target_id ?? ''), String(row.tf_id ?? ''))
 }
@@ -972,7 +1092,30 @@ function copySequence(seq: string) {
   void navigator.clipboard?.writeText(seq)
 }
 
+// Recover which preset produced a job's parameters, so a loaded job shows the
+// strategy that actually ran instead of falling back to "Custom".
+function presetForJob(j: RegutraceJob): Strategy {
+  const p = j.params
+  const uniform = Array.isArray(p.background) && p.background.every((v) => Math.abs(v - 0.25) < 1e-9)
+  // The preset is a parameter bundle; the null model is not part of it. Jobs
+  // run before the calibrated default existed used `uniform`, jobs after it use
+  // `empirical`, and both should still be labelled with the preset that ran.
+  const matchesPreset =
+    p.promoter_len === 1000 &&
+    (p.downstream ?? 0) === 0 &&
+    Math.abs((p.pvalue ?? 0) - 1e-4) < 1e-12 &&
+    uniform &&
+    !p.include_single_domain_fallback &&
+    !!p.reuse_exact_pwm && !!p.phase3_artifacts && !!p.sites_only &&
+    (p.threads ?? 0) === 0
+  if (!matchesPreset) return 'custom'
+  if (p.mapping_mode === 'strict') return 'conservative'
+  if (p.mapping_mode === 'exploratory') return 'recommended'
+  return 'custom'
+}
+
 function applyJobParams(j: RegutraceJob) {
+  applyingPreset = true
   promoterLen.value = j.params.promoter_len
   downstream.value = j.params.downstream
   pvalue.value = j.params.pvalue
@@ -985,8 +1128,13 @@ function applyJobParams(j: RegutraceJob) {
   useScanCache.value = !!j.params.use_scan_cache
   sitesOnly.value = !!j.params.sites_only
   mappingMode.value = j.params.mapping_mode ?? 'strict'
+  applyingPreset = false
+  const restored = presetForJob(j)
+  if (restored === 'custom') strategy.value = 'custom'
+  else applyStrategy(restored)
 }
 
+applyStrategy('recommended')
 onMounted(async () => {
   clockTimer = window.setInterval(() => { now.value = Date.now() }, 1000)
   window.addEventListener('regutrace-idmap-applied', onIDMapApplied)
@@ -1027,6 +1175,7 @@ onMounted(async () => {
           await selectSiteFromQuery()
         } else if (typeof tf === 'string' && tf) {
           await loadTFView(tf)
+          selectResultTab('tf_targets')
         }
       } else if (j.status === 'validating' || j.status === 'running') {
         progressOpen.value = true
@@ -1041,6 +1190,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   stopPoll()
   window.removeEventListener('regutrace-idmap-applied', onIDMapApplied)
+  window.removeEventListener('focus', endBackgroundExport)
+  window.clearTimeout(backgroundExportTimer)
   if (clockTimer !== undefined) window.clearInterval(clockTimer)
 })
 </script>
@@ -1053,6 +1204,52 @@ onBeforeUnmount(() => {
         {{ text('本地扫描 promoter 上的 PWM 结合位点，输出带坐标的 TF–target 候选证据。结果级别为 D（计算预测），不是体内 binding 证据。', 'Scan promoter PWM sites locally and produce coordinate-aware TF–target candidates. Results are level D (computational prediction), not in vivo binding evidence.') }}
       </p>
 
+      <div class="rt-simple-inputs mb-3">
+        <div class="small fw-semibold mb-2">{{ text('1. 输入三个文件', '1. Three input files') }}</div>
+        <label class="btn btn-outline-secondary w-100 text-truncate btn-sm mb-2">
+          <i class="bi bi-file-earmark-text me-1"></i>{{ genomeFile ? genomeFile.name : text('参考基因组 FASTA', 'Reference genome FASTA') }}
+          <input type="file" accept=".fa,.fasta,.fna,.gz" class="d-none" aria-label="Reference genome FASTA" @change="onFile('genome', $event)" />
+        </label>
+        <label class="btn btn-outline-secondary w-100 text-truncate btn-sm mb-2">
+          <i class="bi bi-file-earmark-code me-1"></i>{{ gffFile ? gffFile.name : text('基因组注释 GFF3', 'Genome annotation GFF3') }}
+          <input type="file" accept=".gff,.gff3,.gz" class="d-none" aria-label="Genome annotation GFF3" @change="onFile('gff', $event)" />
+        </label>
+        <div class="input-group input-group-sm">
+          <select v-model="sequenceType" class="form-select" style="max-width: 92px" :aria-label="text('序列类型', 'Sequence type')" @change="proteinsFile = null; resetJob()">
+            <option value="pep">PEP</option>
+            <option value="cds">CDS</option>
+          </select>
+          <label class="btn btn-outline-secondary text-truncate mb-0">
+            <i class="bi bi-file-earmark-medical me-1"></i>{{ proteinsFile ? proteinsFile.name : (sequenceType === 'cds' ? 'CDS FASTA' : text('蛋白 FASTA (PEP)', 'Protein FASTA (PEP)')) }}
+            <input type="file" :key="sequenceType" accept=".fa,.fasta,.faa,.pep,.fna,.cds,.gz" class="d-none" @change="onFile('proteins', $event)" />
+          </label>
+        </div>
+
+      </div>
+
+      <div class="mb-3">
+        <div class="small fw-semibold mb-2">{{ text('2. 选择预测策略', '2. Prediction strategy') }}</div>
+        <div class="rt-strategy-grid">
+          <button type="button" class="rt-strategy" :class="{ active: strategy === 'recommended' }" @click="applyStrategy('recommended')">
+            <b>{{ text('推荐', 'Recommended') }}</b>
+            <span>{{ text('兼顾覆盖范围与靶标特异性，适合常规分析', 'Balanced coverage and target specificity for routine analysis') }}</span>
+          </button>
+          <button type="button" class="rt-strategy" :class="{ active: strategy === 'conservative' }" @click="applyStrategy('conservative')">
+            <b>{{ text('保守', 'Conservative') }}</b>
+            <span>{{ text('采用更保守的 motif 分配，覆盖的转录因子较少', 'More conservative motif assignments with fewer covered transcription factors') }}</span>
+          </button>
+          <button type="button" class="rt-strategy" :class="{ active: strategy === 'comprehensive' }" @click="applyStrategy('comprehensive')">
+            <b>{{ text('全面', 'Comprehensive') }}</b>
+            <span>{{ text('扩大候选覆盖，保留备选结合 motif 假设', 'Broader coverage, including alternative binding motif hypotheses') }}</span>
+          </button>
+        </div>
+        <div v-if="strategy === 'custom'" class="small text-muted mt-1">{{ text('高级自定义参数已启用。', 'Custom advanced parameters are active.') }}</div>
+        <div class="small text-muted mt-1">{{ text('Motif 选择策略会在结果页保持一致；高级设置可覆盖。', 'The motif policy is kept consistent in results; Advanced settings can override it.') }}</div>
+      </div>
+
+      <details class="rt-advanced mb-3" :open="advancedOpen" @toggle="onAdvancedToggle">
+        <summary class="small fw-semibold">{{ text('高级设置', 'Advanced settings') }}</summary>
+        <div class="pt-2">
       <div class="mb-3">
         <label class="form-label small mb-1">{{ text('分析模式', 'Analysis mode') }}</label>
         <div class="btn-group w-100 flex-wrap" role="group" aria-label="ReguTrace analysis mode">
@@ -1070,7 +1267,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <p v-if="packMode && referencePack === plantReferenceKey" class="small text-muted mt-1 mb-0">
-          {{ text('上传基因组、GFF、CDS 或蛋白 FASTA，以及注释表。自动鉴定 TF，在同家族找参考 TF，转移 JASPAR 代表矩阵并扫描启动子。', 'Upload a genome, GFF, CDS or protein FASTA, and annotation table. ReguTrace identifies local TFs, finds reference TFs in the same family, transfers representative JASPAR matrices, and scans promoters.') }}
+          {{ text('上传基因组、GFF3 和蛋白或 CDS FASTA。注释表可选。自动鉴定 TF，在同家族找参考 TF，转移 JASPAR 代表矩阵并扫描启动子。', 'Upload a genome, GFF3 and protein or CDS FASTA. Annotation is optional. ReguTrace identifies local TFs, finds reference TFs in the same family, transfers representative JASPAR matrices, and scans promoters.') }}
         </p>
         <p v-else-if="packMode" class="small text-muted mt-1 mb-0">
           {{ text('先用参考 pack 从蛋白鉴定本地 TF gene，再做 motif 映射和启动子扫描；结果可用于 WGCNA prior。', 'Identify local TF genes from proteins with a reference pack, then map motifs and scan promoters; results can be used as a WGCNA prior.') }}
@@ -1081,19 +1278,6 @@ onBeforeUnmount(() => {
         <div v-else class="alert alert-warning small py-2 mt-2 mb-0">
           {{ text('手动扫描默认只用 motif 名作为 TF；没有 TF gene ID、gene name 或 domain。只有 motif 命中，通常不能直接作为 WGCNA prior。', 'Manual scan uses motif names as TF IDs by default: no TF gene ID, gene name or domain. It reports motif hits and is usually not usable as a WGCNA prior.') }}
         </div>
-      </div>
-
-      <div class="mb-3">
-        <label class="form-label small mb-1">Genome FASTA <span class="text-danger">*</span></label>
-        <label class="btn btn-outline-secondary w-100 text-truncate btn-sm mb-2">
-          <i class="bi bi-upload me-1"></i>{{ genomeFile ? genomeFile.name : text('选择 FASTA / .gz', 'Choose FASTA / .gz') }}
-          <input type="file" accept=".fa,.fasta,.fna,.gz" class="d-none" @change="onFile('genome', $event)" />
-        </label>
-        <label class="form-label small mb-1">GFF3 <span class="text-danger">*</span></label>
-        <label class="btn btn-outline-secondary w-100 text-truncate btn-sm">
-          <i class="bi bi-upload me-1"></i>{{ gffFile ? gffFile.name : text('选择 GFF3 / .gz', 'Choose GFF3 / .gz') }}
-          <input type="file" accept=".gff,.gff3,.gz" class="d-none" @change="onFile('gff', $event)" />
-        </label>
       </div>
 
       <div v-if="packMode" class="mb-3">
@@ -1163,17 +1347,10 @@ onBeforeUnmount(() => {
         </details>
       </div>
 
-      <details class="mb-3" :open="pipelineMode">
-        <summary class="small fw-semibold">{{ pipelineMode ? text('CDS / 蛋白序列、注释及参数', 'CDS / proteins, annotation, and parameters') : text('可选输入与参数', 'Optional inputs and parameters') }}</summary>
+      <div class="mb-3">
         <div class="mt-2">
-          <label v-if="pipelineMode" for="regutrace-sequence-type" class="form-label small mb-1">{{ text('TF 序列格式', 'TF sequence type') }}</label>
-          <select v-if="pipelineMode" id="regutrace-sequence-type" v-model="sequenceType" class="form-select form-select-sm mb-2"
-            @change="proteinsFile = null; resetJob()">
-            <option value="pep">{{ text('蛋白序列（PEP FASTA）', 'Protein (PEP FASTA)') }}</option>
-            <option value="cds">{{ text('编码序列（CDS FASTA）', 'Coding sequences (CDS FASTA)') }}</option>
-          </select>
           <label v-if="!pipelineMode" class="form-label small mb-1">{{ pipelineMode ? text('代表性蛋白 FASTA（reference/custom pack 必需）', 'Representative protein FASTA (required for reference/custom pack)') : text('代表性蛋白 FASTA + HMM（可选，自动鉴定 TF）', 'Representative proteins + HMM (optional, identifies TFs)') }}</label>
-          <div class="row g-1 mb-1">
+          <div v-if="!pipelineMode" class="row g-1 mb-1">
             <div :class="pipelineMode ? 'col-12' : 'col-6'">
               <label class="btn btn-outline-secondary w-100 text-truncate btn-sm mb-0">
                 <i class="bi bi-upload me-1"></i>{{ proteinsFile ? proteinsFile.name : (pipelineMode && sequenceType === 'cds' ? 'CDS FASTA' : 'PEP FASTA') }}
@@ -1258,19 +1435,13 @@ onBeforeUnmount(() => {
             <option value="exploratory">{{ text('Exploratory：含 DBD candidate motifs', 'Exploratory: include DBD candidate motifs') }}</option>
           </select>
           <p class="small text-muted mb-2">{{ text('模式只筛选展示/查询/导出准入，不改变 strict 语义，也不会把 exploratory 标为 calibrated。', 'The mode filters display/query/export admission; it does not change strict semantics and never labels exploratory as calibrated.') }}</p>
-          <div class="form-check mt-2">
-            <input id="rt-phase3-artifacts" v-model="phase3Artifacts" class="form-check-input" type="checkbox" />
-            <label class="form-check-label small" for="rt-phase3-artifacts">{{ text('写出 site / testability / promoter summary / scan manifest', 'Write site / testability / promoter-summary / scan-manifest artifacts') }}</label>
-            <div class="small text-muted">{{ text('Phase 4 概览、可测试性和 motif 诊断需要这些附加文件；不改变 evidence 语义。', 'Phase 4 overview, testability and motif diagnostics need these additive files; evidence semantics are unchanged.') }}</div>
-          </div>
-          <div class="form-check">
-            <input id="rt-reuse-pwm" v-model="reuseExactPWM" class="form-check-input" type="checkbox" />
-            <label class="form-check-label small" for="rt-reuse-pwm">{{ text('复用完全相同 PWM（exact reuse）', 'Reuse bit-identical PWMs (exact reuse)') }}</label>
-          </div>
-          <div class="form-check mb-2">
-            <input id="rt-scan-cache" v-model="useScanCache" class="form-check-input" type="checkbox" />
-            <label class="form-check-label small" for="rt-scan-cache">{{ text('使用 job 内 scan cache', 'Use a scan cache inside this job') }}</label>
-          </div>
+          <label class="form-label small mb-1">{{ text('Motif 选择策略（结果视图）', 'Motif selection policy (result view)') }}</label>
+          <select v-model="presetPolicy" class="form-select form-select-sm mb-1">
+            <option value="all">{{ text('All：保留全部候选 motif', 'All: keep every candidate motif') }}</option>
+            <option value="best">{{ text('Best：每个 DBD group 的最佳支持 motif', 'Best: best-supported motif per DBD group') }}</option>
+            <option value="reps">{{ text('Representatives：每个 specificity group 一个代表', 'Representatives: one per specificity group') }}</option>
+          </select>
+          <p class="small text-muted mb-2">{{ text('策略只改变结果视图和默认展示，不删除已存储的候选证据；background 导出始终包含 all/best/reps 三层。', 'The policy changes the result view and defaults only; stored candidate evidence is preserved and every background export includes all/best/reps.') }}</p>
           <div v-if="!pipelineMode" class="form-check mb-2">
             <input id="rt-sites-only" v-model="sitesOnly" class="form-check-input" type="checkbox" />
             <label class="form-check-label small" for="rt-sites-only">{{ text('Exploratory site-only 扫描（不物化 TF–target–site 行）', 'Exploratory site-only scan (no materialized TF–target–site rows)') }}</label>
@@ -1285,10 +1456,12 @@ onBeforeUnmount(() => {
             <div class="small text-muted">{{ text('默认只扫描完整架构；纳入后会增加候选，也会增加歧义。', 'Default scans full architectures only; including fallback adds candidates and ambiguity.') }}</div>
           </div>
         </div>
+      </div>
+        </div>
       </details>
 
-      <div class="d-grid gap-2">
-        <button v-if="!pipelineMode" class="btn btn-outline-primary btn-sm" :disabled="!filesReady || busy" @click="start('validate')">
+      <div class="d-grid gap-2 rt-run-actions">
+        <button v-if="advancedOpen && !pipelineMode" class="btn btn-outline-primary btn-sm" :disabled="!filesReady || busy" @click="start('validate')">
           <i class="bi bi-check2-circle me-1"></i>{{ text('检查输入', 'Validate inputs') }}
         </button>
         <button class="btn btn-primary btn-sm" :disabled="!filesReady || busy" @click="start('run')">
@@ -1305,7 +1478,7 @@ onBeforeUnmount(() => {
     <div class="mb-3">
       <h4 class="mb-1">{{ text('ReguTrace：TF–Target 候选', 'ReguTrace: TF–target candidates') }}</h4>
       <p class="text-muted small mb-0">
-        {{ text('左侧上传 genome / GFF3，选择 Kingdom / motif 库和参数。运行后可查询 TF 或 target，点击结果行查看 promoter 上的结合位点。', 'Upload genome / GFF3 on the left, choose a Kingdom / motif library and parameters. Then query a TF or target and click a result row to inspect binding sites on the promoter.') }}
+        {{ text('左侧上传基因组 FASTA、GFF3 和蛋白/CDS，选择一个预测策略，然后点击“运行 ReguTrace”。运行后可查询 TF 或 target、查看 motif 与 promoter 结合位点，并一键导出可复用调控背景。', 'Upload genome FASTA, GFF3 and protein/CDS on the left, choose a prediction strategy, then click Run ReguTrace. Explore TFs, targets, motifs and promoter sites, then export a reusable regulatory background.') }}
       </p>
     </div>
 
@@ -1313,7 +1486,7 @@ onBeforeUnmount(() => {
       <i class="bi bi-diagram-3"></i>
       <h5>{{ text('从左侧开始', 'Start from the sidebar') }}</h5>
       <p class="text-muted small mb-0">
-        {{ text('1. 选择 genome FASTA 和 GFF3；2. 选择 Kingdom / 类群（或上传自定义 JASPAR PFM）；3. 点击“运行 ReguTrace”。', '1. Choose genome FASTA and GFF3; 2. Choose a Kingdom / taxon (or upload a custom JASPAR PFM); 3. Click Run ReguTrace.') }}
+        {{ text('1. 上传基因组 FASTA、GFF3 和蛋白/CDS；2. 选择推荐、保守或全面策略；3. 点击“运行 ReguTrace”。', '1. Upload genome FASTA, GFF3 and protein/CDS; 2. Choose Recommended, Conservative or Comprehensive; 3. Click Run ReguTrace.') }}
       </p>
     </div>
 
@@ -1335,13 +1508,37 @@ onBeforeUnmount(() => {
           <div class="small text-muted">
             {{ text('独立 toolkit，不依赖 WGCNA 项目，也不要求先执行项目流程。', 'Standalone toolkit; it does not depend on a WGCNA project or a project run.') }}
             <span v-if="job?.id">· job <code>{{ job.id }}</code></span>
-            <span v-if="summary.site_only" class="badge text-bg-warning ms-2">{{ text('Site-only 探索：导出 background，不物化 prior', 'Site-only exploration: export background; prior not materialized') }}</span>
-            <span v-else-if="priorReady" class="badge text-bg-success ms-2">{{ text('可用于 WGCNA prior', 'Prior-ready') }}</span>
-            <span v-else class="badge text-bg-warning ms-2">{{ text('仅 motif 候选，不可直接作 prior', 'Motif-only; not a prior') }}</span>
+            <span v-if="!summary.site_only && priorReady" class="badge text-bg-success ms-2">{{ text('可用于 WGCNA prior', 'Prior-ready') }}</span>
+            <span v-if="!summary.site_only && !priorReady" class="badge text-bg-warning ms-2">{{ text('仅 motif 候选，不可直接作 prior', 'Motif-only; not a prior') }}</span>
+          </div>
+          <div class="small mt-1">
+            <b>{{ (summary.tf_identified ?? summary.unique_tfs ?? 0).toLocaleString() }}</b> {{ text('个转录因子已鉴定', 'TFs identified') }}
+            · <b>{{ (summary.tfs_with_targets ?? 0).toLocaleString() }}</b> {{ text('个有候选靶标', 'with candidate targets') }}
+            · {{ text('证据等级 D（计算预测，未经实验验证）', 'evidence level D (computational prediction, not experimentally validated)') }}
+          </div>
+          <div class="small text-muted">
+            {{ text('下方列表默认只显示由同一 motif 至少 2 个位点支持的靶标；未筛选的候选总量在“技术细节”中。', 'Lists below show only targets supported by at least two sites of one motif by default; unfiltered candidate counts are under Technical details.') }}
           </div>
         </div>
         <div class="ms-auto d-flex flex-wrap gap-2 align-items-center">
-          <div class="input-group input-group-sm" style="width: 330px">
+          <a v-if="backgroundExportable" class="btn btn-success btn-sm" :class="{ disabled: backgroundExportBusy }"
+             :aria-disabled="backgroundExportBusy"
+             :href="backgroundExportBusy ? undefined : regutraceRegulatoryBackgroundDbUrl(job?.id ?? '')" download
+             @click="onExportBackground"
+             :title="text('生成 schema v3 regulatory background SQLite 并下载；包含 all/best/reps policy 和完整 provenance。约 1.3 GB，需要数分钟，期间请勿重复点击。', 'Build and download the schema v3 regulatory background SQLite with all/best/reps policy and full provenance. About 1.3 GB and several minutes; do not click twice.')">
+            <span v-if="backgroundExportBusy" class="spinner-border spinner-border-sm me-1"></span>
+            <i v-else class="bi bi-database-down me-1"></i>
+            {{ backgroundExportBusy ? text('正在生成…', 'Building…') : text('导出调控背景 (.db)', 'Export Regulatory Background (.db)') }}
+          </a>
+          <span v-else-if="job?.status === 'succeeded'" class="badge text-bg-secondary"
+                :title="text('调控背景需要 reference/custom pack 运行并写出 Phase 3 附加文件（site / testability / promoter summary / scan manifest）；手动模式或旧任务无法导出。', 'A regulatory background needs a reference-pack run that wrote the Phase 3 artifacts (site / testability / promoter summary / scan manifest); manual-mode and older jobs cannot export one.')">
+            {{ text('本任务不能导出调控背景', 'Background export unavailable for this run') }}
+          </span>
+        </div>
+        <details class="w-100 mt-2">
+          <summary class="small text-muted">{{ text('其他导出（全量证据表、prior、promoter、报告）', 'Other exports (full evidence, prior, promoters, report)') }}</summary>
+          <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+          <div v-if="!summary.site_only" class="input-group input-group-sm" style="width: 330px">
             <span class="input-group-text">{{ text('下载全量结果', 'Full export') }}</span>
             <select v-model="exportFormat" class="form-select" :aria-label="text('导出格式', 'Export format')">
               <option value="sqlite">SQLite (.db)</option>
@@ -1379,7 +1576,6 @@ onBeforeUnmount(() => {
               <i class="bi bi-database-down me-1"></i>Prior
             </a>
           </div>
-          <span v-if="summary.site_only" class="badge text-bg-warning">{{ text('site-only：prior 需单独运行或连接', 'site-only: prior requires a separate run or join') }}</span>
           <a class="btn btn-sm btn-outline-secondary" :href="regutraceExportUrl(job!.id, 'promoters')" download
              :title="text('下载本次扫描的启动子 FASTA', 'Download promoter FASTA for this scan')">
             <i class="bi bi-download me-1"></i>{{ text('启动子 FASTA', 'Promoter FASTA') }}
@@ -1388,48 +1584,76 @@ onBeforeUnmount(() => {
              :title="text('下载参数、诊断和运行摘要 JSON', 'Download parameters, diagnostics and run summary as JSON')">
             <i class="bi bi-download me-1"></i>{{ text('报告 JSON', 'Report JSON') }}
           </a>
-        </div>
+          </div>
+        </details>
       </div>
-      <p class="small text-muted mb-3">
+      <p v-if="!summary.site_only" class="small text-muted mb-3">
         {{ text('SQLite 推荐用于查询和 Data Import；CSV/TSV 是全量 hit 表，Excel 最多只能打开 1,048,576 行。', 'SQLite is recommended for querying and Data Import; CSV/TSV are full hit tables and Excel is limited to 1,048,576 rows.') }}
       </p>
 
-      <div class="row g-2 mb-3">
-        <div class="col-6 col-md-3"><div class="stat-tile"><div class="stat-value">{{ summary.genes.toLocaleString() }}</div><div class="stat-label">{{ text('基因 / promoters', 'Genes / promoters') }}</div></div></div>
-        <div class="col-6 col-md-3"><div class="stat-tile"><div class="stat-value">{{ (summary.candidate_sites ?? summary.motif_hits).toLocaleString() }}</div><div class="stat-label">{{ text('候选 PWM 位点', 'Candidate PWM sites') }}</div></div></div>
-        <div class="col-6 col-md-3"><div class="stat-tile"><div class="stat-value">{{ summary.tf_target_pairs.toLocaleString() }}</div><div class="stat-label">{{ text('TF–target 候选对（计算值）', 'Candidate TF–target pairs (computed)') }}</div></div></div>
-        <div class="col-6 col-md-3"><div class="stat-tile"><div class="stat-value">{{ (summary.tf_identified ?? summary.unique_tfs).toLocaleString() }}</div><div class="stat-label">{{ text('已鉴定 TF', 'Identified TFs') }}</div></div></div>
+      <ul class="nav nav-tabs rg-result-tabs mb-3" role="tablist">
+        <li v-for="tab in resultTabs" :key="tab[0]" class="nav-item">
+          <button class="nav-link" :class="{ active: resultTab === tab[0] }" type="button" @click="onResultTab(tab[0])">{{ tab[1] }}</button>
+        </li>
+      </ul>
+
+      <div v-show="resultTab === 'overview'" class="row g-2 mb-2">
+        <div class="col-6 col-md-4"><div class="stat-tile"><div class="stat-value">{{ (summary.tf_identified ?? summary.unique_tfs ?? 0).toLocaleString() }}</div><div class="stat-label">{{ text('已鉴定转录因子', 'Identified TFs') }}</div></div></div>
+        <div class="col-6 col-md-4"><div class="stat-tile"><div class="stat-value">{{ (summary.tfs_with_targets ?? 0).toLocaleString() }}</div><div class="stat-label">{{ text('有候选靶标的 TF', 'TFs with candidate targets') }}</div></div></div>
+        <div class="col-6 col-md-4"><div class="stat-tile"><div class="stat-value">{{ (summary.genes ?? 0).toLocaleString() }}</div><div class="stat-label">{{ text('扫描的启动子', 'Promoters scanned') }}</div></div></div>
+      </div>
+      <details v-show="resultTab === 'overview'" class="mb-3">
+        <summary class="small text-muted">{{ text('技术细节：原始规模', 'Technical details: raw magnitudes') }}</summary>
+        <div class="row g-2 mt-2 small text-muted">
+          <div class="col-6 col-md-4">{{ text('候选 PWM 位点', 'Candidate PWM sites') }}: <b>{{ (summary.candidate_sites ?? summary.motif_hits ?? 0).toLocaleString() }}</b></div>
+          <div class="col-6 col-md-4">{{ text('全部 motif 候选对（筛选前）', 'All motif candidate pairs (before filters)') }}: <b>{{ (summary.tf_target_pairs ?? 0).toLocaleString() }}</b></div>
+          <div class="col-6 col-md-4">{{ text('已映射 TF', 'Mapped TFs') }}: <b>{{ (summary.tf_mapped ?? 0).toLocaleString() }}</b></div>
+        </div>
+      </details>
+
+      <div v-show="resultTab === 'overview'" v-if="(summary.top_tfs ?? []).length" class="card mb-3">
+        <div class="card-body">
+          <h6 class="mb-1">{{ text('候选靶标最多的转录因子', 'TFs with the most candidate targets') }}</h6>
+          <p class="small text-muted mb-2">{{ text('点一个 TF 直接看它的靶标列表（列表默认只显示同一 motif ≥2 个位点支持的靶标）。顺序按未筛选的候选数排列，原始数在悬停提示里。', 'Select a TF to open its target list (by default only targets supported by ≥2 sites of one motif are shown). Ordered by the unfiltered candidate count, shown on hover.') }}</p>
+          <div class="d-flex flex-wrap gap-2">
+            <button v-for="item in (summary.top_tfs ?? []).slice(0, 10)" :key="item.id" type="button"
+                    class="btn btn-sm btn-outline-secondary" @click="openCatalogueTF(item.id)"
+                    :title="`${text('未筛选候选靶标', 'Unfiltered candidate targets')}: ${item.targets.toLocaleString()}`">
+              {{ item.name || item.id }}
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div class="card mb-3">
+      <div v-show="resultTab === 'overview'" class="card mb-3">
         <div class="card-body">
           <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
-            <h6 class="mb-0">{{ text('覆盖层级（不要用一层替代另一层）', 'Coverage layers (do not substitute one for another)') }}</h6>
+            <h6 class="mb-0">{{ text('全部候选的覆盖层级（策略筛选前）', 'Coverage across all candidates (before policy filtering)') }}</h6>
             <span class="small text-muted ms-auto">{{ summary.reference_pack || summary.annotation_source }}</span>
           </div>
           <div class="row g-2 small">
-            <div class="col-6 col-lg-3">
+            <div class="col-6 col-xl-3">
               <div class="border rounded p-2 h-100">
                 <div class="fw-semibold">{{ text('1. TF 鉴定', '1. TF identification') }}</div>
                 <div>{{ (summary.tf_identified ?? summary.unique_tfs).toLocaleString() }} identified</div>
                 <div class="text-muted">{{ summary.tf_ambiguous ?? '—' }} ambiguous · {{ summary.tf_families ?? '—' }} families</div>
               </div>
             </div>
-            <div class="col-6 col-lg-3">
+            <div class="col-6 col-xl-3">
               <div class="border rounded p-2 h-100">
                 <div class="fw-semibold">{{ text('2. Motif 映射', '2. Motif mapping') }}</div>
                 <div>{{ summary.tf_mapped?.toLocaleString() ?? 'not computed' }} mapped</div>
                 <div class="text-muted">{{ summary.unmapped_tfs ?? '—' }} unmapped · {{ summary.unique_pwms ?? '—' }} unique PWMs</div>
               </div>
             </div>
-            <div class="col-6 col-lg-3">
+            <div class="col-6 col-xl-3">
               <div class="border rounded p-2 h-100">
                 <div class="fw-semibold">{{ text('3. Motif 可测试性', '3. Motif testability') }}</div>
                 <div>{{ summary.testability_available ? `${summary.testable_motifs ?? 0} testable` : 'not computed' }}</div>
                 <div class="text-muted">{{ summary.testability_available ? `${summary.unattainable_motifs ?? 0} untestable at requested p` : 'enable Phase 3 artifacts' }}</div>
               </div>
             </div>
-            <div class="col-6 col-lg-3">
+            <div class="col-6 col-xl-3">
               <div class="border rounded p-2 h-100">
                 <div class="fw-semibold">{{ text('4. Target 预测', '4. Target prediction') }}</div>
                 <div>{{ summary.tfs_with_targets?.toLocaleString() ?? '—' }} / {{ (summary.tf_identified ?? 0).toLocaleString() }} TFs with ≥1 target</div>
@@ -1453,7 +1677,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="card mb-3">
+      <div v-show="resultTab === 'diagnostics'" class="card mb-3">
         <div class="card-body">
           <div class="d-flex align-items-start flex-wrap gap-2 mb-2">
             <div>
@@ -1476,7 +1700,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="row g-2 mb-3 small text-muted">
+      <div v-show="resultTab === 'overview'" class="row g-2 mb-3 small text-muted">
         <div class="col-12">
           <template v-if="summary.tf_mapped != null">{{ text('已映射 TF', 'Mapped TFs') }} {{ summary.tf_mapped.toLocaleString() }} · {{ text('已扫描矩阵', 'Matrices scanned') }} {{ summary.motifs_scanned?.toLocaleString() }} · </template>
           {{ text('Motif 库', 'Motif library') }}: {{ summary.motif_library_size.toLocaleString() }}
@@ -1489,7 +1713,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="summary.tf_identified != null" class="card mb-3">
+      <div v-if="summary.tf_identified != null" v-show="resultTab === 'catalogue'" class="card mb-3">
         <div class="card-body">
           <h6>{{ text('转录因子家族分布（全量）', 'Transcription factor families') }}</h6>
           <p class="small text-muted">{{ text('深色为已获 motif，浅色为其余已鉴定 TF，灰色为待判定。点击家族筛选目录。', 'Dark bars show mapped TFs, light bars show other identified TFs, and gray shows unresolved candidates. Select a family to filter the catalogue.') }}</p>
@@ -1530,7 +1754,7 @@ onBeforeUnmount(() => {
             <table class="table table-sm align-middle">
               <thead><tr><th>TF</th><th>{{ text('家族', 'Family') }}</th><th>{{ text('鉴定', 'Identified') }}</th><th>{{ text('映射状态', 'Mapping') }}</th><th>Motif</th><th>{{ text('靶标数', 'Targets') }}</th><th>{{ text('可测试性', 'Testability') }}</th><th>{{ text('注释 / 诊断', 'Annotation / diagnosis') }}</th></tr></thead>
               <tbody><tr v-for="item in catalogueRows" :key="item.id">
-                <td><button class="btn btn-link btn-sm p-0" @click="loadTFView(item.id); nextTick(() => tfSection?.scrollIntoView({block:'start'}))">{{ item.name }}</button><small v-if="item.name !== item.id" class="d-block text-muted">{{ item.id }}</small></td>
+                <td><button class="btn btn-link btn-sm p-0" @click="openCatalogueTF(item.id)">{{ item.name }}</button><small v-if="item.name !== item.id" class="d-block text-muted">{{ item.id }}</small></td>
                 <td>{{ item.family }}</td><td><span class="small">{{ item.status }}</span></td>
                 <td><span class="badge" :class="mappingClass(item.mapping_status)">{{ mappingLabel(item.mapping_status) }}</span></td>
                 <td class="small">{{ (item.motifs ?? []).join(', ') || '—' }}<div v-if="item.motif_count" class="text-muted">{{ item.motif_count }} motif(s)</div></td>
@@ -1552,7 +1776,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="summary.tf_identified == null" class="card mb-3">
+      <div v-if="summary.tf_identified == null" v-show="resultTab === 'overview'" class="card mb-3">
         <div class="card-body">
           <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
             <h6 class="mb-0">{{ text('TF / motif 的 target 数', 'Targets per TF / motif') }}</h6>
@@ -1567,7 +1791,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div ref="querySection" class="card mb-3">
+      <div v-show="resultTab === 'tf_targets' || resultTab === 'target_regulators'" ref="querySection" class="card mb-3">
         <div class="card-body">
           <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
             <h6 class="mb-0">{{ text('自由查询', 'Free query') }}</h6>
@@ -1621,13 +1845,15 @@ onBeforeUnmount(() => {
 
     <RegutraceTFProfile
       v-if="tfView && job?.id"
+      v-show="resultTab === 'tf_targets'"
       :view="tfView"
       :job-id="job.id"
       :selected-motif="selectedHit?.motif_id"
+      :default-policy="presetPolicy"
       @open-target="openPromoter"
     />
 
-    <div v-if="tfView || tfBusy || tfError" ref="tfSection" class="card mb-3">
+    <div v-if="tfView || tfBusy || tfError" v-show="resultTab === 'tf_targets'" ref="tfSection" class="card mb-3">
       <div class="card-body">
         <div class="d-flex align-items-center gap-2 mb-2">
           <h6 class="mb-0">{{ text('TF 基因结构与 domain 证据', 'TF gene structure and domain evidence') }}</h6>
@@ -1651,7 +1877,7 @@ onBeforeUnmount(() => {
     <div v-if="promoterBusy" class="text-muted small mb-2"><span class="spinner-border spinner-border-sm me-2"></span>{{ text('加载 promoter…', 'Loading promoter…') }}</div>
     <div v-if="promoterError" class="alert alert-warning small">{{ promoterError }}</div>
 
-    <div v-if="promoter" ref="promoterSection" class="card mb-3">
+    <div v-if="promoter" v-show="resultTab === 'tf_targets' || resultTab === 'target_regulators'" ref="promoterSection" class="card mb-3">
       <div class="card-body">
         <div class="d-flex align-items-start flex-wrap gap-2 mb-2">
           <div>
@@ -1799,19 +2025,21 @@ onBeforeUnmount(() => {
 
     <RegutraceTargetRegulators
       v-if="promoter && job?.id && job.status === 'succeeded'"
+      v-show="resultTab === 'target_regulators'"
       :job-id="job.id"
       :target-id="promoter.target_id"
     />
 
-    <RegutraceMotifExplorer v-if="job?.id && job.status === 'succeeded'" :job-id="job.id" />
+    <RegutraceMotifExplorer v-if="job?.id && job.status === 'succeeded'" v-show="resultTab === 'motifs'" :job-id="job.id" />
     <RegutraceEnrichment
       v-if="job?.id && job.status === 'succeeded'"
+      v-show="resultTab === 'enrichment'"
       :job-id="job.id"
       :motif-options="summary?.top_motifs?.map((item) => item.id) ?? []"
     />
-    <RegutraceProvenance v-if="job?.id && job.status === 'succeeded'" :job-id="job.id" />
+    <RegutraceProvenance v-if="job?.id && job.status === 'succeeded'" v-show="resultTab === 'diagnostics'" :job-id="job.id" />
 
-    <div v-if="diagnostics" class="card mb-3">
+    <div v-if="diagnostics" v-show="resultTab === 'diagnostics'" class="card mb-3">
       <div class="card-body">
         <div class="d-flex align-items-center gap-2 mb-2">
           <h6 class="mb-0">{{ text('输入检查', 'Input diagnostics') }}</h6>
@@ -1865,6 +2093,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.rt-run-actions { position: sticky; bottom: 0; background: var(--bs-body-bg, white); padding: .5rem 0; z-index: 2; }
+.rt-simple-inputs .input-group > label { flex: 1; min-width: 0; }
 .stat-tile { background: #fff; border: 1px solid #e2e9f0; border-radius: 10px; padding: 12px 14px; }
 .stat-value { font-size: 22px; font-weight: 700; color: #0f766e; line-height: 1.1; }
 .stat-label { font-size: 12px; color: #64748b; margin-top: 4px; }
@@ -1897,4 +2127,11 @@ onBeforeUnmount(() => {
 .base-n { color: #64748b; }
 .rt-diag { padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
 .rt-diag:last-child { border-bottom: none; }
+.rt-simple-inputs { padding: 0; }
+.rt-strategy-grid { display: grid; gap: 6px; }
+.rt-strategy { display: flex; flex-direction: column; gap: 2px; text-align: left; border: 1px solid #dbe5ee; border-radius: 4px; background: #fff; padding: 8px 10px; color: #0f172a; }
+.rt-strategy b { font-size: 13px; color: #0f766e; }
+.rt-strategy span { font-size: 11px; color: #64748b; line-height: 1.25; }
+.rt-strategy.active { border-color: #0f766e; box-shadow: 0 0 0 2px rgba(15,118,110,.12); background: #f0fdfa; }
+.rt-advanced > summary { cursor: pointer; color: #475569; }
 </style>

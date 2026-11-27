@@ -1,3 +1,13 @@
+## ReguTrace Codex production takeover — 2026-11-26（进行中，未验收完成）
+
+- 用户确认 Claude 已退出；再次检查未发现 claude.exe。保留 dashboard / regutrace 冻结 checkpoint 后的全部未提交实现；未 commit/push/merge，worker 未改。
+- 已移除前端 ensureJob 对植物 annotation 的强制要求；后台原已支持 GFF fallback，新增三文件无注释的参数断言。清理高级面板重复 genome/GFF/PEP 输入和 artifact/cache 控件；简化预设文案，补 Custom 参数跟踪、防重复提交和阶段说明。
+- 背景导出增加并发互斥、唯一输出文件及 validate-db 校验。新增并发拒绝测试（最新新增测试待执行）。CLI 增加 TF identification / motif mapping / DBD mapping 的实际阶段 JSON，不改变算法。
+- 已实际在新 Windows 编译程序的 GUI 选择原始 HF1 genome/GFF/完整 PEP + Recommended，无 annotation 成功建立 job。首轮本地资源组装发生两个同名 JSON 覆盖，DBD 阶段失败；资源文件已改唯一名称，GUI 重试进行中。尚未新结果验收、DB 导出导入、重启验证；不得标记生产就绪。
+- 已测：隔离快照 vue-tsc/vite、Go ReguTrace/API tests PASS；Windows 主程序及两个 sidecar 编译 PASS。当前新阶段报告版本正重新构建；最后微调需以新构建为准。所有缓存、资源和产物在本地 rsWGCNA-build。
+- 原始 PEP 来自 SXAU-HF1-T2T/c.Fagopyrum_tataricum.gene.as.pep（22,654,567 bytes，SHA256 9a7a859e18e24dca5bc8436fda27bc8d641438a669dee2fab0482e62793cdde8），与 Phase3 pipeline-report 的输入路径相符；此前 hf1-tfs.faa 是裁剪输入，不可作为冻结基准。当前标准 GUI 用 2024 pack；冻结 benchmark 用 2026/927 motif library，数值不能直接等同。
+- 下一步：监控 GUI 重试，检查真实结果与正反查询、策略和 promoter；新构建补齐已核验的 pack/tools/许可，运行新测试；验证新导出的 schema v3 background 导入新项目与重启查询。完整 HF1 冻结输入/pack identity、全流程和窄窗截图仍待完成。
+
 ## 最新（2026-11-17，Windows：target 基因结构与 Custom pack，r8）
 
 请先读 [HANDOFF.md](HANDOFF.md) 顶部 r8 节。查询表分列 **TF gene** / **TF ID**；`GET /api/toolkits/regutrace/jobs/{id}/tf?tf=...&target=...` 返回 TF 结构和 `target_gene` GFF 模型。前端新增独立坐标的 **Target gene** 轨道（exon/CDS/UTR/intron），与 target promoter motif 分开；TF gene model、projected/protein domain、transcript 选择、1–8× 缩放保留。新增 **Custom pack** 模式：上传完整 pack ZIP（HMM、rules、reference map、reference domains、DBD models、motifs，含 SHA-256）加 genome/GFF/protein；ZIP 安全解压并校验后复用 `regutrace pipeline`，适合没有内置 pack 的非模式物种。干净安装自定义 pack job `1794849471509-a9dd06f51bd76577`（酵母 pack 内容 + Ensembl R64-1-1 输入）107,464 evidence；GCR1/CDC19 target 结构和 2 motif 正常，无 console error；synthetic target 2 exon/1 intron。r7 的植物 GFF `protein_id` 回退保留，真实 HF1 `Fta_1G0000630` 通过。r8 安装器 127,554,344 bytes，SHA-256 `07c304785c505ccd640c0fc1e8c42d161789e8bf5904c64947049e5822db757a`；安装在 `%LOCALAPPDATA%\rsWGCNA-install-tfview3`，292,446,010 bytes。Go/frontend 测试通过；Rust 未改。详见 `docs/REGUTRACE-TARGET-CUSTOM-2026-11-17.md`。未提交、未推送。

@@ -379,7 +379,7 @@ func readSpecificityGroups(path string) (map[string][]string, error) {
 		normalized[i] = normalizeHeader(value)
 	}
 	motifCol := findColumn(normalized, "motif_id")
-	groupCol := findColumn(normalized, "specificity_group", "group_id", "group")
+	groupCol := findColumn(normalized, "group_080", "specificity_group", "group_id", "group")
 	if motifCol < 0 || groupCol < 0 {
 		return out, errors.New("specificity group table needs motif_id and group")
 	}
@@ -470,14 +470,13 @@ func (j *jobState) loadPhase4Metadata(report *Report) {
 	}
 	registryPath := ""
 	if j.referencePackDir != "" {
-		registryPath = filepath.Join(j.referencePackDir, "registry.tsv")
+		registryPath = firstExisting(packMetadataPath(j.referencePackDir, "registry"), filepath.Join(j.referencePackDir, "registry.tsv"))
 	}
 	if entries, err := readRegistry(registryPath); err == nil {
 		meta.Registry = entries
 	}
 	if j.referencePackDir != "" {
-		for _, name := range []string{"motif-specificity-groups.tsv", "specificity-groups.tsv"} {
-			path := filepath.Join(j.referencePackDir, name)
+		for _, path := range []string{packMetadataPath(j.referencePackDir, "specificity_groups"), filepath.Join(j.referencePackDir, "motif-specificity-groups.tsv"), filepath.Join(j.referencePackDir, "specificity-groups.tsv")} {
 			if groups, err := readSpecificityGroups(path); err == nil && len(groups) > 0 {
 				meta.SpecificityGroups = groups
 				break

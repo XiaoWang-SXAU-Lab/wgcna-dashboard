@@ -98,6 +98,13 @@ func TestCreatePackModeSkipsManualHMMAndTFMap(t *testing.T) {
 	if len(js.motifs) != 1 {
 		t.Fatalf("pack motifs = %+v", js.motifs)
 	}
+	// The standard three-file workflow must not require an annotation upload.
+	if job.Inputs.Annotation != "" || job.Inputs.AnnotationSource != "GFF" || js.annotationPath != "" {
+		t.Fatalf("optional annotation did not fall back to GFF: %+v", job.Inputs)
+	}
+	if strings.Contains(strings.Join(mgr.buildArgs(js, "run"), " "), "--annotation") {
+		t.Fatal("three-file pipeline unexpectedly adds --annotation")
+	}
 	js.Params.IncludeSingleDomainFallback = true
 	args := mgr.buildArgs(js, "run")
 	joined := strings.Join(args, " ")
@@ -111,5 +118,38 @@ func TestCreatePackModeSkipsManualHMMAndTFMap(t *testing.T) {
 	}
 	if strings.Contains(joined, "--tf-map") || strings.Contains(joined, "--motifs") {
 		t.Fatalf("pack args should not use manual tf-map/motifs: %s", joined)
+	}
+}
+
+func TestPackSpecificityMetadataUsesManifestFilename(t *testing.T) {
+	root := t.TempDir()
+	dir := writeTestPack(t, root, "test")
+	path := filepath.Join(dir, "manifest.json")
+	raw, _ := os.ReadFile(path)
+	var manifest map[string]any
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	files := manifest["files"].(map[string]any)
+	files["specificity_groups"] = "frozen-groups.tsv"
+	if err := os.WriteFile(filepath.Join(dir, "frozen-groups.tsv"), []byte("motif_id\tgroup_080\nM1\tF_001\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = json.Marshal(manifest)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	js := &jobState{referencePackDir: dir, motifs: map[string]MotifInfo{}}
+	js.loadPhase4Metadata(nil)
+	if groups := js.phase4.SpecificityGroups["M1"]; len(groups) != 1 || groups[0] != "F_001" {
+		t.Fatalf("manifest specificity metadata lost: %v", groups)
+	}
+	files["specificity_groups"] = "../outside.tsv"
+	raw, _ = json.Marshal(manifest)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := packMetadataPath(dir, "specificity_groups"); got != "" {
+		t.Fatalf("outside metadata accepted: %s", got)
 	}
 }

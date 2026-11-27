@@ -214,6 +214,18 @@ func buildSiteDataset(path string, motifs map[string]MotifInfo, annotations map[
 		AnnotationSource: annotationSource, SiteOnly: true, SiteTableAvailable: true,
 	}
 	ds.summary.TFTargetCounts = ds.tfTargetCounts
+	// Site-only jobs need their own top-TF list: parse.go only fills TopTFs for
+	// the legacy edge dataset, which left the overview without any way to open a
+	// TF. Counts here are the pre-filter union over mapped motifs.
+	topTFs := make([]CountItem, 0, len(ds.tfTargetCounts))
+	for tfID, count := range ds.tfTargetCounts {
+		topTFs = append(topTFs, CountItem{ID: tfID, Name: tfID, Targets: count})
+	}
+	sortCounts(topTFs)
+	if len(topTFs) > 20 {
+		topTFs = topTFs[:20]
+	}
+	ds.summary.TopTFs = topTFs
 	ds.targetKeys = make(map[string][]string, len(targetSymbols))
 	for id := range targetSymbols {
 		ann := annotations[id]

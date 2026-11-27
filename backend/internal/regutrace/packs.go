@@ -160,3 +160,29 @@ func ResolveReferencePack(root, key string) (*referencePack, error) {
 		manifest:   manifest,
 	}, nil
 }
+
+// packMetadataPath resolves optional metadata declared by the pack manifest.
+// Legacy packs may still use conventional filenames at the call site.
+func packMetadataPath(dir, key string) string {
+	manifest, err := loadPackManifest(dir)
+	if err != nil {
+		return ""
+	}
+	rel := manifest.Files[key]
+	if rel == "" || filepath.IsAbs(rel) || strings.HasPrefix(filepath.Clean(rel), "..") {
+		return ""
+	}
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return ""
+	}
+	path, err := filepath.EvalSymlinks(filepath.Join(dir, rel))
+	if err != nil {
+		return ""
+	}
+	within, err := filepath.Rel(root, path)
+	if err != nil || filepath.IsAbs(within) || strings.HasPrefix(within, "..") {
+		return ""
+	}
+	return path
+}

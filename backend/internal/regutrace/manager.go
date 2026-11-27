@@ -43,11 +43,14 @@ type Params struct {
 
 func defaultParams() Params {
 	return Params{
-		PromoterLen:    1000,
-		Downstream:     0,
-		PValue:         1e-4,
-		Background:     [4]float64{0.25, 0.25, 0.25, 0.25},
-		BackgroundMode: "uniform",
+		PromoterLen: 1000,
+		Downstream:  0,
+		PValue:      1e-4,
+		Background:  [4]float64{0.25, 0.25, 0.25, 0.25},
+		// The uniform i.i.d. null mis-calibrates every p-value on A/T-rich
+		// genomes; the promoter A/C/G/T model is the default. `uniform` remains
+		// selectable to reproduce jobs run before this default changed.
+		BackgroundMode: "empirical",
 		Threads:        0,
 	}
 }
@@ -63,7 +66,7 @@ func normalizeParams(p Params) (Params, error) {
 		p.Background = [4]float64{0.25, 0.25, 0.25, 0.25}
 	}
 	if p.BackgroundMode == "" {
-		p.BackgroundMode = "uniform"
+		p.BackgroundMode = "empirical"
 	}
 	if p.BackgroundMode != "uniform" && p.BackgroundMode != "empirical" {
 		return p, errors.New("background_mode must be uniform or empirical")
@@ -919,6 +922,12 @@ func (m *Manager) buildArgs(js *jobState, mode string) []string {
 		if js.Params.Threads > 0 {
 			args = append(args, "--threads", strconv.Itoa(js.Params.Threads))
 		}
+		if js.Params.MappingMode != "" {
+			args = append(args, "--mapping-mode", js.Params.MappingMode)
+		}
+		if js.Params.SitesOnly {
+			args = append(args, "--sites-only")
+		}
 		if js.Params.IncludeSingleDomainFallback {
 			args = append(args, "--include-single-domain-fallback")
 		}
@@ -1337,26 +1346,9 @@ func overallProgress(stage string, local float64) float64 {
 	if local > 1 {
 		local = 1
 	}
-	switch stage {
-	case "starting":
-		return 0.01
-	case "reading_motifs":
-		return 0.02 + 0.02*local
-	case "reading_genome":
-		return 0.04 + 0.04*local
-	case "reading_gff":
-		return 0.08 + 0.04*local
-	case "extracting_promoters":
-		return 0.12 + 0.08*local
-	case "writing_promoters":
-		return 0.20 + 0.03*local
-	case "scanning":
-		return 0.23 + 0.71*local
-	case "writing_evidence":
-		return 0.94 + 0.05*local
-	case "done", "succeeded":
+	// Report the measured fraction within the current stage, without guessed weights.
+	if stage == "done" || stage == "succeeded" {
 		return 1
-	default:
-		return local * 0.2
 	}
+	return local
 }

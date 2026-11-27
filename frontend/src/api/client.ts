@@ -1266,6 +1266,7 @@ export interface RegutraceTFTargetRow {
   best_p_value?: number
   best_score?: number
   site_count: number
+  max_motif_sites?: number
   motif_ids: string[]
   motif_names?: string[]
   mapping_statuses: string[]
@@ -1304,7 +1305,7 @@ export interface RegutraceTFTargetResult {
 export async function getRegutraceTFTargets(
   id: string,
   tf: string,
-  opts: { limit?: number; offset?: number; motif?: string; mapping_status?: string; motif_policy?: RegutraceMotifPolicy; max_p?: number } = {},
+  opts: { limit?: number; offset?: number; motif?: string; mapping_status?: string; motif_policy?: RegutraceMotifPolicy; max_p?: number; min_sites?: number } = {},
 ): Promise<RegutraceTFTargetResult> {
   const p = new URLSearchParams({ tf })
   for (const [key, value] of Object.entries(opts)) {
@@ -1429,6 +1430,10 @@ export function regutraceBackgroundUrl(
 ): string {
   const p = new URLSearchParams({ kind, mode })
   return `${BASE}/toolkits/regutrace/jobs/${id}/export?${p.toString()}`
+}
+
+export function regutraceRegulatoryBackgroundDbUrl(id: string): string {
+  return `${BASE}/toolkits/regutrace/jobs/${id}/export?kind=background`
 }
 
 export function regutraceExportUrl(

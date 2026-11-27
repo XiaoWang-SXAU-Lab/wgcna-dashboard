@@ -75,6 +75,9 @@ func TestMotifPolicyPreservesStrictAndCalibrated(t *testing.T) {
 		policyTestRow("M2", "dbd_exploratory", 10, 100, 0.50, 0.50, 5, "h2", "g1"),
 	}
 	js := policyJob(rows, nil)
+	// Representative grouping runs on the 0.80 group table only; the row-level
+	// specificity_groups column (0.90 calibration) is deliberately ignored.
+	js.phase4.SpecificityGroups = map[string][]string{"M1": {"g1"}, "M2": {"g1"}}
 	for _, policy := range []MotifPolicy{MotifPolicyBest, MotifPolicyReps} {
 		got := js.policyMotifs("TF1", policy)
 		want := map[string]bool{"S1": true, "C1": true, "M1": true}
@@ -97,6 +100,7 @@ func TestMotifPolicyRepresentativeSpecificityGroups(t *testing.T) {
 		policyTestRow("M4", "dbd_ambiguous", 10, 100, 0.99, 0.99, 999, "h4", "g4"),
 	}
 	js := policyJob(rows, nil)
+	js.phase4.SpecificityGroups = map[string][]string{"M1": {"g1", "g2"}, "M2": {"g1"}, "M3": {"g3"}}
 	got := js.policyMotifs("TF1", MotifPolicyReps)
 	want := map[string]bool{"M1": true, "M3": true}
 	if len(got) != len(want) {
@@ -110,6 +114,37 @@ func TestMotifPolicyRepresentativeSpecificityGroups(t *testing.T) {
 	best := js.policyMotifs("TF1", MotifPolicyBest)
 	if len(best) != 1 || best[0] != "M1" {
 		t.Fatalf("best motifs = %v, want M1 only", best)
+	}
+}
+
+// The tf_map specificity_groups column is built from the 0.90 calibration
+// grouping. Grouping reps on it would apply two thresholds inside one policy,
+// so it must never steer representative selection.
+func TestMotifPolicyIgnoresRowSpecificityColumn(t *testing.T) {
+	rows := []TFMappingRow{
+		policyTestRow("M1", "dbd_exploratory", 10, 100, 0.95, 0.80, 100, "h1", "g1"),
+		policyTestRow("M2", "dbd_exploratory", 10, 100, 0.90, 0.70, 90, "h2", "g1"),
+	}
+	js := policyJob(rows, nil)
+	got := js.policyMotifs("TF1", MotifPolicyReps)
+	if len(got) != 2 || got[0] != "M1" || got[1] != "M2" {
+		t.Fatalf("reps motifs = %v, want one per motif when no 0.80 group exists", got)
+	}
+	if js.specificityAvailable(rows) {
+		t.Fatal("row-level specificity_groups must not count as 0.80 group data")
+	}
+}
+
+func TestMotifPolicyUsesRegistryGroup080(t *testing.T) {
+	rows := []TFMappingRow{
+		policyTestRow("M1", "dbd_exploratory", 10, 100, 0.95, 0.80, 100, "h1", "g1|g2"),
+		policyTestRow("M2", "dbd_exploratory", 10, 100, 0.90, 0.70, 90, "h2", "g1"),
+	}
+	js := policyJob(rows, nil)
+	js.phase4.SpecificityGroups = map[string][]string{"M1": {"g1"}, "M2": {"g2"}}
+	got := js.policyMotifs("TF1", MotifPolicyReps)
+	if len(got) != 2 || got[0] != "M1" || got[1] != "M2" {
+		t.Fatalf("reps motifs = %v, want one representative for each registry group", got)
 	}
 }
 
@@ -312,5 +347,110 @@ func TestSiteTargetRegulatorsMotifPolicy(t *testing.T) {
 	}
 	if strict.Total != 1 || strict.Rows[0].TFID != "TF1" {
 		t.Fatalf("best policy should preserve strict mapping: %+v", strict)
+	}
+}
+
+// A single marginal site in a 1 kb promoter is not evidence: at p=1e-4 one
+// motif already reaches chance-level promoter coverage. min_sites requires
+// several sites of one and the same motif, and deliberately does not let sites
+// from different motifs add up.
+func TestSiteTFTargetsMinSitesAdmission(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sites.tsv")
+	sites := "motif_ids\tgene_id\thit_start\thit_end\tscore\tp_value\n" +
+		"M1\tGA\t10\t20\t9.0\t1e-5\n" +
+		"M1\tGA\t100\t110\t8.5\t2e-5\n" +
+		"M2\tGA\t300\t310\t8.0\t3e-5\n" +
+		"M2\tGA\t400\t410\t7.5\t4e-5\n" +
+		"M1\tGB\t50\t60\t9.0\t1e-5\n" +
+		"M2\tGB\t55\t65\t8.0\t2e-5\n"
+	if err := os.WriteFile(path, []byte(sites), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mappings := map[string][]TFMappingRow{"TF1": {
+		policyTestRow("M1", "dbd_exploratory", 10, 100, 0.80, 0.80, 80, "h1", ""),
+		policyTestRow("M2", "dbd_exploratory", 10, 100, 0.70, 0.70, 70, "h2", ""),
+	}}
+	motifs := map[string]MotifInfo{"M1": {ID: "M1", Name: "one"}, "M2": {ID: "M2", Name: "two"}}
+	annotations := map[string]AnnotationEntry{"GA": {Symbol: "GA"}, "GB": {Symbol: "GB"}}
+	ds, err := buildSiteDataset(path, motifs, annotations, 2, "test", mappings, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := &jobState{
+		data: ds, motifs: motifs, annotations: annotations,
+		promoters: map[string]*Promoter{"GA": {GeneID: "GA"}, "GB": {GeneID: "GB"}},
+		phase4: &phase4Metadata{
+			Mappings: mappings,
+			MotifTFs: map[string][]string{"M1": {"TF1"}, "M2": {"TF1"}},
+		},
+		Job: Job{Summary: &Summary{TFCatalogue: []TFCatalogueItem{{ID: "TF1"}}}},
+	}
+	js.Params.MappingMode = "exploratory"
+
+	unfiltered, err := js.siteTFTargets(TFTargetOptions{TFID: "TF1", Limit: 10, Policy: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unfiltered.Total != 2 {
+		t.Fatalf("unfiltered total = %d, want 2", unfiltered.Total)
+	}
+
+	filtered, err := js.siteTFTargets(TFTargetOptions{TFID: "TF1", Limit: 10, Policy: "all", MinSites: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filtered.Total != 1 || filtered.Rows[0].TargetID != "GA" {
+		t.Fatalf("min_sites=2 should keep only GA (two sites of one motif): %+v", filtered.Rows)
+	}
+	if filtered.Rows[0].MaxMotifSites != 2 {
+		t.Fatalf("GA max_motif_sites = %d, want 2", filtered.Rows[0].MaxMotifSites)
+	}
+
+	// The filter must not poison the cache for the unfiltered query.
+	again, err := js.siteTFTargets(TFTargetOptions{TFID: "TF1", Limit: 10, Policy: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Total != 2 {
+		t.Fatalf("cached unfiltered total = %d, want 2", again.Total)
+	}
+}
+
+// Site-only jobs must expose a top-TF list: the overview uses it to open a TF,
+// and parse.go only fills TopTFs for the legacy edge dataset.
+func TestSiteSummaryTopTFs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sites.tsv")
+	sites := "motif_ids\tgene_id\thit_start\thit_end\tscore\tp_value\n" +
+		"M1\tG1\t10\t20\t9.0\t1e-5\n" +
+		"M1\tG2\t10\t20\t9.0\t1e-5\n" +
+		"M2\tG3\t10\t20\t8.0\t2e-5\n" +
+		"M2\tG4\t10\t20\t8.0\t2e-5\n" +
+		"M2\tG5\t10\t20\t8.0\t2e-5\n"
+	if err := os.WriteFile(path, []byte(sites), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mappings := map[string][]TFMappingRow{
+		// TF1 covers two motifs (2 + 3 targets); TF2 covers one motif (3 targets).
+		"TF1": {
+			policyTestRow("M1", "strict_rbh", 10, 100, 0.10, 0.10, 1, "h1", ""),
+			policyTestRow("M2", "dbd_exploratory", 10, 100, 0.80, 0.80, 80, "h2", ""),
+		},
+		"TF2": {policyTestRow("M1", "strict_rbh", 10, 100, 0.10, 0.10, 1, "h1", "")},
+	}
+	ds, err := buildSiteDataset(path, map[string]MotifInfo{"M1": {ID: "M1"}, "M2": {ID: "M2"}},
+		map[string]AnnotationEntry{}, 5, "test", mappings, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ds.summary == nil || len(ds.summary.TopTFs) != 2 {
+		t.Fatalf("site summary must expose a top-TF list: %+v", ds.summary)
+	}
+	if ds.summary.TopTFs[0].ID != "TF1" || ds.summary.TopTFs[0].Targets != 5 {
+		t.Fatalf("top TF = %+v, want TF1 with 5 targets", ds.summary.TopTFs[0])
+	}
+	if ds.summary.TopTFs[1].ID != "TF2" || ds.summary.TopTFs[1].Targets != 2 {
+		t.Fatalf("second TF = %+v, want TF2 with 2 targets", ds.summary.TopTFs[1])
 	}
 }

@@ -270,6 +270,9 @@ type TFTargetRow struct {
 	BestPValue        *float64 `json:"best_p_value,omitempty"`
 	BestScore         *float64 `json:"best_score,omitempty"`
 	SiteCount         int      `json:"site_count"`
+	// MaxMotifSites is the largest number of distinct sites that any single one
+	// of the supporting motifs contributes to this promoter.
+	MaxMotifSites     int      `json:"max_motif_sites"`
 	MotifIDs          []string `json:"motif_ids"`
 	MotifNames        []string `json:"motif_names,omitempty"`
 	MappingStatuses   []string `json:"mapping_statuses"`
@@ -299,6 +302,12 @@ type TFTargetOptions struct {
 	Status string
 	Policy string
 	MaxP   float64
+	// MinSites requires this many distinct sites of one and the same motif in
+	// the promoter before a target is admitted. 0 and 1 mean "no filter".
+	// A single marginal site in a 1 kb promoter is not evidence: at p=1e-4 a
+	// single motif reaches chance-level coverage, so this is the cheapest way to
+	// drop redundant calls without losing TF coverage.
+	MinSites int
 }
 
 func (j *jobState) resolveTFID(value string) (string, bool) {
@@ -355,10 +364,11 @@ func (j *jobState) tfTargets(opts TFTargetOptions) (TFTargetResult, error) {
 	motifFilter := strings.TrimSpace(opts.Motif)
 	statusFilter := strings.TrimSpace(opts.Status)
 	type aggregate struct {
-		row    TFTargetRow
-		motifs map[string]bool
-		names  map[string]bool
-		sites  map[string]bool
+		row        TFTargetRow
+		motifs     map[string]bool
+		names      map[string]bool
+		sites      map[string]bool
+		motifSites map[string]map[string]bool
 	}
 	byTarget := map[string]*aggregate{}
 	err = j.data.forEachAt(j.data.tfOffsets[tfID], func(e Edge) error {
@@ -386,6 +396,7 @@ func (j *jobState) tfTargets(opts TFTargetOptions) (TFTargetResult, error) {
 				row: TFTargetRow{TargetID: e.TargetID, TargetSymbol: symbol, TargetDescription: description,
 					EvidenceLevel: e.EvidenceLevel, MappingStatuses: []string{}},
 				motifs: map[string]bool{}, names: map[string]bool{}, sites: map[string]bool{},
+				motifSites: map[string]map[string]bool{},
 			}
 			byTarget[e.TargetID] = agg
 		}
@@ -411,6 +422,12 @@ func (j *jobState) tfTargets(opts TFTargetOptions) (TFTargetResult, error) {
 			key = fmt.Sprintf("%s|%s|%v|%v|%v", e.TargetID, e.MotifID, e.HitStart, e.HitEnd, e.Strand)
 		}
 		agg.sites[key] = true
+		if e.MotifID != "" {
+			if agg.motifSites[e.MotifID] == nil {
+				agg.motifSites[e.MotifID] = map[string]bool{}
+			}
+			agg.motifSites[e.MotifID][key] = true
+		}
 		if !containsString(agg.row.MappingStatuses, status) {
 			agg.row.MappingStatuses = append(agg.row.MappingStatuses, status)
 		}
@@ -422,6 +439,14 @@ func (j *jobState) tfTargets(opts TFTargetOptions) (TFTargetResult, error) {
 	rows := make([]TFTargetRow, 0, len(byTarget))
 	for _, agg := range byTarget {
 		agg.row.SiteCount = len(agg.sites)
+		for _, sites := range agg.motifSites {
+			if len(sites) > agg.row.MaxMotifSites {
+				agg.row.MaxMotifSites = len(sites)
+			}
+		}
+		if opts.MinSites > 1 && agg.row.MaxMotifSites < opts.MinSites {
+			continue
+		}
 		for motif := range agg.motifs {
 			agg.row.MotifIDs = append(agg.row.MotifIDs, motif)
 		}

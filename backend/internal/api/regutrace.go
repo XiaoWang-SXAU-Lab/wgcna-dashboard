@@ -456,9 +456,21 @@ func (h *RegutraceHandler) targets(w http.ResponseWriter, r *http.Request) {
 		}
 		maxP = value
 	}
+	// min_sites requires that many sites of one and the same motif before a
+	// target is admitted; 0/1 disables the filter.
+	minSites := 0
+	if raw := q.Get("min_sites"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 0 || value > 10 {
+			http.Error(w, "min_sites must be an integer in [0, 10]", http.StatusBadRequest)
+			return
+		}
+		minSites = value
+	}
 	res, err := h.mgr.TFTargets(r.PathValue("id"), regutrace.TFTargetOptions{
 		TFID: tf, Limit: limit, Offset: offset, Motif: q.Get("motif"),
 		Status: q.Get("mapping_status"), Policy: q.Get("motif_policy"), MaxP: maxP,
+		MinSites: minSites,
 	})
 	if err != nil {
 		writeRegutraceError(w, err)
@@ -583,6 +595,8 @@ func (h *RegutraceHandler) export(w http.ResponseWriter, r *http.Request) {
 	var path, name string
 	var err error
 	switch kind {
+	case "background":
+		path, name, err = h.mgr.ExportBackground(r.Context(), r.PathValue("id"))
 	case "prior":
 		includeExploratory := strings.EqualFold(r.URL.Query().Get("include_exploratory"), "true") || r.URL.Query().Get("include_exploratory") == "1"
 		path, name, err = h.mgr.ExportPrior(r.Context(), r.PathValue("id"), r.URL.Query().Get("policy"), r.URL.Query().Get("tfs"), includeExploratory)

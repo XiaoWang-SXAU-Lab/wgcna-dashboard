@@ -186,21 +186,19 @@ func bestUnique(rows []TFMappingRow, motifs map[string]MotifInfo) []TFMappingRow
 	return out
 }
 
+// specificityKeys returns the Phase 5 (0.80 overlap) specificity groups for a
+// motif. Only the pack group table is authoritative: tf_map's
+// specificity_groups column is produced from the 0.90 calibration grouping, so
+// falling back to it would silently apply two different thresholds inside one
+// policy (and inside one exported column). Motifs with no 0.80 group are left
+// ungrouped and keyed by motif ID, matching the frozen Phase 5 artifact.
 func (j *jobState) specificityKeys(row TFMappingRow) []string {
 	if j.phase4 != nil {
 		if groups := j.phase4.SpecificityGroups[row.MotifID]; len(groups) > 0 {
 			return groups
 		}
 	}
-	raw := strings.TrimSpace(row.SpecificityGroups)
-	if raw == "" {
-		return nil
-	}
-	parts := strings.FieldsFunc(raw, func(r rune) bool { return r == '|' || r == ';' || r == ',' })
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-	}
-	return parts
+	return nil
 }
 
 func (j *jobState) specificityAvailable(rows []TFMappingRow) bool {

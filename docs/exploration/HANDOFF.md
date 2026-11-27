@@ -1,3 +1,31 @@
+## 2026-11-27 handoff — production UI accepted locally; Phase 6 WIP (NOT accepted)
+
+- ReguTrace production toolkit UI and schema-v3 background export are implemented and locally
+  accepted on Windows. Final HF1 2024-extended run: job `1795664895797-7805e265d823833d`,
+  DB `hf1-gui-background-v3-A.db`, SHA-256 `61545699…07ef97`, `validate-db` pass,
+  `pairs` recomputed from best policy = 7,510,563; imported into rsWGCNA project and upstream
+  query returned 340 rows.
+- Phase 6 empirical-promoter null is implemented and unit-tested, but **not accepted**: the
+  full 927-motif HF1 rescan and DAP-seq benchmark have not been run. The partial six-motif probe
+  is in `regutrace/docs/development/phase6-null-model.md` §7. Do not rebuild/release an installer
+  or treat the empirical default as validated before those gates pass.
+- Tests run: `cargo test --workspace` 136 passed; `go test ./internal/regutrace/ ./internal/api/`
+  passed; `frontend pnpm build` passed. HF1 full rescan must use the Windows release binary.
+- Next: run full HF1 rescan with the 2026 library and frozen promoters, run
+  `scripts/phase5/benchmark_dap.py` without threshold tuning, then add schema-v3 checks to
+  `validate-db`. Keep CRLF normalization in a separate commit; `git commit -a` is unsafe.
+- The Phase 6 default and this handoff are a WIP checkpoint, not a Phase 6 acceptance.
+
+## ReguTrace Codex production takeover — 2026-11-26（进行中，未验收完成）
+
+- 用户确认 Claude 已退出；再次检查未发现 claude.exe。保留 dashboard / regutrace 冻结 checkpoint 后的全部未提交实现；未 commit/push/merge，worker 未改。
+- 已移除前端 ensureJob 对植物 annotation 的强制要求；后台原已支持 GFF fallback，新增三文件无注释的参数断言。清理高级面板重复 genome/GFF/PEP 输入和 artifact/cache 控件；简化预设文案，补 Custom 参数跟踪、防重复提交和阶段说明。
+- 背景导出增加并发互斥、唯一输出文件及 validate-db 校验。新增并发拒绝测试（最新新增测试待执行）。CLI 增加 TF identification / motif mapping / DBD mapping 的实际阶段 JSON，不改变算法。
+- 已实际在新 Windows 编译程序的 GUI 选择原始 HF1 genome/GFF/完整 PEP + Recommended，无 annotation 成功建立 job。首轮本地资源组装发生两个同名 JSON 覆盖，DBD 阶段失败；资源文件已改唯一名称，GUI 重试进行中。尚未新结果验收、DB 导出导入、重启验证；不得标记生产就绪。
+- 已测：隔离快照 vue-tsc/vite、Go ReguTrace/API tests PASS；Windows 主程序及两个 sidecar 编译 PASS。当前新阶段报告版本正重新构建；最后微调需以新构建为准。所有缓存、资源和产物在本地 rsWGCNA-build。
+- 原始 PEP 来自 SXAU-HF1-T2T/c.Fagopyrum_tataricum.gene.as.pep（22,654,567 bytes，SHA256 9a7a859e18e24dca5bc8436fda27bc8d641438a669dee2fab0482e62793cdde8），与 Phase3 pipeline-report 的输入路径相符；此前 hf1-tfs.faa 是裁剪输入，不可作为冻结基准。当前标准 GUI 用 2024 pack；冻结 benchmark 用 2026/927 motif library，数值不能直接等同。
+- 下一步：监控 GUI 重试，检查真实结果与正反查询、策略和 promoter；新构建补齐已核验的 pack/tools/许可，运行新测试；验证新导出的 schema v3 background 导入新项目与重启查询。完整 HF1 冻结输入/pack identity、全流程和窄窗截图仍待完成。
+
 ## ReguTrace installer r8 + target gene/custom pack (2026-11-17, Windows)
 
 - Windows productization accepted: `scripts/build-windows.ps1 -PackSource ... -ToolSource ... -RSource ...` calls `scripts/bundle-regutrace-assets.ps1`, which copies the four reference packs plus HMMER 3.3.2 and NCBI BLAST+ 2.17.0+ into `app/tools` and generates `tools/manifest.json`, `packs/README.md` and `THIRD_PARTY_NOTICES.md`. `packaging/setup.iss` installs `packs/`, `tools/`, the notices and `build-info.json`. The app verifies the tool manifest and every tool/DLL SHA-256 at startup; pack jobs are refused if verification fails unless both `WGCNA_HMMERSEARCH` and `WGCNA_BLASTP` are explicitly set.

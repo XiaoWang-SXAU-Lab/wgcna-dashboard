@@ -14,6 +14,7 @@ const props = defineProps<{
   view: RegutraceTFView
   jobId: string
   selectedMotif?: string
+  defaultPolicy?: RegutraceMotifPolicy
 }>()
 const emit = defineEmits<{
   (e: 'open-target', target: string): void
@@ -29,9 +30,13 @@ const targetBusy = ref(false)
 const targetError = ref('')
 const targetMotif = ref('')
 const targetStatus = ref('')
-const targetPolicy = ref<RegutraceMotifPolicy>('all')
+const targetPolicy = ref<RegutraceMotifPolicy>(props.defaultPolicy ?? 'best')
 const policyInfo = ref<RegutracePolicyInfo | null>(null)
 const targetMaxP = ref('')
+// A single marginal site in a 1 kb promoter is not evidence: one motif at
+// p=1e-4 already reaches chance-level promoter coverage. Requiring two sites of
+// the same motif cuts most of the redundancy without dropping any TF.
+const requireTwoSites = ref(true)
 const showSequence = ref(false)
 let targetSeq = 0
 
@@ -113,6 +118,7 @@ async function loadTargets() {
       mapping_status: targetStatus.value || undefined,
       motif_policy: targetPolicy.value,
       max_p: Number.isFinite(maxP as number) ? maxP : undefined,
+      min_sites: requireTwoSites.value ? 2 : undefined,
     })
     if (seq !== targetSeq) return
     targetRows.value = res.rows
@@ -132,6 +138,13 @@ function changePage(delta: number) {
   targetPage.value = Math.max(1, targetPage.value + delta)
   void loadTargets()
 }
+
+watch(() => props.defaultPolicy, (policy) => {
+  if (!policy || policy === targetPolicy.value) return
+  targetPolicy.value = policy
+  targetPage.value = 1
+  void loadTargets()
+})
 
 watch(() => [props.view.tf_id, props.selectedMotif], () => {
   targetMotif.value = props.selectedMotif ?? ''
@@ -154,7 +167,7 @@ watch(() => [props.view.tf_id, props.selectedMotif], () => {
           </div>
         </div>
         <div class="ms-auto small text-end">
-          <div>{{ text('候选 target', 'Candidate targets') }}: <b>{{ formatNumber(view.target_count) }}</b></div>
+          <div>{{ text('全部候选靶标（筛选前）', 'All candidate targets (before filters)') }}: <b>{{ formatNumber(view.target_count) }}</b></div>
           <div v-if="view.shared_pwm_tf_count > 1" class="text-warning-emphasis">
             {{ text('共享 PWM 的 TF', 'TFs sharing PWM') }}: {{ view.shared_pwm_tf_count }}
           </div>
@@ -205,7 +218,14 @@ watch(() => [props.view.tf_id, props.selectedMotif], () => {
           </div>
         </div>
         <div class="col-12 col-xl-7">
-          <div class="small text-muted mb-1">{{ text('候选靶标（按 best p 排序，分页）', 'Candidate targets (best p, paginated)') }}</div>
+          <div class="small text-muted mb-1">
+            {{ text('候选靶标（按 best p 排序，分页）', 'Candidate targets (best p, paginated)') }}
+            · <b>{{ targetTotal.toLocaleString() }}</b>
+            {{ requireTwoSites ? text('个（每个 motif 至少 2 个位点）', ' (at least 2 sites of one motif)') : text('个（含单一位点）', ' (single sites included)') }}
+          </div>
+          <details class="mb-2">
+            <summary class="small text-muted">{{ text('高级筛选（motif 策略、映射状态、p 值）', 'Advanced filters (motif policy, mapping status, p value)') }}</summary>
+            <div class="pt-2">
           <div class="row g-1 align-items-end mb-2">
             <div class="col-6 col-md-2">
               <label class="form-label small mb-0">Motif</label>
@@ -237,6 +257,15 @@ watch(() => [props.view.tf_id, props.selectedMotif], () => {
               <button class="btn btn-sm btn-outline-primary w-100" :disabled="targetBusy" @click="searchTargets">{{ text('筛选', 'Filter') }}</button>
             </div>
           </div>
+          <div class="form-check form-check-inline mb-2">
+            <input id="rt-min-sites" v-model="requireTwoSites" class="form-check-input" type="checkbox" @change="searchTargets" />
+            <label class="form-check-label small" for="rt-min-sites">
+              {{ text('要求同一 motif 至少 2 个位点', 'Require at least 2 sites of the same motif') }}
+            </label>
+            <span class="small text-muted ms-1">
+              {{ text('单一位点（尤其 8-mer）在 1 kb 启动子上会达到随机水平的命中率；两位点是更保守的准入标准。上方的候选数是筛选前的总量。', 'A single site (especially an 8-mer) reaches chance-level coverage in a 1 kb promoter; two independent sites are the more conservative admission standard. The count above is the pre-filter total.') }}
+            </span>
+          </div>
           <div v-if="policyInfo" class="small text-muted mb-2">
             {{ policyInfo.selected_motifs }} motif(s) ·
             {{ text('固定 strict/calibrated', 'fixed strict/calibrated') }}: {{ policyInfo.fixed_mappings }} ·
@@ -245,6 +274,8 @@ watch(() => [props.view.tf_id, props.selectedMotif], () => {
             <span v-if="policyInfo.fallback" class="text-warning-emphasis"> · {{ text('已回退', 'fallback') }}</span>
             <div v-if="policyInfo.note" class="text-warning-emphasis">{{ policyInfo.note }}</div>
           </div>
+            </div>
+          </details>
           <div v-if="targetError" class="alert alert-warning small py-2">{{ targetError }}</div>
           <div v-if="targetBusy" class="small text-muted"><span class="spinner-border spinner-border-sm me-2"></span>{{ text('读取 target…', 'Loading targets…') }}</div>
           <div v-else class="table-responsive" style="max-height: 21rem; overflow: auto">
